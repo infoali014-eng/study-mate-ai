@@ -1,0 +1,2 @@
+"""StudyMate AI helper modules."""
+
