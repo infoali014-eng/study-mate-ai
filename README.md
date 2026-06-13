@@ -148,6 +148,14 @@ GEMINI_MODEL=gemini-2.0-flash
 
 The app uses `gemini-2.0-flash` by default and can try fallback Gemini models when Gemini is busy.
 
+For public deployments, the app is configured to require each visitor to enter their own AI key in AI Settings:
+
+```text
+REQUIRE_USER_API_KEYS=true
+```
+
+Only set this to `false` for a private app where you intentionally want everyone to use one shared app key.
+
 ### 7. Run The App
 
 Start Streamlit:
@@ -181,9 +189,10 @@ Inside the app sidebar:
 1. Open `AI Settings`
 2. Select `Gemini`
 3. Confirm Gemini model is `gemini-2.0-flash`
-4. Click `Test Gemini Connection`
+4. Paste your own Gemini API key into the password field
+5. Click `Test Gemini Connection`
 
-If the key is in `.env`, the password input can stay empty. The app will still load the key from `.env`.
+For public deployments, each user must paste their own key. The key is stored only in that user's current browser session.
 
 ## Basic Use
 
@@ -239,10 +248,13 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ### Gemini API Key Is Missing
 
-Check that `.env` exists and contains:
+For public deployments, open `AI Settings` and paste your own Gemini key into the password field.
+
+For private local development, check that `.env` exists and contains:
 
 ```text
 GEMINI_API_KEY=your_gemini_api_key_here
+REQUIRE_USER_API_KEYS=false
 ```
 
 Then restart Streamlit:

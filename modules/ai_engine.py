@@ -16,6 +16,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 DEFAULT_AI_PROVIDER = os.getenv("AI_PROVIDER", "Gemini")
+REQUIRE_USER_API_KEYS = os.getenv("REQUIRE_USER_API_KEYS", "true").lower() != "false"
 LEGACY_GEMINI_MODELS = {"gemini-1.5-flash", "gemini-1.5-pro"}
 GEMINI_FALLBACK_MODELS = [
     "gemini-2.0-flash",
@@ -26,8 +27,8 @@ GEMINI_FALLBACK_MODELS = [
 TEMPORARY_GEMINI_STATUSES = {429, 500, 502, 503, 504}
 
 MISSING_GEMINI_KEY_MESSAGE = (
-    "Gemini API key is missing. Add it in .env, Streamlit secrets, "
-    "environment variable, or enter it in AI Settings."
+    "Gemini API key is missing. Enter your own Gemini API key in AI Settings. "
+    "It is stored only for your current browser session."
 )
 
 ANSWER_STYLE_INSTRUCTIONS = {
@@ -146,14 +147,18 @@ def get_gemini_api_key():
     """
     Return the Gemini key without printing or persisting it.
 
-    Priority:
-    1. Temporary Streamlit session input
-    2. GEMINI_API_KEY environment variable or local .env
-    3. Streamlit secrets
+    By default, users must provide their own key in AI Settings so visitors do
+    not spend the app owner's Gemini quota. Set REQUIRE_USER_API_KEYS=false only
+    for private deployments where using a shared app key is intentional.
     """
     settings = get_session_ai_settings()
+    session_key = settings.get("gemini_api_key")
+
+    if REQUIRE_USER_API_KEYS:
+        return session_key
+
     return (
-        settings.get("gemini_api_key")
+        session_key
         or os.getenv("GEMINI_API_KEY", "")
         or _get_streamlit_secret("GEMINI_API_KEY")
     )
@@ -168,11 +173,10 @@ def get_groq_api_key():
     except Exception:
         session_key = ""
 
-    return (
-        session_key
-        or os.getenv("GROQ_API_KEY", "")
-        or _get_streamlit_secret("GROQ_API_KEY")
-    )
+    if REQUIRE_USER_API_KEYS:
+        return session_key
+
+    return session_key or os.getenv("GROQ_API_KEY", "") or _get_streamlit_secret("GROQ_API_KEY")
 
 
 def get_gemini_key_source():
@@ -180,6 +184,9 @@ def get_gemini_key_source():
     settings = get_session_ai_settings()
     if settings.get("gemini_api_key"):
         return "AI Settings session password field"
+
+    if REQUIRE_USER_API_KEYS:
+        return "missing - each user must enter their own key in AI Settings"
 
     env_file_values = dotenv_values(PROJECT_ROOT / ".env")
     if env_file_values.get("GEMINI_API_KEY"):
@@ -192,6 +199,11 @@ def get_gemini_key_source():
         return "Streamlit secrets"
 
     return "missing"
+
+
+def user_api_keys_required():
+    """Return whether visitors must provide their own AI provider keys."""
+    return REQUIRE_USER_API_KEYS
 
 
 def get_selected_provider():

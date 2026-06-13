@@ -17,8 +17,8 @@ GEMINI_MODEL = getattr(ai_engine, "GEMINI_MODEL", "gemini-2.0-flash")
 OLLAMA_MODEL = getattr(ai_engine, "OLLAMA_MODEL", "llama3.2")
 GROQ_MODEL = getattr(ai_engine, "GROQ_MODEL", "llama-3.1-8b-instant")
 MISSING_KEY_MESSAGE = (
-    "Gemini API key is missing. Add it in .env, Streamlit secrets, "
-    "environment variable, or enter it in AI Settings."
+    "Gemini API key is missing. Enter your own Gemini API key in AI Settings. "
+    "It is stored only for your current browser session."
 )
 
 
@@ -77,8 +77,8 @@ page_header(
 feature1, feature2, feature3 = st.columns(3)
 with feature1:
     render_feature_card(
-        "Gemini default",
-        "Use Gemini with a local secret, environment variable, or password input.",
+        "User-owned Gemini",
+        "Each visitor enters their own Gemini key for this browser session.",
         "\u2728",
         "#14b8b4",
         "#d8fff6",
@@ -150,6 +150,17 @@ with st.container(border=True):
     else:
         st.warning(missing_key_message())
 
+    if getattr(ai_engine, "user_api_keys_required", lambda: True)():
+        st.info(
+            "Public app mode is active: every user must enter their own Gemini key. "
+            "Streamlit secrets or .env keys are not used for visitors, so your quota is protected."
+        )
+
+    if st.button("Clear Gemini Key From This Session", use_container_width=True):
+        st.session_state.pop("gemini_api_key", None)
+        st.success("Gemini key removed from this browser session.")
+        st.rerun()
+
     if st.button("Test Gemini Connection", type="primary", use_container_width=True):
         try:
             response = ai_engine.ask_gemini("Say OK only.")
@@ -180,7 +191,11 @@ with st.container(border=True):
     else:
         st.info("Groq API key is optional. Add it only if you want Groq provider mode.")
 
+    if st.button("Clear Groq Key From This Session", use_container_width=True):
+        st.session_state.pop("groq_api_key", None)
+        st.success("Groq key removed from this browser session.")
+        st.rerun()
+
 st.info(
-    "Safe setup: use a local `.env`, Streamlit secrets, environment variable, "
-    "Codex secret, or the temporary password field above. Never commit real keys."
+    "Safe setup: public users should paste their own key above. Never commit real keys."
 )
