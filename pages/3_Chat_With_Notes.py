@@ -102,6 +102,51 @@ def add_assistant_message(answer_data, context):
     )
 
 
+def generate_chat_answer(question, answer_style, chat_mode, context):
+    """
+    Generate a chatbot response with a compatibility fallback.
+
+    Streamlit Cloud can occasionally keep an older imported module in memory
+    after a deploy. This wrapper prevents a hard crash if ai_engine is stale.
+    """
+    if hasattr(ai_engine, "generate_study_chat_response"):
+        return ai_engine.generate_study_chat_response(
+            question=question,
+            answer_style=answer_style,
+            chat_mode=chat_mode,
+            subject_id=context["subject_id"],
+            document_ids=context["document_ids"],
+            context_label=context["label"],
+        )
+
+    if chat_mode != "General Chat" and context["subject_id"] is not None:
+        return ai_engine.chat_with_notes(
+            subject_id=context["subject_id"],
+            question=question,
+            answer_style=answer_style,
+        )
+
+    prompt = f"""
+You are Ali Shair's AI Study Assistant.
+Answer this student question clearly and in a study-friendly way.
+Answer style: {answer_style}
+
+Question:
+{question}
+"""
+    try:
+        answer = ai_engine.ask_ai(prompt)
+    except Exception as exc:
+        answer = str(exc)
+
+    return {
+        "answer": answer,
+        "sources": [],
+        "warning": "",
+        "source_count": 0,
+    }
+
+
 def build_context(chat_mode, selected_subject, selected_documents):
     """Create the retrieval settings used by the AI engine."""
     subject_id = selected_subject["id"] if selected_subject else None
@@ -299,13 +344,11 @@ if prefill_question:
             "context": context,
         }
         with st.spinner("StudyMate is thinking..."):
-            answer_data = ai_engine.generate_study_chat_response(
+            answer_data = generate_chat_answer(
                 question=prefill_question,
                 answer_style=answer_style,
                 chat_mode=chat_mode,
-                subject_id=context["subject_id"],
-                document_ids=context["document_ids"],
-                context_label=context["label"],
+                context=context,
             )
         add_chat_pair(prefill_question, answer_data, context)
         st.rerun()
@@ -344,13 +387,11 @@ if st.session_state.get("study_chat_regenerate"):
     last_request = st.session_state.study_chat_last_request
     if last_request:
         with st.spinner("Regenerating answer..."):
-            answer_data = ai_engine.generate_study_chat_response(
+            answer_data = generate_chat_answer(
                 question=last_request["question"],
                 answer_style=last_request["answer_style"],
                 chat_mode=last_request["chat_mode"],
-                subject_id=last_request["context"]["subject_id"],
-                document_ids=last_request["context"]["document_ids"],
-                context_label=last_request["context"]["label"],
+                context=last_request["context"],
             )
         add_assistant_message(answer_data, last_request["context"])
     st.rerun()
@@ -378,13 +419,11 @@ if prompt:
         "context": context,
     }
     with st.spinner("StudyMate is thinking..."):
-        answer_data = ai_engine.generate_study_chat_response(
+        answer_data = generate_chat_answer(
             question=prompt,
             answer_style=answer_style,
             chat_mode=chat_mode,
-            subject_id=context["subject_id"],
-            document_ids=context["document_ids"],
-            context_label=context["label"],
+            context=context,
         )
 
     add_chat_pair(prompt, answer_data, context)
