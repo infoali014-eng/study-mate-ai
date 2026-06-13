@@ -109,7 +109,13 @@ Run:
 pip install -r requirements.txt
 ```
 
-This installs Streamlit, PyMuPDF, ChromaDB, python-dotenv, and other required packages.
+This installs Streamlit, PyMuPDF, python-dotenv, and other required packages.
+
+For Streamlit Cloud, the app uses a lightweight built-in vector fallback so deployment stays simple. If you want ChromaDB locally, run:
+
+```powershell
+pip install -r requirements-local.txt
+```
 
 ### 6. Create Your Local Environment File
 
