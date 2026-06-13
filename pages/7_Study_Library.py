@@ -188,52 +188,60 @@ if not material_docs:
         "\U0001f50d",
     )
 else:
-    for doc in material_docs:
-        with st.container(border=True):
+    material_cols = st.columns(3)
+    for index, doc in enumerate(material_docs):
+        with material_cols[index % 3]:
             st.markdown(
                 f"""
-                <div class="library-card">
-                    <h3>{html.escape(doc['file_name'])}</h3>
-                    <p>{html.escape(doc['description'] or 'No description added.')}</p>
+                <div class="material-card">
+                    <div class="material-title" title="{html.escape(doc['file_name'])}">
+                        {html.escape(doc['file_name'])}
+                    </div>
+                    <p class="material-description">{html.escape(doc['description'] or 'No description added.')}</p>
                     <div class="library-meta">
                         <span class="library-chip">Subject: {html.escape(doc['subject_name'])}</span>
                         <span class="library-chip">Type: {html.escape((doc['file_type'] or 'PDF').upper())}</span>
                         <span class="library-chip">Chunks: {doc['chunk_count']}</span>
-                        <span class="library-chip">Uploaded: {html.escape(doc['uploaded_at'])}</span>
                     </div>
+                    <p class="material-date">Uploaded: {html.escape(doc['uploaded_at'])}</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
-            action_cols = st.columns(5)
+            action_cols = st.columns(3)
             with action_cols[0]:
-                if st.button("View details", key=f"details_{doc['id']}", use_container_width=True):
+                if st.button("Read Notes", key=f"details_{doc['id']}", use_container_width=True):
                     st.session_state.library_selected_document = doc["id"]
                     st.rerun()
             with action_cols[1]:
-                if st.button("Preview", key=f"preview_{doc['id']}", use_container_width=True):
-                    st.session_state.library_selected_document = doc["id"]
-                    st.rerun()
-            with action_cols[2]:
                 if st.button("Chat", key=f"chat_{doc['id']}", use_container_width=True):
                     st.session_state.chat_prefill_subject_id = doc["subject_id"]
-                    st.session_state.chat_prefill_question = f"Ask about {doc['file_name']}"
+                    st.session_state.chat_prefill_document_id = doc["id"]
+                    st.session_state.chat_prefill_question = f"Explain {doc['file_name']}"
                     st.switch_page("pages/3_Chat_With_Notes.py")
-            with action_cols[3]:
+            with action_cols[2]:
                 if st.button("Summary", key=f"summary_{doc['id']}", use_container_width=True):
                     st.session_state.library_selected_document = doc["id"]
                     st.session_state.library_summary.pop(doc["id"], None)
                     st.rerun()
-            with action_cols[4]:
+
+            action_cols_2 = st.columns(3)
+            with action_cols_2[0]:
                 if st.button("Quiz", key=f"quiz_{doc['id']}", use_container_width=True):
                     st.session_state.quiz_prefill_subject_id = doc["subject_id"]
                     st.session_state.quiz_prefill_topic = Path(doc["file_name"]).stem
                     st.switch_page("pages/4_Quiz_Mode.py")
-            if st.button("Delete document", key=f"delete_doc_{doc['id']}", use_container_width=True):
-                st.session_state.library_pending_delete = doc["id"]
-                st.session_state.library_selected_document = doc["id"]
-                st.rerun()
+            with action_cols_2[1]:
+                if st.button("Flashcards", key=f"flash_doc_{doc['id']}", use_container_width=True):
+                    st.session_state.flashcard_prefill_subject_id = doc["subject_id"]
+                    st.session_state.flashcard_prefill_topic = Path(doc["file_name"]).stem
+                    st.switch_page("pages/5_Flashcards.py")
+            with action_cols_2[2]:
+                if st.button("Delete", key=f"delete_doc_{doc['id']}", use_container_width=True):
+                    st.session_state.library_pending_delete = doc["id"]
+                    st.session_state.library_selected_document = doc["id"]
+                    st.rerun()
 
 selected_document_id = st.session_state.library_selected_document
 if selected_document_id:

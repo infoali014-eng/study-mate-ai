@@ -369,6 +369,54 @@ def apply_theme():
                 color: var(--sm-ink);
             }
 
+            .material-card {
+                min-height: 214px;
+                display: flex;
+                flex-direction: column;
+                gap: 0.72rem;
+                padding: 1.05rem;
+                margin-bottom: 0.72rem;
+                border: 1px solid rgba(220, 231, 247, 0.95);
+                border-radius: 24px;
+                box-shadow: var(--sm-soft-shadow);
+                background:
+                    radial-gradient(circle at 90% 10%, rgba(20, 184, 180, 0.10), transparent 26%),
+                    rgba(255, 255, 255, 0.96);
+                color: var(--sm-ink);
+            }
+
+            .material-title {
+                min-height: 2.8rem;
+                color: var(--sm-ink);
+                font-size: 1.02rem;
+                font-weight: 880;
+                line-height: 1.35;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                word-break: break-word;
+            }
+
+            .material-description {
+                min-height: 2.8rem;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+                color: var(--sm-muted);
+                margin: 0;
+                line-height: 1.42;
+            }
+
+            .material-date {
+                margin-top: auto;
+                color: #53617d;
+                font-size: 0.82rem;
+                font-weight: 650;
+            }
+
             .library-card h3 {
                 margin: 0 0 0.35rem;
                 color: var(--sm-ink);
@@ -632,10 +680,21 @@ def apply_theme():
                 box-shadow: 0 10px 24px rgba(57, 76, 119, 0.08);
                 background: rgba(255, 255, 255, 0.92);
                 color: #14213d;
+                margin-bottom: 0.9rem;
             }
 
             [data-testid="stChatMessage"] * {
                 color: #14213d;
+            }
+
+            [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+                background: linear-gradient(135deg, #e8fff9, #eef6ff);
+                border-color: rgba(20, 184, 180, 0.25);
+            }
+
+            [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
+                background: linear-gradient(135deg, #ffffff, #fff8fb);
+                border-color: rgba(167, 139, 250, 0.25);
             }
 
             [data-testid="stChatInput"] textarea,

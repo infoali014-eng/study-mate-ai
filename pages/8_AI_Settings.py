@@ -15,6 +15,7 @@ from modules.ui import (
 
 GEMINI_MODEL = getattr(ai_engine, "GEMINI_MODEL", "gemini-2.0-flash")
 OLLAMA_MODEL = getattr(ai_engine, "OLLAMA_MODEL", "llama3.2")
+GROQ_MODEL = getattr(ai_engine, "GROQ_MODEL", "llama-3.1-8b-instant")
 MISSING_KEY_MESSAGE = (
     "Gemini API key is missing. Add it in .env, Streamlit secrets, "
     "environment variable, or enter it in AI Settings."
@@ -92,8 +93,8 @@ with feature2:
     )
 with feature3:
     render_feature_card(
-        "Demo fallback",
-        "Use a safe placeholder response while configuring providers.",
+        "Groq or Demo",
+        "Use Groq API mode or a safe placeholder response while configuring providers.",
         "\U0001f9ea",
         "#ffb703",
         "#fff3c4",
@@ -102,7 +103,7 @@ with feature3:
 section_title("Provider", "\u2699\ufe0f")
 with st.container(border=True):
     current_provider = get_provider_label()
-    provider_options = ["Gemini", "Ollama", "Demo Mode"]
+    provider_options = ["Gemini", "Groq", "Ollama", "Demo Mode"]
     provider_index = provider_options.index(current_provider) if current_provider in provider_options else 0
     st.session_state.ai_provider = st.selectbox(
         "Selected AI provider",
@@ -123,6 +124,12 @@ with st.container(border=True):
         "Ollama model",
         value=st.session_state.get("ollama_model", os.getenv("OLLAMA_MODEL", OLLAMA_MODEL)),
         help="Used only when provider is Ollama.",
+    )
+
+    st.session_state.groq_model = st.text_input(
+        "Groq model",
+        value=st.session_state.get("groq_model", os.getenv("GROQ_MODEL", GROQ_MODEL)),
+        help="Used only when provider is Groq.",
     )
 
 section_title("API Key", "\U0001f512")
@@ -154,6 +161,24 @@ with st.container(border=True):
                 "but Google is blocking more Gemini requests right now. You can wait, "
                 "try another Gemini key, or select Ollama/Demo Mode above."
             )
+
+section_title("Groq Key", "\U0001f511")
+with st.container(border=True):
+    entered_groq_key = st.text_input(
+        "Groq API key",
+        type="password",
+        placeholder="Paste Groq key for this browser session only",
+        help="This is stored only in Streamlit session state and is never printed.",
+    )
+
+    if entered_groq_key:
+        st.session_state.groq_api_key = entered_groq_key
+        st.success("Groq API key saved for this session only.")
+
+    if getattr(ai_engine, "get_groq_api_key", lambda: "")():
+        st.success("Groq API key is available.")
+    else:
+        st.info("Groq API key is optional. Add it only if you want Groq provider mode.")
 
 st.info(
     "Safe setup: use a local `.env`, Streamlit secrets, environment variable, "

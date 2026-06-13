@@ -143,17 +143,44 @@ def add_text_chunks(subject_id, subject_name, document_id, file_name, chunks):
     return len(chunks)
 
 
-def query_subject_notes(subject_id, question, limit=5):
-    """Find the most relevant notes for a question in one subject."""
+def _build_chroma_filter(subject_id=None, document_ids=None):
+    """Build a ChromaDB metadata filter for subject and document selection."""
+    filters = []
+
+    if subject_id is not None:
+        filters.append({"subject_id": int(subject_id)})
+
+    if document_ids:
+        clean_ids = [int(document_id) for document_id in document_ids]
+        if len(clean_ids) == 1:
+            filters.append({"document_id": clean_ids[0]})
+        else:
+            filters.append({"document_id": {"$in": clean_ids}})
+
+    if not filters:
+        return None
+
+    if len(filters) == 1:
+        return filters[0]
+
+    return {"$and": filters}
+
+
+def query_subject_notes(subject_id, question, limit=5, document_ids=None):
+    """Find the most relevant notes for a question in one subject/doc filter."""
     query_embedding = _hash_embedding(question)
+    chroma_filter = _build_chroma_filter(subject_id=subject_id, document_ids=document_ids)
 
     try:
         collection = _collection()
-        result = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=limit,
-            where={"subject_id": int(subject_id)},
-        )
+        query_kwargs = {
+            "query_embeddings": [query_embedding],
+            "n_results": limit,
+        }
+        if chroma_filter:
+            query_kwargs["where"] = chroma_filter
+
+        result = collection.query(**query_kwargs)
 
         documents = result.get("documents", [[]])[0]
         metadatas = result.get("metadatas", [[]])[0]
@@ -170,11 +197,18 @@ def query_subject_notes(subject_id, question, limit=5):
             )
         return matches
     except VectorStoreError:
-        records = [
-            record
-            for record in _read_fallback_records()
-            if int(record.get("metadata", {}).get("subject_id", -1)) == int(subject_id)
-        ]
+        clean_document_ids = {int(document_id) for document_id in document_ids or []}
+        records = []
+        for record in _read_fallback_records():
+            metadata = record.get("metadata", {})
+
+            if subject_id is not None and int(metadata.get("subject_id", -1)) != int(subject_id):
+                continue
+
+            if clean_document_ids and int(metadata.get("document_id", -1)) not in clean_document_ids:
+                continue
+
+            records.append(record)
 
         scored_records = []
         for record in records:

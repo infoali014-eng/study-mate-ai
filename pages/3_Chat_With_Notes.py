@@ -1,7 +1,7 @@
 import streamlit as st
 
 from modules import ai_engine
-from modules.database import get_subjects, init_db
+from modules.database import get_documents_by_subject, get_subjects, init_db
 from modules.ui import (
     apply_theme,
     page_header,
@@ -13,6 +13,18 @@ from modules.ui import (
 
 
 ANSWER_STYLES = ["Simple English", "Roman Urdu", "Exam Style", "Viva Style"]
+CHAT_MODES = [
+    "General Chat",
+    "Chat with Subject",
+    "Chat with Specific Notes",
+    "Chat with Multiple Notes",
+]
+MODE_BADGES = {
+    "General Chat": "General AI",
+    "Chat with Subject": "Subject-based",
+    "Chat with Specific Notes": "Single note",
+    "Chat with Multiple Notes": "Multiple notes",
+}
 
 
 def get_provider_label():
@@ -22,6 +34,136 @@ def get_provider_label():
     return "Ollama"
 
 
+def get_subject_index(subjects, subject_id):
+    """Find a subject's selectbox index from its id."""
+    if not subject_id:
+        return 0
+
+    for index, subject in enumerate(subjects):
+        if subject["id"] == subject_id:
+            return index
+
+    return 0
+
+
+def source_title(source, index):
+    """Build a readable source title from vector metadata."""
+    metadata = source.get("metadata", {})
+    file_name = metadata.get("file_name", "Uploaded note")
+    subject_name = metadata.get("subject_name", "Subject")
+    chunk_index = metadata.get("chunk_index", index - 1)
+    return f"Source {index}: {file_name} | {subject_name} | Chunk {chunk_index}"
+
+
+def render_sources(sources):
+    """Render sources below an assistant message."""
+    if not sources:
+        return
+
+    with st.expander(f"Sources used ({len(sources)} relevant note chunks)", expanded=False):
+        for index, source in enumerate(sources, start=1):
+            st.markdown(f"**{source_title(source, index)}**")
+            st.write(source.get("text", "")[:1200])
+            st.divider()
+
+
+def add_chat_pair(question, answer_data, context):
+    """Append one user message and one assistant response to session history."""
+    st.session_state.study_chat_messages.append(
+        {
+            "role": "user",
+            "content": question,
+            "context": context,
+        }
+    )
+    st.session_state.study_chat_messages.append(
+        {
+            "role": "assistant",
+            "content": answer_data["answer"],
+            "sources": answer_data["sources"],
+            "warning": answer_data["warning"],
+            "source_count": answer_data["source_count"],
+            "context": context,
+        }
+    )
+
+
+def add_assistant_message(answer_data, context):
+    """Append only an assistant response, used when regenerating."""
+    st.session_state.study_chat_messages.append(
+        {
+            "role": "assistant",
+            "content": answer_data["answer"],
+            "sources": answer_data["sources"],
+            "warning": answer_data["warning"],
+            "source_count": answer_data["source_count"],
+            "context": context,
+        }
+    )
+
+
+def build_context(chat_mode, selected_subject, selected_documents):
+    """Create the retrieval settings used by the AI engine."""
+    subject_id = selected_subject["id"] if selected_subject else None
+    document_ids = [document["id"] for document in selected_documents]
+
+    if chat_mode == "General Chat":
+        return {
+            "subject_id": None,
+            "document_ids": [],
+            "label": "General Chat",
+            "badge": MODE_BADGES[chat_mode],
+        }
+
+    if chat_mode == "Chat with Subject":
+        if not selected_subject:
+            return {
+                "subject_id": None,
+                "document_ids": [],
+                "label": "No subject selected",
+                "badge": MODE_BADGES[chat_mode],
+            }
+
+        return {
+            "subject_id": subject_id,
+            "document_ids": [],
+            "label": f"Subject: {selected_subject['name']}",
+            "badge": MODE_BADGES[chat_mode],
+        }
+
+    if chat_mode == "Chat with Specific Notes":
+        if not selected_subject:
+            return {
+                "subject_id": None,
+                "document_ids": [],
+                "label": "No subject selected",
+                "badge": MODE_BADGES[chat_mode],
+            }
+
+        document_name = selected_documents[0]["file_name"] if selected_documents else "Selected note"
+        return {
+            "subject_id": subject_id,
+            "document_ids": document_ids,
+            "label": f"Note: {document_name}",
+            "badge": MODE_BADGES[chat_mode],
+        }
+
+    if not selected_subject:
+        return {
+            "subject_id": None,
+            "document_ids": [],
+            "label": "No subject selected",
+            "badge": MODE_BADGES[chat_mode],
+        }
+
+    return {
+        "subject_id": subject_id,
+        "document_ids": document_ids,
+        "label": f"{len(document_ids)} selected notes",
+        "badge": MODE_BADGES[chat_mode],
+    }
+
+
 st.set_page_config(page_title="Chat With Notes - StudyMate AI", layout="wide")
 init_db()
 apply_theme()
@@ -29,105 +171,192 @@ sidebar_nav()
 
 page_header(
     "Chat With Notes",
-    "Ask questions from your own uploaded PDFs and choose the answer style.",
-    "Notes Assistant",
+    "Ask from your notes, selected documents, or general AI knowledge.",
+    "Ali's Study Chatbot",
 )
 
 feature1, feature2, feature3 = st.columns(3)
 with feature1:
-    render_feature_card("Find context", "Search ChromaDB chunks before asking the selected AI provider.", "\U0001f50d", "#14b8b4", "#d8fff6")
+    render_feature_card("Flexible context", "Ask generally, by subject, or from selected notes.", "\U0001f50d", "#14b8b4", "#d8fff6")
 with feature2:
-    render_feature_card("Choose tone", "Use Simple English, Roman Urdu, Exam, or Viva style.", "\U0001f3a8", "#ffb703", "#fff3c4")
+    render_feature_card("Real chat flow", "Messages stay in a clean session conversation.", "\U0001f4ac", "#2f7df6", "#e3efff")
 with feature3:
-    render_feature_card("Show sources", "Review exact note chunks used below every answer.", "\U0001f4cc", "#8b5cf6", "#efe7ff")
+    render_feature_card("Exam-ready answers", "Get explanations, examples, key points, and revision tips.", "\U0001f4dd", "#ffb703", "#fff3c4")
+
+if "study_chat_messages" not in st.session_state:
+    st.session_state.study_chat_messages = []
+if "study_chat_last_question" not in st.session_state:
+    st.session_state.study_chat_last_question = ""
 
 subjects = get_subjects()
-if not subjects:
-    render_empty_state(
-        "Nothing to chat with yet.",
-        "Create a subject and upload PDF notes before asking questions.",
-        "\U0001f4ac",
-    )
-    st.stop()
-
-subject_options = {subject["name"]: subject for subject in subjects}
-subject_names = list(subject_options.keys())
 prefill_subject_id = st.session_state.pop("chat_prefill_subject_id", None)
-default_subject_index = 0
-if prefill_subject_id:
-    for index, subject_name in enumerate(subject_names):
-        if subject_options[subject_name]["id"] == prefill_subject_id:
-            default_subject_index = index
-            break
+prefill_document_id = st.session_state.pop("chat_prefill_document_id", None)
+prefill_question = st.session_state.pop("chat_prefill_question", "")
 
-section_title("Ask Your Notes", "\U0001f4ac")
+section_title("Chat Settings", "\u2699\ufe0f")
 with st.container(border=True):
-    selected_name = st.selectbox("Choose subject", subject_names, index=default_subject_index)
-    selected_subject = subject_options[selected_name]
-    prefill_question = st.session_state.pop("chat_prefill_question", "")
+    top_col1, top_col2, top_col3 = st.columns([1.2, 1.2, 1])
 
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        question = st.text_area(
-            "Type your question",
-            placeholder="Example: Explain photosynthesis from my notes.",
-            value=prefill_question,
-            height=120,
+    with top_col1:
+        default_mode_index = 0
+        if prefill_document_id:
+            default_mode_index = CHAT_MODES.index("Chat with Specific Notes")
+        elif prefill_subject_id:
+            default_mode_index = CHAT_MODES.index("Chat with Subject")
+        chat_mode = st.selectbox("Chat mode", CHAT_MODES, index=default_mode_index)
+
+    with top_col2:
+        answer_style = st.selectbox("Answer style", ANSWER_STYLES)
+
+    with top_col3:
+        st.markdown(
+            f"<span class='status-pill'>{MODE_BADGES[chat_mode]}</span>",
+            unsafe_allow_html=True,
         )
-    with col2:
-        st.info(f"AI provider: {get_provider_label()}. Change it from AI Settings.")
-        answer_style = st.radio("Answer style", ANSWER_STYLES, horizontal=False)
+        st.caption(f"AI provider: {get_provider_label()}")
 
-    ask_button = st.button("Ask StudyMate", type="primary", use_container_width=True)
+    selected_subject = None
+    selected_documents = []
+    subject_documents = []
 
-if "chat_results" not in st.session_state:
-    st.session_state.chat_results = []
-
-if ask_button:
-    if not question.strip():
-        st.warning("Please type a question first.")
-    else:
-        with st.spinner("Searching ChromaDB and asking the selected AI provider..."):
-            result = ai_engine.chat_with_notes(
-                subject_id=selected_subject["id"],
-                question=question,
-                answer_style=answer_style,
+    if chat_mode != "General Chat":
+        if not subjects:
+            st.warning("Create a subject or switch to General Chat.")
+        else:
+            subject_names = [subject["name"] for subject in subjects]
+            subject_index = get_subject_index(subjects, prefill_subject_id)
+            selected_subject_name = st.selectbox(
+                "Subject",
+                subject_names,
+                index=subject_index,
             )
+            selected_subject = next(
+                subject for subject in subjects if subject["name"] == selected_subject_name
+            )
+            subject_documents = list(get_documents_by_subject(selected_subject["id"]))
 
-        st.session_state.chat_results.insert(
-            0,
-            {
-                "subject": selected_subject["name"],
-                "question": question,
-                "answer": result["answer"],
-                "sources": result["sources"],
-                "answer_style": answer_style,
-            },
-        )
+            if chat_mode in {"Chat with Specific Notes", "Chat with Multiple Notes"}:
+                if not subject_documents:
+                    st.warning("No uploaded documents found for this subject yet.")
+                else:
+                    document_options = {
+                        f"{document['file_name']} ({document['chunk_count']} chunks)": document
+                        for document in subject_documents
+                    }
 
-section_title("Conversation", "\u2728")
-if not st.session_state.chat_results:
+                    if chat_mode == "Chat with Specific Notes":
+                        labels = list(document_options.keys())
+                        default_doc_index = 0
+                        if prefill_document_id:
+                            for index, label in enumerate(labels):
+                                if document_options[label]["id"] == prefill_document_id:
+                                    default_doc_index = index
+                                    break
+
+                        selected_label = st.selectbox(
+                            "Selected note",
+                            labels,
+                            index=default_doc_index,
+                        )
+                        selected_documents = [document_options[selected_label]]
+                    else:
+                        selected_labels = st.multiselect(
+                            "Selected notes",
+                            list(document_options.keys()),
+                            default=list(document_options.keys())[:2],
+                        )
+                        selected_documents = [
+                            document_options[label] for label in selected_labels
+                        ]
+
+    action_col1, action_col2 = st.columns([1, 1])
+    with action_col1:
+        if st.button("New Chat", use_container_width=True):
+            st.session_state.study_chat_messages = []
+            st.session_state.study_chat_last_question = ""
+            st.rerun()
+    with action_col2:
+        if st.button("Regenerate Last Answer", use_container_width=True):
+            if st.session_state.study_chat_last_question:
+                st.session_state.study_chat_regenerate = True
+                st.rerun()
+            else:
+                st.info("Ask a question first, then regenerate.")
+
+context = build_context(chat_mode, selected_subject, selected_documents)
+
+if prefill_question:
+    st.info(f"Suggested question from Study Library: {prefill_question}")
+
+section_title("Conversation", "\U0001f4ac")
+if not st.session_state.study_chat_messages:
     render_empty_state(
-        "No questions asked yet.",
-        "Ask your first question and StudyMate will answer from your uploaded notes.",
+        "Ask anything about your notes, subjects, or studies.",
+        "Use General Chat or choose a subject/note above, then type at the bottom.",
         "\U0001f4ad",
     )
 
-for chat in st.session_state.chat_results:
-    with st.container(border=True):
-        st.caption(f"{chat['subject']} | {chat['answer_style']}")
-        st.markdown(f"**Question:** {chat['question']}")
-        st.markdown("**Answer:**")
-        st.markdown(chat["answer"])
+for message in st.session_state.study_chat_messages:
+    avatar = "\U0001f468\u200d\U0001f393" if message["role"] == "user" else "\U0001f916"
+    with st.chat_message(message["role"], avatar=avatar):
+        message_context = message.get("context", {})
+        if message_context:
+            st.caption(f"{message_context.get('badge', 'Chat')} | {message_context.get('label', '')}")
 
-        if chat["sources"]:
-            st.markdown("**Source chunks:**")
-            for index, source in enumerate(chat["sources"], start=1):
-                metadata = source["metadata"]
-                file_name = metadata.get("file_name", "Uploaded PDF")
-                chunk_index = metadata.get("chunk_index", index - 1)
+        if message.get("warning"):
+            st.warning(message["warning"])
 
-                with st.expander(f"Source {index}: {file_name} | Chunk {chunk_index}"):
-                    st.write(source["text"])
-        else:
-            st.info("No source chunks were found for this answer.")
+        st.markdown(message["content"])
+
+        if message["role"] == "assistant":
+            source_count = message.get("source_count", 0)
+            if source_count:
+                st.caption(f"Using {source_count} relevant note chunks")
+            render_sources(message.get("sources", []))
+
+if st.session_state.get("study_chat_regenerate"):
+    st.session_state.study_chat_regenerate = False
+    if st.session_state.study_chat_messages and st.session_state.study_chat_messages[-1]["role"] == "assistant":
+        st.session_state.study_chat_messages.pop()
+
+    question = st.session_state.study_chat_last_question
+    with st.spinner("Regenerating answer..."):
+        answer_data = ai_engine.generate_study_chat_response(
+            question=question,
+            answer_style=answer_style,
+            chat_mode=chat_mode,
+            subject_id=context["subject_id"],
+            document_ids=context["document_ids"],
+            context_label=context["label"],
+        )
+    add_assistant_message(answer_data, context)
+    st.rerun()
+
+prompt = st.chat_input("Ask StudyMate anything... Follow-up questions are welcome.")
+
+if prompt:
+    if chat_mode != "General Chat" and not selected_subject:
+        st.warning("Select a subject first, or switch to General Chat.")
+        st.stop()
+
+    if chat_mode == "Chat with Specific Notes" and not selected_documents:
+        st.warning("Select one uploaded note first, or switch to General Chat.")
+        st.stop()
+
+    if chat_mode == "Chat with Multiple Notes" and not selected_documents:
+        st.warning("Select at least one uploaded note first, or switch to General Chat.")
+        st.stop()
+
+    st.session_state.study_chat_last_question = prompt
+    with st.spinner("StudyMate is thinking..."):
+        answer_data = ai_engine.generate_study_chat_response(
+            question=prompt,
+            answer_style=answer_style,
+            chat_mode=chat_mode,
+            subject_id=context["subject_id"],
+            document_ids=context["document_ids"],
+            context_label=context["label"],
+        )
+
+    add_chat_pair(prompt, answer_data, context)
+    st.rerun()
