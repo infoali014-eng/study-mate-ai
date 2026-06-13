@@ -187,6 +187,8 @@ if "study_chat_messages" not in st.session_state:
     st.session_state.study_chat_messages = []
 if "study_chat_last_question" not in st.session_state:
     st.session_state.study_chat_last_question = ""
+if "study_chat_last_request" not in st.session_state:
+    st.session_state.study_chat_last_request = None
 
 subjects = get_subjects()
 prefill_subject_id = st.session_state.pop("chat_prefill_subject_id", None)
@@ -274,6 +276,7 @@ with st.container(border=True):
         if st.button("New Chat", use_container_width=True):
             st.session_state.study_chat_messages = []
             st.session_state.study_chat_last_question = ""
+            st.session_state.study_chat_last_request = None
             st.rerun()
     with action_col2:
         if st.button("Regenerate Last Answer", use_container_width=True):
@@ -287,6 +290,25 @@ context = build_context(chat_mode, selected_subject, selected_documents)
 
 if prefill_question:
     st.info(f"Suggested question from Study Library: {prefill_question}")
+    if st.button("Ask Suggested Question", type="primary", use_container_width=True):
+        st.session_state.study_chat_last_question = prefill_question
+        st.session_state.study_chat_last_request = {
+            "question": prefill_question,
+            "answer_style": answer_style,
+            "chat_mode": chat_mode,
+            "context": context,
+        }
+        with st.spinner("StudyMate is thinking..."):
+            answer_data = ai_engine.generate_study_chat_response(
+                question=prefill_question,
+                answer_style=answer_style,
+                chat_mode=chat_mode,
+                subject_id=context["subject_id"],
+                document_ids=context["document_ids"],
+                context_label=context["label"],
+            )
+        add_chat_pair(prefill_question, answer_data, context)
+        st.rerun()
 
 section_title("Conversation", "\U0001f4ac")
 if not st.session_state.study_chat_messages:
@@ -319,17 +341,18 @@ if st.session_state.get("study_chat_regenerate"):
     if st.session_state.study_chat_messages and st.session_state.study_chat_messages[-1]["role"] == "assistant":
         st.session_state.study_chat_messages.pop()
 
-    question = st.session_state.study_chat_last_question
-    with st.spinner("Regenerating answer..."):
-        answer_data = ai_engine.generate_study_chat_response(
-            question=question,
-            answer_style=answer_style,
-            chat_mode=chat_mode,
-            subject_id=context["subject_id"],
-            document_ids=context["document_ids"],
-            context_label=context["label"],
-        )
-    add_assistant_message(answer_data, context)
+    last_request = st.session_state.study_chat_last_request
+    if last_request:
+        with st.spinner("Regenerating answer..."):
+            answer_data = ai_engine.generate_study_chat_response(
+                question=last_request["question"],
+                answer_style=last_request["answer_style"],
+                chat_mode=last_request["chat_mode"],
+                subject_id=last_request["context"]["subject_id"],
+                document_ids=last_request["context"]["document_ids"],
+                context_label=last_request["context"]["label"],
+            )
+        add_assistant_message(answer_data, last_request["context"])
     st.rerun()
 
 prompt = st.chat_input("Ask StudyMate anything... Follow-up questions are welcome.")
@@ -348,6 +371,12 @@ if prompt:
         st.stop()
 
     st.session_state.study_chat_last_question = prompt
+    st.session_state.study_chat_last_request = {
+        "question": prompt,
+        "answer_style": answer_style,
+        "chat_mode": chat_mode,
+        "context": context,
+    }
     with st.spinner("StudyMate is thinking..."):
         answer_data = ai_engine.generate_study_chat_response(
             question=prompt,

@@ -37,6 +37,37 @@ ANSWER_STYLE_INSTRUCTIONS = {
     "Viva Style": "Answer like a spoken viva response: direct, confident, and easy to say aloud.",
 }
 
+RELEVANCE_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "how",
+    "i",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "what",
+    "when",
+    "where",
+    "which",
+    "why",
+    "with",
+}
+
 STUDY_ASSISTANT_SYSTEM_PROMPT = """
 You are Ali Shair's AI Study Assistant.
 You help a CS student prepare for exams using uploaded notes and general academic knowledge.
@@ -492,6 +523,33 @@ Answer with readable Markdown. Be detailed, organized, and useful for exam prepa
 """
 
 
+def _content_words(text):
+    """Return meaningful lowercase words for a simple relevance check."""
+    words = []
+    for raw_word in text.lower().replace("_", " ").split():
+        word = "".join(char for char in raw_word if char.isalnum())
+        if len(word) >= 3 and word not in RELEVANCE_STOPWORDS:
+            words.append(word)
+    return set(words)
+
+
+def _filter_relevant_sources(question, sources):
+    """Remove weak matches so unrelated notes fall back to general knowledge."""
+    question_words = _content_words(question)
+    if not question_words:
+        return sources
+
+    relevant_sources = []
+    for source in sources:
+        source_words = _content_words(source.get("text", ""))
+        overlap = question_words.intersection(source_words)
+
+        if overlap:
+            relevant_sources.append(source)
+
+    return relevant_sources
+
+
 def generate_study_chat_response(
     question,
     answer_style="Simple English",
@@ -514,6 +572,7 @@ def generate_study_chat_response(
                 limit=limit,
                 document_ids=document_ids,
             )
+            sources = _filter_relevant_sources(question, sources)
         except VectorStoreError as exc:
             warning = str(exc)
 

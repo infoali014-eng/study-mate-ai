@@ -299,6 +299,7 @@ if selected_document_id:
             with detail_actions[0]:
                 if st.button("Ask questions", key=f"detail_chat_{document['id']}", use_container_width=True):
                     st.session_state.chat_prefill_subject_id = document["subject_id"]
+                    st.session_state.chat_prefill_document_id = document["id"]
                     st.session_state.chat_prefill_question = f"Explain {document['file_name']}"
                     st.switch_page("pages/3_Chat_With_Notes.py")
             with detail_actions[1]:
