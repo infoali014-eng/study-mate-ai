@@ -369,6 +369,87 @@ def apply_theme():
                 color: var(--sm-ink);
             }
 
+            .library-header {
+                padding: 0.25rem 0 1.15rem;
+            }
+
+            .library-header h1 {
+                margin: 0;
+                color: var(--sm-ink);
+                font-size: clamp(2rem, 4vw, 3.1rem);
+                line-height: 1.05;
+                font-weight: 900;
+            }
+
+            .library-header p {
+                margin: 0.6rem 0 0;
+                color: var(--sm-muted);
+                font-size: 1.04rem;
+                font-weight: 650;
+            }
+
+            .filter-card-title {
+                color: var(--sm-ink);
+                font-weight: 850;
+                font-size: 1.02rem;
+                margin-bottom: 0.7rem;
+            }
+
+            .material-row-info {
+                min-width: 0;
+            }
+
+            .material-file-line {
+                display: flex;
+                align-items: center;
+                gap: 0.65rem;
+                min-width: 0;
+                margin-bottom: 0.45rem;
+            }
+
+            .material-file-icon {
+                width: 2.15rem;
+                height: 2.15rem;
+                display: inline-grid;
+                place-items: center;
+                border-radius: 12px;
+                background: linear-gradient(135deg, #d8fff6, #eef4ff);
+                flex: 0 0 auto;
+            }
+
+            .material-file-name {
+                display: block;
+                min-width: 0;
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: var(--sm-ink);
+                font-size: 1.02rem;
+                font-weight: 850;
+            }
+
+            .material-row-meta,
+            .material-row-description {
+                color: var(--sm-muted);
+                font-size: 0.86rem;
+                font-weight: 650;
+                line-height: 1.45;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .material-row-meta span {
+                color: #9aa8c0;
+                padding: 0 0.25rem;
+            }
+
+            .material-row-description {
+                margin-top: 0.2rem;
+                color: #53617d;
+            }
+
             .material-card {
                 min-height: 214px;
                 display: flex;
@@ -539,6 +620,13 @@ def apply_theme():
                 transition: all 160ms ease;
                 background: #ffffff;
                 box-shadow: 0 8px 18px rgba(57, 76, 119, 0.08);
+            }
+
+            .stButton > button *,
+            .stDownloadButton > button * {
+                white-space: nowrap !important;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
 
             .stButton > button p,
