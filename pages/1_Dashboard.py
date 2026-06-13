@@ -16,7 +16,7 @@ from modules.ui import (
     section_title,
     sidebar_nav,
 )
-from modules.vector_store import delete_subject_vectors
+from modules.vector_store import VectorStoreError, delete_subject_vectors
 
 
 st.set_page_config(page_title="Dashboard - StudyMate AI", layout="wide")
@@ -116,7 +116,11 @@ with right:
                             use_container_width=True,
                         ):
                             try:
-                                delete_subject_vectors(subject["id"])
+                                try:
+                                    delete_subject_vectors(subject["id"])
+                                except VectorStoreError as exc:
+                                    st.warning(str(exc))
+
                                 deleted = delete_subject(subject["id"])
 
                                 if deleted:

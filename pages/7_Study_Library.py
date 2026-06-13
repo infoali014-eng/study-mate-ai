@@ -28,7 +28,7 @@ from modules.ui import (
     section_title,
     sidebar_nav,
 )
-from modules.vector_store import delete_document_vectors
+from modules.vector_store import VectorStoreError, delete_document_vectors
 
 
 def ask_selected_ai(prompt):
@@ -337,7 +337,11 @@ if st.session_state.library_pending_delete:
         with confirm_col:
             if st.button("Yes, delete document", type="primary", use_container_width=True):
                 try:
-                    delete_document_vectors(pending_doc["id"])
+                    try:
+                        delete_document_vectors(pending_doc["id"])
+                    except VectorStoreError as exc:
+                        st.warning(str(exc))
+
                     deleted = delete_document(pending_doc["id"])
                     if deleted:
                         st.session_state.library_pending_delete = None

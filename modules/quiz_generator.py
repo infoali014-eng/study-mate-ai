@@ -2,7 +2,7 @@ import json
 import re
 
 from modules import ai_engine
-from modules.vector_store import query_subject_notes
+from modules.vector_store import VectorStoreError, query_subject_notes
 
 
 QUESTION_TYPE_GUIDE = {
@@ -64,7 +64,15 @@ def generate_quiz(
 ):
     """Generate structured quiz questions from uploaded notes."""
     search_text = f"{topic} {question_type} {difficulty}"
-    matches = query_subject_notes(subject_id, search_text, limit=8)
+    try:
+        matches = query_subject_notes(subject_id, search_text, limit=8)
+    except VectorStoreError as exc:
+        return {
+            "questions": [],
+            "sources": [],
+            "error": str(exc),
+        }
+
     context = "\n\n".join(match["text"] for match in matches)
 
     if not context:

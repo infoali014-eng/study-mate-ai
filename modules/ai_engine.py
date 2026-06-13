@@ -5,7 +5,7 @@ from pathlib import Path
 import requests
 from dotenv import dotenv_values, load_dotenv
 
-from modules.vector_store import query_subject_notes
+from modules.vector_store import VectorStoreError, query_subject_notes
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -322,7 +322,14 @@ def chat_with_notes(
     provider=None,
 ):
     """Answer a student question using only the uploaded notes for a subject."""
-    matches = query_subject_notes(subject_id, question)
+    try:
+        matches = query_subject_notes(subject_id, question)
+    except VectorStoreError as exc:
+        return {
+            "answer": str(exc),
+            "sources": [],
+        }
+
     context = "\n\n".join(match["text"] for match in matches)
     style_instruction = ANSWER_STYLE_INSTRUCTIONS.get(
         answer_style,

@@ -2,7 +2,7 @@ import json
 import re
 
 from modules import ai_engine
-from modules.vector_store import query_subject_notes
+from modules.vector_store import VectorStoreError, query_subject_notes
 
 
 def _ask_selected_ai(prompt, model=None):
@@ -53,7 +53,15 @@ def _fallback_flashcards(raw_text, card_count):
 
 def generate_flashcards(subject_id, topic, card_count=8, model=None):
     """Generate structured flashcards from uploaded notes."""
-    matches = query_subject_notes(subject_id, topic, limit=8)
+    try:
+        matches = query_subject_notes(subject_id, topic, limit=8)
+    except VectorStoreError as exc:
+        return {
+            "flashcards": [],
+            "sources": [],
+            "error": str(exc),
+        }
+
     context = "\n\n".join(match["text"] for match in matches)
 
     if not context:

@@ -1,8 +1,7 @@
 import hashlib
 import math
+import os
 from pathlib import Path
-
-import chromadb
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -11,9 +10,28 @@ COLLECTION_NAME = "study_notes"
 VECTOR_SIZE = 384
 
 
+class VectorStoreError(Exception):
+    """Raised when ChromaDB cannot be loaded or used."""
+
+
+def _load_chromadb():
+    """Import ChromaDB lazily so a cloud import issue does not crash every page."""
+    try:
+        os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
+        import chromadb
+
+        return chromadb
+    except Exception as exc:
+        raise VectorStoreError(
+            "ChromaDB could not start on this deployment. "
+            "Use Python 3.11 and reinstall requirements, then restart the app."
+        ) from exc
+
+
 def _client():
     """Return a persistent local ChromaDB client."""
     CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+    chromadb = _load_chromadb()
     return chromadb.PersistentClient(path=str(CHROMA_DIR))
 
 

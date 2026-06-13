@@ -15,7 +15,7 @@ from modules.ui import (
     section_title,
     sidebar_nav,
 )
-from modules.vector_store import add_text_chunks
+from modules.vector_store import VectorStoreError, add_text_chunks
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -129,13 +129,21 @@ if uploaded_file:
         )
 
         progress.progress(85, text="Saving chunks into ChromaDB...")
-        saved_count = add_text_chunks(
-            subject_id=selected_subject["id"],
-            subject_name=selected_subject["name"],
-            document_id=document_id,
-            file_name=uploaded_file.name,
-            chunks=chunks,
-        )
+        try:
+            saved_count = add_text_chunks(
+                subject_id=selected_subject["id"],
+                subject_name=selected_subject["name"],
+                document_id=document_id,
+                file_name=uploaded_file.name,
+                chunks=chunks,
+            )
+        except VectorStoreError as exc:
+            saved_count = 0
+            st.warning(str(exc))
+            st.info(
+                "The document metadata and extracted text were saved, but searchable "
+                "chat/quiz/flashcard features need ChromaDB to be available."
+            )
 
         progress.progress(100, text="Upload complete.")
         st.success(
