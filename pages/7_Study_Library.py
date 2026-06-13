@@ -73,6 +73,11 @@ def clear_filters():
     st.session_state.library_file_type_filter = "All types"
 
 
+def set_subject_filter(subject_name):
+    """Update the subject filter safely from a chip button callback."""
+    st.session_state.library_subject_filter = subject_name
+
+
 def material_row(document):
     """Render one clean material list row."""
     file_type = (document["file_type"] or "PDF").upper()
@@ -313,10 +318,14 @@ for index, subject_name in enumerate(subject_names):
     with chip_cols[index % chip_count]:
         is_active = st.session_state.library_subject_filter == subject_name
         label = subject_name if subject_name == "All" else subject_name[:18]
-        button_label = f"{'✓ ' if is_active else ''}{label}"
-        if st.button(button_label, key=f"subject_chip_{subject_name}", use_container_width=True):
-            st.session_state.library_subject_filter = subject_name
-            st.rerun()
+        button_label = f"{'* ' if is_active else ''}{label}"
+        st.button(
+            button_label,
+            key=f"subject_chip_{subject_name}",
+            use_container_width=True,
+            on_click=set_subject_filter,
+            args=(subject_name,),
+        )
 
 filtered_documents = apply_filters(
     documents=documents,
