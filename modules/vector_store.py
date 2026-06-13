@@ -98,3 +98,16 @@ def query_subject_notes(subject_id, question, limit=5):
         )
     return matches
 
+
+def delete_subject_vectors(subject_id):
+    """Delete all ChromaDB note chunks saved for one subject."""
+    collection = _collection()
+    collection.delete(where={"subject_id": int(subject_id)})
+    return True
+
+
+def delete_document_vectors(document_id):
+    """Delete all ChromaDB note chunks saved for one uploaded document."""
+    collection = _collection()
+    collection.delete(where={"document_id": int(document_id)})
+    return True

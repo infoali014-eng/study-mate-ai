@@ -50,8 +50,10 @@ def create_tables():
                 subject_id INTEGER NOT NULL,
                 file_name TEXT NOT NULL,
                 file_path TEXT NOT NULL,
+                file_type TEXT DEFAULT 'PDF',
                 extracted_text_path TEXT DEFAULT '',
                 chunk_count INTEGER DEFAULT 0,
+                description TEXT DEFAULT '',
                 uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE CASCADE
             )
@@ -115,6 +117,8 @@ def create_tables():
         )
         conn.commit()
         _add_missing_column(conn, "flashcards", "status", "TEXT DEFAULT 'New'")
+        _add_missing_column(conn, "uploaded_documents", "file_type", "TEXT DEFAULT 'PDF'")
+        _add_missing_column(conn, "uploaded_documents", "description", "TEXT DEFAULT ''")
 
 
 def _add_missing_column(conn, table_name, column_name, column_definition):
@@ -172,27 +176,88 @@ def get_subject(subject_id):
         ).fetchone()
 
 
+def _delete_file_if_inside_data(file_path):
+    """Delete one stored app file only when it lives inside the local data folder."""
+    if not file_path:
+        return
+
+    path = Path(file_path)
+    try:
+        resolved_path = path.resolve()
+        resolved_data_dir = DATA_DIR.resolve()
+    except OSError:
+        return
+
+    # This protects other folders from accidental deletion.
+    if resolved_data_dir in resolved_path.parents and resolved_path.is_file():
+        resolved_path.unlink(missing_ok=True)
+
+
+def delete_subject(subject_id):
+    """
+    Delete one subject and its related local SQLite data.
+
+    Related uploaded document files are removed only when their saved paths are
+    inside the app's data folder. Other subjects are not touched.
+    """
+    with closing(get_connection()) as conn:
+        subject = conn.execute(
+            "SELECT * FROM subjects WHERE id = ?", (subject_id,)
+        ).fetchone()
+
+        if not subject:
+            return False
+
+        documents = conn.execute(
+            """
+            SELECT file_path, extracted_text_path
+            FROM uploaded_documents
+            WHERE subject_id = ?
+            """,
+            (subject_id,),
+        ).fetchall()
+
+        for document in documents:
+            _delete_file_if_inside_data(document["file_path"])
+            _delete_file_if_inside_data(document["extracted_text_path"])
+
+        # Explicit deletes make the cleanup clear for beginners and also work
+        # even if an older database was created without foreign-key cascades.
+        conn.execute("DELETE FROM uploaded_documents WHERE subject_id = ?", (subject_id,))
+        conn.execute("DELETE FROM quiz_results WHERE subject_id = ?", (subject_id,))
+        conn.execute("DELETE FROM flashcards WHERE subject_id = ?", (subject_id,))
+        conn.execute("DELETE FROM weak_topics WHERE subject_id = ?", (subject_id,))
+        conn.execute("DELETE FROM revision_plans WHERE subject_id = ?", (subject_id,))
+        conn.execute("DELETE FROM subjects WHERE id = ?", (subject_id,))
+        conn.commit()
+        return True
+
+
 def save_uploaded_document_metadata(
     subject_id,
     file_name,
     file_path,
     chunk_count=0,
     extracted_text_path="",
+    file_type="PDF",
+    description="",
 ):
     """Save metadata for an uploaded PDF and return the document id."""
     with closing(get_connection()) as conn:
         cursor = conn.execute(
             """
             INSERT INTO uploaded_documents
-                (subject_id, file_name, file_path, extracted_text_path, chunk_count)
-            VALUES (?, ?, ?, ?, ?)
+                (subject_id, file_name, file_path, file_type, extracted_text_path, chunk_count, description)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 subject_id,
                 file_name,
                 file_path,
+                file_type.upper(),
                 extracted_text_path,
                 chunk_count,
+                description.strip(),
             ),
         )
         conn.commit()
@@ -230,6 +295,77 @@ def get_documents(subject_id=None):
             FROM uploaded_documents
             JOIN subjects ON subjects.id = uploaded_documents.subject_id
             ORDER BY uploaded_documents.uploaded_at DESC
+            """
+        ).fetchall()
+
+
+def get_documents_by_subject(subject_id):
+    """Return all uploaded documents for one subject."""
+    return get_documents(subject_id=subject_id)
+
+
+def get_all_documents():
+    """Return all uploaded documents with their subject names."""
+    return get_documents()
+
+
+def get_document_by_id(document_id):
+    """Return one uploaded document by id."""
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            """
+            SELECT uploaded_documents.*, subjects.name AS subject_name
+            FROM uploaded_documents
+            JOIN subjects ON subjects.id = uploaded_documents.subject_id
+            WHERE uploaded_documents.id = ?
+            """,
+            (document_id,),
+        ).fetchone()
+
+
+def delete_document(document_id):
+    """
+    Delete one uploaded document and its local extracted/uploaded files.
+
+    This does not touch other documents, subjects, quiz results, flashcards, or
+    revision plans.
+    """
+    with closing(get_connection()) as conn:
+        document = conn.execute(
+            "SELECT * FROM uploaded_documents WHERE id = ?",
+            (document_id,),
+        ).fetchone()
+
+        if not document:
+            return False
+
+        _delete_file_if_inside_data(document["file_path"])
+        _delete_file_if_inside_data(document["extracted_text_path"])
+        conn.execute("DELETE FROM uploaded_documents WHERE id = ?", (document_id,))
+        conn.commit()
+        return True
+
+
+def get_document_count_by_subject(subject_id):
+    """Return the number of uploaded documents for one subject."""
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM uploaded_documents WHERE subject_id = ?",
+            (subject_id,),
+        ).fetchone()[0]
+
+
+def get_subject_document_counts():
+    """Return every subject with its uploaded document count."""
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            """
+            SELECT subjects.*, COUNT(uploaded_documents.id) AS document_count
+            FROM subjects
+            LEFT JOIN uploaded_documents
+                ON uploaded_documents.subject_id = subjects.id
+            GROUP BY subjects.id
+            ORDER BY subjects.created_at DESC
             """
         ).fetchall()
 

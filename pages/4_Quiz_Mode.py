@@ -1,8 +1,6 @@
-import os
-
 import streamlit as st
 
-from modules.ai_engine import OLLAMA_MODEL
+from modules import ai_engine
 from modules.database import (
     get_subjects,
     init_db,
@@ -10,41 +8,75 @@ from modules.database import (
     update_weak_topic,
 )
 from modules.quiz_generator import check_quiz_answers, generate_quiz
+from modules.ui import (
+    apply_theme,
+    page_header,
+    render_empty_state,
+    render_feature_card,
+    section_title,
+    sidebar_nav,
+)
 
 
 QUESTION_TYPES = ["MCQ", "Short", "Long", "Viva"]
 DIFFICULTIES = ["Easy", "Medium", "Hard"]
 
 
+def get_provider_label():
+    """Return the selected provider, even if Streamlit is holding an older module."""
+    if hasattr(ai_engine, "get_selected_provider"):
+        return ai_engine.get_selected_provider()
+    return "Ollama"
+
+
 st.set_page_config(page_title="Quiz Mode - StudyMate AI", layout="wide")
 init_db()
+apply_theme()
+sidebar_nav()
 
-st.sidebar.title("StudyMate AI")
-st.sidebar.page_link("pages/1_Dashboard.py", label="Dashboard")
-st.sidebar.page_link("pages/2_Upload_Notes.py", label="Upload Notes")
-st.sidebar.page_link("pages/3_Chat_With_Notes.py", label="Chat With Notes")
-st.sidebar.page_link("pages/4_Quiz_Mode.py", label="Quiz Mode")
-st.sidebar.page_link("pages/5_Flashcards.py", label="Flashcards")
-st.sidebar.page_link("pages/6_Revision_Planner.py", label="Revision Planner")
+page_header(
+    "Quiz Mode",
+    "Generate questions from uploaded notes, answer them, and get AI feedback.",
+    "Practice Lab",
+)
 
-st.title("Quiz Mode")
-st.caption("Generate questions from uploaded notes, answer them, and get AI feedback.")
+feature1, feature2, feature3 = st.columns(3)
+with feature1:
+    render_feature_card("Question types", "Practice MCQs, short answers, long answers, or viva prompts.", "\u2754", "#2f7df6", "#e3efff")
+with feature2:
+    render_feature_card("Difficulty control", "Choose Easy, Medium, or Hard before generating.", "\U0001f3af", "#ff637d", "#ffe3e9")
+with feature3:
+    render_feature_card("AI marking", "Get marks, feedback, and weak-topic tracking.", "\U0001f4dd", "#14b8b4", "#d8fff6")
 
 subjects = get_subjects()
 if not subjects:
-    st.warning("Create a subject and upload notes first.")
+    render_empty_state(
+        "No quiz source yet.",
+        "Create a subject and upload notes before generating a quiz.",
+        "\U0001f4dd",
+    )
     st.stop()
 
 subject_options = {subject["name"]: subject for subject in subjects}
+subject_names = list(subject_options.keys())
+prefill_subject_id = st.session_state.pop("quiz_prefill_subject_id", None)
+default_subject_index = 0
+if prefill_subject_id:
+    for index, subject_name in enumerate(subject_names):
+        if subject_options[subject_name]["id"] == prefill_subject_id:
+            default_subject_index = index
+            break
+prefill_topic = st.session_state.pop("quiz_prefill_topic", "")
 
+section_title("Quiz Builder", "\U0001f3af")
 with st.container(border=True):
     col1, col2 = st.columns(2)
     with col1:
-        selected_name = st.selectbox("Choose subject", list(subject_options.keys()))
+        selected_name = st.selectbox("Choose subject", subject_names, index=default_subject_index)
         question_type = st.selectbox("Question type", QUESTION_TYPES)
         difficulty = st.selectbox("Difficulty", DIFFICULTIES)
     with col2:
-        topic = st.text_input("Topic", placeholder="Example: cell structure")
+        topic = st.text_input("Topic", value=prefill_topic, placeholder="Example: cell structure")
         question_count = st.number_input(
             "Number of questions",
             min_value=1,
@@ -52,7 +84,7 @@ with st.container(border=True):
             value=5,
             step=1,
         )
-        model = st.text_input("Ollama model", value=os.getenv("OLLAMA_MODEL", OLLAMA_MODEL))
+        st.info(f"AI provider: {get_provider_label()}. Change it from AI Settings.")
 
     generate_button = st.button("Generate Quiz", type="primary", use_container_width=True)
 
@@ -67,20 +99,19 @@ if generate_button:
     if not topic.strip():
         st.warning("Please enter a topic.")
     else:
-        with st.spinner("Searching uploaded notes and generating quiz with Ollama..."):
+        with st.spinner("Searching uploaded notes and generating quiz with the selected AI provider..."):
             quiz_data = generate_quiz(
                 subject_id=selected_subject["id"],
                 topic=topic,
                 question_type=question_type,
                 difficulty=difficulty,
                 question_count=int(question_count),
-                model=model,
             )
 
         if quiz_data["error"]:
             st.error(quiz_data["error"])
         elif not quiz_data["questions"]:
-            st.error("Ollama did not return usable questions. Try again with a clearer topic.")
+            st.error("The selected AI provider did not return usable questions. Try again with a clearer topic.")
         else:
             st.session_state.quiz_data = {
                 "subject_id": selected_subject["id"],
@@ -88,7 +119,6 @@ if generate_button:
                 "topic": topic,
                 "question_type": question_type,
                 "difficulty": difficulty,
-                "model": model,
                 "questions": quiz_data["questions"],
                 "sources": quiz_data["sources"],
             }
@@ -97,8 +127,16 @@ if generate_button:
 
 quiz_data = st.session_state.quiz_data
 
+if not quiz_data:
+    section_title("Answer Quiz", "\U0001f4dd")
+    render_empty_state(
+        "No quiz generated yet.",
+        "Choose a topic and generate questions to start practicing.",
+        "\u2754",
+    )
+
 if quiz_data:
-    st.subheader("Answer Quiz")
+    section_title("Answer Quiz", "\U0001f4dd")
     st.caption(
         f"{quiz_data['subject_name']} | {quiz_data['question_type']} | "
         f"{quiz_data['difficulty']} | Topic: {quiz_data['topic']}"
@@ -131,11 +169,10 @@ if quiz_data:
         submitted = st.form_submit_button("Submit Answers", use_container_width=True)
 
     if submitted:
-        with st.spinner("Checking answers with Ollama..."):
+        with st.spinner("Checking answers with the selected AI provider..."):
             checked = check_quiz_answers(
                 questions=quiz_data["questions"],
                 user_answers=user_answers,
-                model=quiz_data["model"],
             )
 
         if checked["error"]:
@@ -169,7 +206,7 @@ if quiz_data:
 feedback = st.session_state.quiz_feedback
 
 if feedback:
-    st.subheader("Marks and Feedback")
+    section_title("Marks and Feedback", "\U0001f31f")
     st.success(
         f"Score: {feedback['score']} / {feedback['total']} "
         f"| Saved quiz result id: {feedback['result_id']}"

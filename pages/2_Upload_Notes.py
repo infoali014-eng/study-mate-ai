@@ -7,6 +7,14 @@ import streamlit as st
 from modules.database import get_subjects, init_db, save_uploaded_document_metadata
 from modules.pdf_reader import extract_text_from_pdf
 from modules.text_splitter import split_text
+from modules.ui import (
+    apply_theme,
+    page_header,
+    render_empty_state,
+    render_feature_card,
+    section_title,
+    sidebar_nav,
+)
 from modules.vector_store import add_text_chunks
 
 
@@ -37,53 +45,71 @@ def build_unique_file_path(folder, file_name):
 
 st.set_page_config(page_title="Upload Notes - StudyMate AI", layout="wide")
 init_db()
+apply_theme()
+sidebar_nav()
 
-st.sidebar.title("StudyMate AI")
-st.sidebar.page_link("pages/1_Dashboard.py", label="Dashboard")
-st.sidebar.page_link("pages/2_Upload_Notes.py", label="Upload Notes")
-st.sidebar.page_link("pages/3_Chat_With_Notes.py", label="Chat With Notes")
-st.sidebar.page_link("pages/4_Quiz_Mode.py", label="Quiz Mode")
-st.sidebar.page_link("pages/5_Flashcards.py", label="Flashcards")
-st.sidebar.page_link("pages/6_Revision_Planner.py", label="Revision Planner")
+page_header(
+    "Upload Notes",
+    "Turn PDF notes into searchable chunks for chat, quizzes, and flashcards.",
+    "Knowledge Builder",
+)
 
-st.title("Upload Notes")
-st.caption("Upload PDFs, extract text, and store searchable chunks locally.")
+feature1, feature2, feature3 = st.columns(3)
+with feature1:
+    render_feature_card("PDF to text", "Extract readable text from uploaded notes with PyMuPDF.", "\U0001f4c4", "#14b8b4", "#d8fff6")
+with feature2:
+    render_feature_card("Smart chunks", "Split long notes into searchable study-sized pieces.", "\U0001f9e9", "#ff637d", "#ffe3e9")
+with feature3:
+    render_feature_card("Local memory", "Save vectors subject-wise in ChromaDB for offline AI search.", "\U0001f4be", "#8b5cf6", "#efe7ff")
 
 subjects = get_subjects()
 if not subjects:
-    st.warning("Create a subject from the Dashboard before uploading notes.")
+    render_empty_state(
+        "No subjects available.",
+        "Create a subject from the Dashboard before uploading notes.",
+        "\U0001f4da",
+    )
     st.stop()
 
 subject_options = {subject["name"]: subject for subject in subjects}
-selected_name = st.selectbox("Choose subject", list(subject_options.keys()))
-selected_subject = subject_options[selected_name]
-
-uploaded_file = st.file_uploader("Upload a PDF file", type=["pdf"])
+section_title("Upload Workspace", "\u2601\ufe0f")
+with st.container(border=True):
+    selected_name = st.selectbox("Choose subject", list(subject_options.keys()))
+    selected_subject = subject_options[selected_name]
+    document_description = st.text_area(
+        "Document description",
+        placeholder="Optional: Chapter name, lecture number, lab manual, or exam notes.",
+        height=90,
+    )
+    uploaded_file = st.file_uploader("Upload a PDF or TXT file", type=["pdf", "txt"])
 
 if uploaded_file:
     st.write(f"Selected file: `{uploaded_file.name}`")
 
-    if st.button("Process PDF", type="primary", use_container_width=True):
-        # Keep uploaded PDFs and extracted text organized by subject.
+    if st.button("Process Document", type="primary", use_container_width=True):
         subject_folder = UPLOAD_DIR / safe_folder_name(selected_subject["name"])
-        text_subject_folder = EXTRACTED_TEXT_DIR / safe_folder_name(
-            selected_subject["name"]
-        )
+        text_subject_folder = EXTRACTED_TEXT_DIR / safe_folder_name(selected_subject["name"])
         subject_folder.mkdir(parents=True, exist_ok=True)
         text_subject_folder.mkdir(parents=True, exist_ok=True)
 
-        pdf_path = build_unique_file_path(subject_folder, uploaded_file.name)
-        text_path = text_subject_folder / pdf_path.with_suffix(".txt").name
+        file_path = build_unique_file_path(subject_folder, uploaded_file.name)
+        text_path = text_subject_folder / file_path.with_suffix(".txt").name
+        file_type = Path(uploaded_file.name).suffix.replace(".", "").upper() or "PDF"
 
-        progress = st.progress(0, text="Saving uploaded PDF...")
-        pdf_path.write_bytes(uploaded_file.getbuffer())
+        progress = st.progress(0, text="Saving uploaded document...")
+        file_path.write_bytes(uploaded_file.getbuffer())
 
-        progress.progress(25, text="Extracting text with PyMuPDF...")
-        extracted_text = extract_text_from_pdf(pdf_path)
+        progress.progress(25, text="Extracting readable text...")
+        if file_type == "PDF":
+            extracted_text = extract_text_from_pdf(file_path)
+        elif file_type == "TXT":
+            extracted_text = file_path.read_text(encoding="utf-8", errors="ignore")
+        else:
+            extracted_text = ""
 
         if not extracted_text:
             progress.empty()
-            st.error("No readable text was found in this PDF.")
+            st.error("No readable text was found in this document.")
             st.stop()
 
         text_path.write_text(extracted_text, encoding="utf-8")
@@ -95,9 +121,11 @@ if uploaded_file:
         document_id = save_uploaded_document_metadata(
             subject_id=selected_subject["id"],
             file_name=uploaded_file.name,
-            file_path=str(pdf_path),
+            file_path=str(file_path),
+            file_type=file_type,
             extracted_text_path=str(text_path),
             chunk_count=len(chunks),
+            description=document_description,
         )
 
         progress.progress(85, text="Saving chunks into ChromaDB...")

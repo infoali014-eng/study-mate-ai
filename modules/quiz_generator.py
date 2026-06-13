@@ -1,9 +1,7 @@
 import json
 import re
 
-import requests
-
-from modules.ai_engine import OLLAMA_MODEL, ask_ollama
+from modules import ai_engine
 from modules.vector_store import query_subject_notes
 
 
@@ -13,6 +11,13 @@ QUESTION_TYPE_GUIDE = {
     "Long": "Create long answer questions that need explanation, examples, or steps.",
     "Viva": "Create oral viva-style questions with direct spoken answers.",
 }
+
+
+def _ask_selected_ai(prompt, model=None):
+    """Use the selected AI provider, with a fallback for older loaded modules."""
+    if hasattr(ai_engine, "ask_ai"):
+        return ai_engine.ask_ai(prompt, model=model)
+    return ai_engine.ask_ollama(prompt, model=model)
 
 
 def _extract_json(text):
@@ -55,7 +60,7 @@ def generate_quiz(
     question_type="MCQ",
     difficulty="Easy",
     question_count=5,
-    model=OLLAMA_MODEL,
+    model=None,
 ):
     """Generate structured quiz questions from uploaded notes."""
     search_text = f"{topic} {question_type} {difficulty}"
@@ -90,14 +95,14 @@ NOTES:
 """
 
     try:
-        raw_response = ask_ollama(prompt, model=model)
-    except requests.exceptions.RequestException as exc:
+        raw_response = _ask_selected_ai(prompt, model=model)
+    except Exception as exc:
         return {
             "questions": [],
             "sources": matches,
             "error": (
-                "Could not connect to Ollama. Make sure Ollama is running with "
-                f"`ollama serve` and your model is installed. Technical detail: {exc}"
+                "Could not generate quiz with the selected AI provider. "
+                f"Technical detail: {exc}"
             ),
         }
 
@@ -125,7 +130,7 @@ NOTES:
     }
 
 
-def check_quiz_answers(questions, user_answers, model=OLLAMA_MODEL):
+def check_quiz_answers(questions, user_answers, model=None):
     """Ask Ollama to mark answers and return feedback for each question."""
     quiz_payload = []
     for index, question in enumerate(questions):
@@ -158,12 +163,12 @@ QUIZ:
 """
 
     try:
-        raw_response = ask_ollama(prompt, model=model)
-    except requests.exceptions.RequestException as exc:
+        raw_response = _ask_selected_ai(prompt, model=model)
+    except Exception as exc:
         return {
             "results": [],
             "error": (
-                "Could not connect to Ollama for checking. Make sure Ollama is running. "
+                "Could not check answers with the selected AI provider. "
                 f"Technical detail: {exc}"
             ),
         }

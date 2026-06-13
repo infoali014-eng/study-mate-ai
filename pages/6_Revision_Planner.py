@@ -1,9 +1,8 @@
-import os
 from datetime import date, timedelta
 
 import streamlit as st
 
-from modules.ai_engine import OLLAMA_MODEL
+from modules import ai_engine
 from modules.database import (
     get_revision_plans,
     get_subjects,
@@ -12,25 +11,49 @@ from modules.database import (
     save_revision_plan,
 )
 from modules.planner import generate_revision_plan
+from modules.ui import (
+    apply_theme,
+    page_header,
+    render_empty_state,
+    render_feature_card,
+    section_title,
+    sidebar_nav,
+)
+
+
+def get_provider_label():
+    """Return the selected provider, even if Streamlit is holding an older module."""
+    if hasattr(ai_engine, "get_selected_provider"):
+        return ai_engine.get_selected_provider()
+    return "Ollama"
 
 
 st.set_page_config(page_title="Revision Planner - StudyMate AI", layout="wide")
 init_db()
+apply_theme()
+sidebar_nav()
 
-st.sidebar.title("StudyMate AI")
-st.sidebar.page_link("pages/1_Dashboard.py", label="Dashboard")
-st.sidebar.page_link("pages/2_Upload_Notes.py", label="Upload Notes")
-st.sidebar.page_link("pages/3_Chat_With_Notes.py", label="Chat With Notes")
-st.sidebar.page_link("pages/4_Quiz_Mode.py", label="Quiz Mode")
-st.sidebar.page_link("pages/5_Flashcards.py", label="Flashcards")
-st.sidebar.page_link("pages/6_Revision_Planner.py", label="Revision Planner")
+page_header(
+    "Revision Planner",
+    "Generate and save a day-wise study plan for your exam.",
+    "Exam Roadmap",
+)
 
-st.title("Revision Planner")
-st.caption("Generate and save a day-wise study plan for your exam.")
+feature1, feature2, feature3 = st.columns(3)
+with feature1:
+    render_feature_card("Exam countdown", "Plan from today through your exam date.", "\U0001f5d3\ufe0f", "#2f7df6", "#e3efff")
+with feature2:
+    render_feature_card("Confidence aware", "Use preparation and confidence levels to shape the plan.", "\U0001f4ca", "#ffb703", "#fff3c4")
+with feature3:
+    render_feature_card("Weak-topic focus", "Prioritize topics marked weak in quizzes and flashcards.", "\U0001f4cc", "#ff637d", "#ffe3e9")
 
 subjects = get_subjects()
 if not subjects:
-    st.warning("Create a subject first.")
+    render_empty_state(
+        "No subject to plan yet.",
+        "Create a subject first, then build a revision plan.",
+        "\U0001f5d3\ufe0f",
+    )
     st.stop()
 
 subject_options = {subject["name"]: subject for subject in subjects}
@@ -40,6 +63,7 @@ selected_subject = subject_options[selected_name]
 weak_topic_rows = get_weak_topics(subject_id=selected_subject["id"])
 available_weak_topics = [row["topic"] for row in weak_topic_rows]
 
+section_title("Plan Builder", "\U0001f4ca")
 with st.container(border=True):
     col1, col2 = st.columns(2)
 
@@ -74,7 +98,7 @@ with st.container(border=True):
             placeholder="Write one topic per line, if needed.",
             height=110,
         )
-        model = st.text_input("Ollama model", value=os.getenv("OLLAMA_MODEL", OLLAMA_MODEL))
+        st.info(f"AI provider: {get_provider_label()}. Change it from AI Settings.")
 
     generate_button = st.button(
         "Generate and Save Plan",
@@ -82,11 +106,7 @@ with st.container(border=True):
         use_container_width=True,
     )
 
-manual_topics = [
-    topic.strip()
-    for topic in extra_weak_topics.splitlines()
-    if topic.strip()
-]
+manual_topics = [topic.strip() for topic in extra_weak_topics.splitlines() if topic.strip()]
 all_weak_topics = selected_weak_topics + [
     topic for topic in manual_topics if topic not in selected_weak_topics
 ]
@@ -95,14 +115,13 @@ if "latest_revision_plan" not in st.session_state:
     st.session_state.latest_revision_plan = None
 
 if generate_button:
-    with st.spinner("Generating day-wise study plan with Ollama..."):
+    with st.spinner("Generating day-wise study plan with the selected AI provider..."):
         plan_text = generate_revision_plan(
             subject_name=selected_subject["name"],
             exam_date=exam_date,
             preparation_level=preparation_level,
             confidence_level=confidence_level,
             weak_topics=all_weak_topics,
-            model=model,
         )
 
     plan_id = save_revision_plan(
@@ -121,14 +140,19 @@ if generate_button:
     st.success(f"Revision plan generated and saved locally. Plan id: {plan_id}")
 
 if st.session_state.latest_revision_plan:
-    st.subheader("Latest Generated Plan")
-    st.markdown(st.session_state.latest_revision_plan["plan_text"])
+    section_title("Latest Generated Plan", "\u2728")
+    with st.container(border=True):
+        st.markdown(st.session_state.latest_revision_plan["plan_text"])
 
 saved_plans = get_revision_plans(subject_id=selected_subject["id"])
 
-st.subheader("Saved Plans")
+section_title("Saved Plans", "\U0001f4da")
 if not saved_plans:
-    st.info("No revision plans saved for this subject yet.")
+    render_empty_state(
+        "No saved plans yet.",
+        "Generate your first AI revision plan and it will appear here.",
+        "\U0001f5d3\ufe0f",
+    )
 else:
     for plan in saved_plans:
         with st.expander(

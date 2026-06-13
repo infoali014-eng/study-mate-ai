@@ -1,8 +1,13 @@
 from datetime import date, timedelta
 
-import requests
+from modules import ai_engine
 
-from modules.ai_engine import OLLAMA_MODEL, ask_ollama
+
+def _ask_selected_ai(prompt, model=None):
+    """Use the selected AI provider, with a fallback for older loaded modules."""
+    if hasattr(ai_engine, "ask_ai"):
+        return ai_engine.ask_ai(prompt, model=model)
+    return ai_engine.ask_ollama(prompt, model=model)
 
 
 def _days_until_exam(exam_date):
@@ -47,9 +52,9 @@ def generate_revision_plan(
     preparation_level,
     confidence_level,
     weak_topics,
-    model=OLLAMA_MODEL,
+    model=None,
 ):
-    """Generate a day-wise study plan using Ollama."""
+    """Generate a day-wise study plan using the selected AI provider."""
     total_days = _days_until_exam(exam_date)
     weak_topic_text = ", ".join(weak_topics) if weak_topics else "No weak topics selected"
 
@@ -74,8 +79,8 @@ Rules:
 """
 
     try:
-        plan_text = ask_ollama(prompt, model=model)
-    except requests.exceptions.RequestException:
+        plan_text = _ask_selected_ai(prompt, model=model)
+    except Exception:
         plan_text = _fallback_revision_plan(
             subject_name=subject_name,
             exam_date=exam_date,

@@ -1,10 +1,15 @@
 import json
 import re
 
-import requests
-
-from modules.ai_engine import OLLAMA_MODEL, ask_ollama
+from modules import ai_engine
 from modules.vector_store import query_subject_notes
+
+
+def _ask_selected_ai(prompt, model=None):
+    """Use the selected AI provider, with a fallback for older loaded modules."""
+    if hasattr(ai_engine, "ask_ai"):
+        return ai_engine.ask_ai(prompt, model=model)
+    return ai_engine.ask_ollama(prompt, model=model)
 
 
 def _extract_json(text):
@@ -46,7 +51,7 @@ def _fallback_flashcards(raw_text, card_count):
     return cards[:card_count]
 
 
-def generate_flashcards(subject_id, topic, card_count=8, model=OLLAMA_MODEL):
+def generate_flashcards(subject_id, topic, card_count=8, model=None):
     """Generate structured flashcards from uploaded notes."""
     matches = query_subject_notes(subject_id, topic, limit=8)
     context = "\n\n".join(match["text"] for match in matches)
@@ -75,14 +80,14 @@ NOTES:
 """
 
     try:
-        raw_response = ask_ollama(prompt, model=model)
-    except requests.exceptions.RequestException as exc:
+        raw_response = _ask_selected_ai(prompt, model=model)
+    except Exception as exc:
         return {
             "flashcards": [],
             "sources": matches,
             "error": (
-                "Could not connect to Ollama. Make sure Ollama is running with "
-                f"`ollama serve` and your model is installed. Technical detail: {exc}"
+                "Could not generate flashcards with the selected AI provider. "
+                f"Technical detail: {exc}"
             ),
         }
 

@@ -1,8 +1,6 @@
-import os
-
 import streamlit as st
 
-from modules.ai_engine import OLLAMA_MODEL
+from modules import ai_engine
 from modules.database import (
     get_flashcards,
     get_subjects,
@@ -12,34 +10,68 @@ from modules.database import (
     update_weak_topic,
 )
 from modules.flashcard_generator import generate_flashcards
+from modules.ui import (
+    apply_theme,
+    page_header,
+    render_empty_state,
+    render_feature_card,
+    section_title,
+    sidebar_nav,
+)
+
+
+def get_provider_label():
+    """Return the selected provider, even if Streamlit is holding an older module."""
+    if hasattr(ai_engine, "get_selected_provider"):
+        return ai_engine.get_selected_provider()
+    return "Ollama"
 
 
 st.set_page_config(page_title="Flashcards - StudyMate AI", layout="wide")
 init_db()
+apply_theme()
+sidebar_nav()
 
-st.sidebar.title("StudyMate AI")
-st.sidebar.page_link("pages/1_Dashboard.py", label="Dashboard")
-st.sidebar.page_link("pages/2_Upload_Notes.py", label="Upload Notes")
-st.sidebar.page_link("pages/3_Chat_With_Notes.py", label="Chat With Notes")
-st.sidebar.page_link("pages/4_Quiz_Mode.py", label="Quiz Mode")
-st.sidebar.page_link("pages/5_Flashcards.py", label="Flashcards")
-st.sidebar.page_link("pages/6_Revision_Planner.py", label="Revision Planner")
+page_header(
+    "Flashcards",
+    "Generate flashcards from uploaded notes and review them one by one.",
+    "Memory Studio",
+)
 
-st.title("Flashcards")
-st.caption("Generate flashcards from uploaded notes and review them one by one.")
+feature1, feature2, feature3 = st.columns(3)
+with feature1:
+    render_feature_card("Auto cards", "Generate question and answer cards from uploaded notes.", "\U0001f0cf", "#ffb703", "#fff3c4")
+with feature2:
+    render_feature_card("Review mode", "Move through cards one by one with a clean study view.", "\U0001f9e0", "#8b5cf6", "#efe7ff")
+with feature3:
+    render_feature_card("Track weak cards", "Mark cards as Learned or Weak for revision planning.", "\U0001f4cc", "#14b8b4", "#d8fff6")
 
 subjects = get_subjects()
 if not subjects:
-    st.warning("Create a subject and upload notes first.")
+    render_empty_state(
+        "No flashcard source yet.",
+        "Create a subject and upload notes before generating flashcards.",
+        "\U0001f0cf",
+    )
     st.stop()
 
 subject_options = {subject["name"]: subject for subject in subjects}
+subject_names = list(subject_options.keys())
+prefill_subject_id = st.session_state.pop("flashcard_prefill_subject_id", None)
+default_subject_index = 0
+if prefill_subject_id:
+    for index, subject_name in enumerate(subject_names):
+        if subject_options[subject_name]["id"] == prefill_subject_id:
+            default_subject_index = index
+            break
+prefill_topic = st.session_state.pop("flashcard_prefill_topic", "")
 
+section_title("Flashcard Generator", "\u2728")
 with st.container(border=True):
     col1, col2 = st.columns(2)
     with col1:
-        selected_name = st.selectbox("Choose subject", list(subject_options.keys()))
-        topic = st.text_input("Flashcard topic", placeholder="Example: photosynthesis")
+        selected_name = st.selectbox("Choose subject", subject_names, index=default_subject_index)
+        topic = st.text_input("Flashcard topic", value=prefill_topic, placeholder="Example: photosynthesis")
     with col2:
         card_count = st.number_input(
             "Number of flashcards",
@@ -48,7 +80,7 @@ with st.container(border=True):
             value=8,
             step=1,
         )
-        model = st.text_input("Ollama model", value=os.getenv("OLLAMA_MODEL", OLLAMA_MODEL))
+        st.info(f"AI provider: {get_provider_label()}. Change it from AI Settings.")
 
     generate_button = st.button(
         "Generate and Save Flashcards",
@@ -67,18 +99,17 @@ if generate_button:
     if not topic.strip():
         st.warning("Please enter a topic.")
     else:
-        with st.spinner("Searching uploaded notes and generating flashcards with Ollama..."):
+        with st.spinner("Searching uploaded notes and generating flashcards with the selected AI provider..."):
             generated = generate_flashcards(
                 subject_id=selected_subject["id"],
                 topic=topic,
                 card_count=int(card_count),
-                model=model,
             )
 
         if generated["error"]:
             st.error(generated["error"])
         elif not generated["flashcards"]:
-            st.error("Ollama did not return usable flashcards. Try a clearer topic.")
+            st.error("The selected AI provider did not return usable flashcards. Try a clearer topic.")
         else:
             saved_count = 0
             for card in generated["flashcards"]:
@@ -104,10 +135,14 @@ if generate_button:
 
 saved_cards = get_flashcards(subject_id=selected_subject["id"])
 
-st.subheader("Review Flashcards")
+section_title("Review Flashcards", "\U0001f4d8")
 
 if not saved_cards:
-    st.info("No saved flashcards for this subject yet. Generate some first.")
+    render_empty_state(
+        "No saved flashcards yet.",
+        "Generate flashcards for this subject, then review them here.",
+        "\U0001f0cf",
+    )
     st.stop()
 
 total_cards = len(saved_cards)
