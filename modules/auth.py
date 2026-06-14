@@ -1,6 +1,12 @@
+import base64
+import hashlib
+import hmac
+import json
 import secrets
 import time
+from urllib.parse import urlencode
 
+import requests
 import streamlit as st
 from passlib.hash import pbkdf2_sha256
 
@@ -11,6 +17,10 @@ from modules.ui import apply_theme
 
 FAILED_LOGIN_LIMIT = 5
 FAILED_LOGIN_WAIT_SECONDS = 60
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+OAUTH_STATE_MAX_AGE_SECONDS = 600
 
 
 USER_SESSION_KEYS = {
@@ -24,6 +34,7 @@ USER_SESSION_KEYS = {
     "groq_model",
     "ollama_model",
     "ai_request_times",
+    "oauth_state_nonce",
 }
 
 STUDY_SESSION_PREFIXES = (
@@ -128,11 +139,22 @@ def _set_logged_in_user(user):
 
 
 def _streamlit_user_is_logged_in():
-    """Return True when Streamlit OIDC login has authenticated a user."""
+    """Return True when a legacy Streamlit auth session is still present."""
     try:
         return bool(st.user.get("is_logged_in", False))
     except Exception:
         return False
+
+
+def _b64url_encode(raw_bytes):
+    """Encode bytes for safe OAuth state values."""
+    return base64.urlsafe_b64encode(raw_bytes).decode("utf-8").rstrip("=")
+
+
+def _b64url_decode(value):
+    """Decode a base64url string with optional padding."""
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
 
 
 def _get_auth_config():
@@ -143,13 +165,22 @@ def _get_auth_config():
         return {}
 
 
+def _query_param_value(params, key):
+    """Return a single query param value across Streamlit versions."""
+    value = params.get(key, "")
+    if isinstance(value, list):
+        return value[0] if value else ""
+    return value or ""
+
+
 def check_google_auth_config():
     """
-    Safely inspect Google OIDC configuration.
+    Safely inspect Google OAuth configuration.
 
-    The app intentionally uses Streamlit's default provider mode, so all Google
-    keys must live directly under [auth]. This function never returns secret
-    values, only booleans and the non-secret redirect URI.
+    The app reads the same [auth] values Streamlit expects, but it starts a
+    direct Google OAuth flow to avoid Streamlit Cloud's internal auth route.
+    This function never returns secret values, only booleans and the non-secret
+    redirect URI.
     """
     auth_config = _get_auth_config()
     required_keys = [
@@ -175,7 +206,7 @@ def check_google_auth_config():
 
     return {
         "exists": bool(auth_config),
-        "mode": "default",
+        "mode": "direct",
         "has_named_provider": has_named_provider,
         "key_status": key_status,
         "missing_keys": missing_keys,
@@ -199,6 +230,160 @@ def _looks_like_placeholder(value):
     )
 
 
+def _make_oauth_state():
+    """Create a signed OAuth state value without storing secrets in the URL."""
+    auth_config = _get_auth_config()
+    cookie_secret = str(auth_config.get("cookie_secret", ""))
+    nonce = secrets.token_urlsafe(16)
+    st.session_state["oauth_state_nonce"] = nonce
+    payload = {
+        "nonce": nonce,
+        "iat": int(time.time()),
+    }
+    payload_json = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    payload_b64 = _b64url_encode(payload_json)
+    signature = hmac.new(
+        cookie_secret.encode("utf-8"),
+        payload_b64.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return f"{payload_b64}.{_b64url_encode(signature)}"
+
+
+def _verify_oauth_state(state):
+    """Verify the signed OAuth state value returned by Google."""
+    auth_config = _get_auth_config()
+    cookie_secret = str(auth_config.get("cookie_secret", ""))
+    try:
+        payload_b64, signature_b64 = str(state or "").split(".", 1)
+    except ValueError:
+        return False
+
+    expected_signature = hmac.new(
+        cookie_secret.encode("utf-8"),
+        payload_b64.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+    try:
+        received_signature = _b64url_decode(signature_b64)
+        payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError, TypeError):
+        return False
+
+    if not hmac.compare_digest(received_signature, expected_signature):
+        return False
+
+    expected_nonce = st.session_state.get("oauth_state_nonce", "")
+    if not expected_nonce or not hmac.compare_digest(
+        str(payload.get("nonce", "")),
+        str(expected_nonce),
+    ):
+        return False
+
+    issued_at = int(payload.get("iat", 0))
+    return 0 <= time.time() - issued_at <= OAUTH_STATE_MAX_AGE_SECONDS
+
+
+def _build_google_oauth_url():
+    """Build a direct Google OAuth URL, bypassing Streamlit's internal auth route."""
+    auth_config = _get_auth_config()
+    params = {
+        "client_id": auth_config.get("client_id", ""),
+        "redirect_uri": auth_config.get("redirect_uri", ""),
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": _make_oauth_state(),
+        "prompt": "select_account",
+    }
+    return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
+
+
+def _create_or_fetch_google_user(google_user):
+    """Create or fetch the local SQLite user for verified Google userinfo."""
+    email = (google_user.get("email") or "").strip().lower()
+    email_verified = google_user.get("email_verified") in [True, "true", "True", "1"]
+    if not email or not email_verified:
+        st.warning("Google login did not return a verified email address.")
+        return None
+
+    local_user = get_user_by_email(email)
+    if local_user:
+        return local_user
+
+    display_name = (
+        google_user.get("name")
+        or google_user.get("given_name")
+        or email.split("@")[0]
+    )
+    random_password_marker = secrets.token_urlsafe(48)
+    create_user(
+        name=str(display_name)[:80],
+        email=email,
+        password_hash=hash_password(random_password_marker),
+    )
+    return get_user_by_email(email)
+
+
+def _handle_google_oauth_callback():
+    """Handle Google OAuth callback query params and start a local app session."""
+    params = st.query_params
+    error = _query_param_value(params, "error")
+    code = _query_param_value(params, "code")
+    state = _query_param_value(params, "state")
+
+    if not code and not error:
+        return False
+
+    if error:
+        st.error("Google login was cancelled or blocked. Email/password login is still available.")
+        st.query_params.clear()
+        return False
+
+    if not _verify_oauth_state(state):
+        st.error("Google login session expired. Please try again.")
+        st.query_params.clear()
+        return False
+
+    auth_config = _get_auth_config()
+    try:
+        token_response = requests.post(
+            GOOGLE_TOKEN_URL,
+            data={
+                "code": code,
+                "client_id": auth_config.get("client_id", ""),
+                "client_secret": auth_config.get("client_secret", ""),
+                "redirect_uri": auth_config.get("redirect_uri", ""),
+                "grant_type": "authorization_code",
+            },
+            timeout=30,
+        )
+        token_response.raise_for_status()
+        access_token = token_response.json().get("access_token", "")
+        userinfo_response = requests.get(
+            GOOGLE_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=30,
+        )
+        userinfo_response.raise_for_status()
+    except requests.RequestException:
+        st.error(
+            "Google login could not verify your account. Check the redirect URI "
+            "and Google OAuth client secret, then try again."
+        )
+        return False
+
+    local_user = _create_or_fetch_google_user(userinfo_response.json())
+    if not local_user:
+        return False
+
+    _set_logged_in_user(local_user)
+    st.session_state.pop("oauth_state_nonce", None)
+    st.query_params.clear()
+    st.rerun()
+    return True
+
+
 def _google_auth_setup_error():
     """Return a friendly setup message when Google auth secrets are incomplete."""
     config = check_google_auth_config()
@@ -207,7 +392,7 @@ def _google_auth_setup_error():
 
     if config["has_named_provider"]:
         return (
-            "Google login is using default Streamlit auth. Move client_id, "
+            "Google login uses the single [auth] secrets block. Move client_id, "
             "client_secret, and server_metadata_url directly under [auth] and "
             "remove [auth.google]."
         )
@@ -228,7 +413,7 @@ def _google_auth_setup_error():
 
 
 def _google_login_is_configured():
-    """Return True when Google/OIDC settings exist in Streamlit secrets."""
+    """Return True when Google OAuth settings exist in Streamlit secrets."""
     return check_google_auth_config()["is_ready"]
 
 
@@ -268,31 +453,18 @@ def _sync_google_user_to_local_session():
 
 def _google_login_button(widget_key):
     """Render the optional Google login button."""
-    if not hasattr(st, "login"):
-        st.info("Google login needs a newer Streamlit version.")
-        return
-
     setup_error = _google_auth_setup_error()
     if setup_error:
         st.info(setup_error)
         return
 
-    if st.button(
+    st.link_button(
         "Continue with Google",
+        _build_google_oauth_url(),
         key=widget_key,
         type="primary",
         use_container_width=True,
-    ):
-        try:
-            st.login()
-        except Exception as exc:
-            if exc.__class__.__name__ == "StreamlitMissingAuthlibError":
-                st.error(
-                    "Google login needs the Authlib package. The app owner should "
-                    "redeploy after installing the latest requirements."
-                )
-            else:
-                st.error("Google login could not start. Please check the auth setup.")
+    )
 
 
 def _render_google_auth_debug():
@@ -300,7 +472,7 @@ def _render_google_auth_debug():
     config = check_google_auth_config()
     with st.expander("Google login diagnostics", expanded=False):
         st.write(f"Streamlit version: {st.__version__}")
-        st.write("Auth mode: default Streamlit OIDC")
+        st.write("Auth mode: direct Google OAuth")
         st.write(f"Auth config exists: {config['exists']}")
         st.write(f"Named provider block present: {config['has_named_provider']}")
         st.write(f"Redirect URI: {config['redirect_uri'] or 'missing'}")
@@ -418,6 +590,9 @@ def require_login():
     """Block a page until the visitor logs in."""
     init_db()
     if is_logged_in():
+        return current_user_id()
+
+    if _handle_google_oauth_callback():
         return current_user_id()
 
     if _sync_google_user_to_local_session():
