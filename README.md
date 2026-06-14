@@ -249,6 +249,10 @@ server_metadata_url = "https://accounts.google.com/.well-known/openid-configurat
 
 5. Restart Streamlit.
 
+`cookie_secret` is any long random string you generate yourself. `client_secret`
+must be the real OAuth client secret copied from Google Cloud Console. Do not
+leave either value as a placeholder.
+
 ### Streamlit Cloud Google Login Setup
 
 In Streamlit Cloud, open your app settings and add the same TOML under **Secrets**.

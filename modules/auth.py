@@ -168,9 +168,58 @@ def _get_google_provider_name():
     return None
 
 
+def _looks_like_placeholder(value):
+    """Detect placeholder OAuth values before starting Google login."""
+    lowered = str(value or "").strip().lower()
+    if not lowered:
+        return True
+    return any(
+        marker in lowered
+        for marker in ["your_", "paste_", "replace_", "placeholder", "xxx"]
+    )
+
+
+def _google_auth_setup_error():
+    """Return a friendly setup message when Google auth secrets are incomplete."""
+    try:
+        auth_config = st.secrets.get("auth", {})
+    except Exception:
+        return "Google login is not configured yet. Email/password login is available."
+
+    if not auth_config:
+        return "Google login is not configured yet. Email/password login is available."
+
+    if _looks_like_placeholder(auth_config.get("redirect_uri")):
+        return "Google login needs a real redirect_uri in Streamlit secrets."
+    if _looks_like_placeholder(auth_config.get("cookie_secret")):
+        return "Google login needs a real random cookie_secret in Streamlit secrets."
+
+    google_config = auth_config.get("google")
+    if google_config:
+        if _looks_like_placeholder(google_config.get("client_id")):
+            return "Google login needs the real Google OAuth client_id."
+        if _looks_like_placeholder(google_config.get("client_secret")):
+            return "Google login needs the real Google OAuth client_secret."
+        if _looks_like_placeholder(google_config.get("server_metadata_url")):
+            return "Google login needs Google's server_metadata_url."
+        return ""
+
+    if auth_config.get("client_id") or auth_config.get("client_secret"):
+        if _looks_like_placeholder(auth_config.get("client_id")):
+            return "Google login needs the real Google OAuth client_id."
+        if _looks_like_placeholder(auth_config.get("client_secret")):
+            return "Google login needs the real Google OAuth client_secret."
+        if _looks_like_placeholder(auth_config.get("server_metadata_url")):
+            return "Google login needs Google's server_metadata_url."
+        return ""
+
+    return "Google login is not configured yet. Email/password login is available."
+
+
 def _google_login_is_configured():
     """Return True when Google/OIDC settings exist in Streamlit secrets."""
-    return _get_google_provider_name() is not None
+    return _get_google_provider_name() is not None and not _google_auth_setup_error()
+
 
 
 def _sync_google_user_to_local_session():
@@ -214,8 +263,9 @@ def _google_login_button(widget_key):
         return
 
     provider_name = _get_google_provider_name()
-    if provider_name is None:
-        st.info("Google login is not configured yet. Email/password login is available.")
+    setup_error = _google_auth_setup_error()
+    if provider_name is None or setup_error:
+        st.info(setup_error)
         return
 
     if st.button(
