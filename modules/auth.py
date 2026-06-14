@@ -34,7 +34,6 @@ USER_SESSION_KEYS = {
     "groq_model",
     "ollama_model",
     "ai_request_times",
-    "oauth_state_nonce",
 }
 
 STUDY_SESSION_PREFIXES = (
@@ -234,10 +233,8 @@ def _make_oauth_state():
     """Create a signed OAuth state value without storing secrets in the URL."""
     auth_config = _get_auth_config()
     cookie_secret = str(auth_config.get("cookie_secret", ""))
-    nonce = secrets.token_urlsafe(16)
-    st.session_state["oauth_state_nonce"] = nonce
     payload = {
-        "nonce": nonce,
+        "nonce": secrets.token_urlsafe(16),
         "iat": int(time.time()),
     }
     payload_json = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -272,13 +269,6 @@ def _verify_oauth_state(state):
         return False
 
     if not hmac.compare_digest(received_signature, expected_signature):
-        return False
-
-    expected_nonce = st.session_state.get("oauth_state_nonce", "")
-    if not expected_nonce or not hmac.compare_digest(
-        str(payload.get("nonce", "")),
-        str(expected_nonce),
-    ):
         return False
 
     issued_at = int(payload.get("iat", 0))
@@ -378,7 +368,6 @@ def _handle_google_oauth_callback():
         return False
 
     _set_logged_in_user(local_user)
-    st.session_state.pop("oauth_state_nonce", None)
     st.query_params.clear()
     st.rerun()
     return True
