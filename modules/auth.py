@@ -15,6 +15,10 @@ from modules.ui import apply_theme
 
 FAILED_LOGIN_LIMIT = 5
 FAILED_LOGIN_WAIT_SECONDS = 60
+GOOGLE_LOGIN_TEMPORARILY_DISABLED = True
+GOOGLE_DISABLED_MESSAGE = (
+    "Google login is temporarily disabled. Please use email/password login."
+)
 
 
 USER_SESSION_KEYS = {
@@ -93,7 +97,11 @@ def _clear_study_session_state():
 
 def logout():
     """Log out of the local app session and Streamlit Google auth if active."""
-    google_logged_in = _streamlit_user_is_logged_in()
+    google_logged_in = (
+        False
+        if GOOGLE_LOGIN_TEMPORARILY_DISABLED
+        else _streamlit_user_is_logged_in()
+    )
     _clear_study_session_state()
     st.session_state.auth_message = "You have been logged out safely."
 
@@ -189,7 +197,6 @@ def check_google_auth_config():
     This app uses Streamlit's default OIDC flow, so Google credentials must be
     directly under [auth]. This function never returns secret values.
     """
-    auth_config = _get_auth_config()
     required_keys = [
         "redirect_uri",
         "cookie_secret",
@@ -197,12 +204,24 @@ def check_google_auth_config():
         "client_secret",
         "server_metadata_url",
     ]
-    key_status = {key: bool(auth_config.get(key)) for key in required_keys}
-    placeholder_status = {
-        key: _looks_like_placeholder(auth_config.get(key))
-        for key in required_keys
-    }
-    has_named_provider = bool(auth_config.get("google"))
+
+    try:
+        auth_config = _get_auth_config()
+        if not hasattr(auth_config, "get"):
+            auth_config = {}
+        key_status = {key: bool(auth_config.get(key)) for key in required_keys}
+        placeholder_status = {
+            key: _looks_like_placeholder(auth_config.get(key))
+            for key in required_keys
+        }
+        has_named_provider = bool(auth_config.get("google"))
+        redirect_uri = str(auth_config.get("redirect_uri", ""))
+    except Exception:
+        auth_config = {}
+        key_status = {key: False for key in required_keys}
+        placeholder_status = {key: True for key in required_keys}
+        has_named_provider = False
+        redirect_uri = ""
 
     missing_keys = [key for key, exists in key_status.items() if not exists]
     placeholder_keys = [
@@ -218,7 +237,7 @@ def check_google_auth_config():
         "key_status": key_status,
         "missing_keys": missing_keys,
         "placeholder_keys": placeholder_keys,
-        "redirect_uri": str(auth_config.get("redirect_uri", "")),
+        "redirect_uri": redirect_uri,
         "is_ready": bool(auth_config)
         and not has_named_provider
         and not missing_keys
@@ -266,7 +285,7 @@ def sync_google_user_to_local_session():
     This must run before the login page is rendered, otherwise the app can
     bounce back to login after Google redirects to /oauth2callback.
     """
-    if not _streamlit_user_is_logged_in():
+    if GOOGLE_LOGIN_TEMPORARILY_DISABLED or not _streamlit_user_is_logged_in():
         return False
 
     email = str(_streamlit_user_value("email", "")).strip().lower()
@@ -300,6 +319,10 @@ def sync_google_user_to_local_session():
 
 def _google_login_button(widget_key):
     """Render the optional Google login button using Streamlit's official flow."""
+    if GOOGLE_LOGIN_TEMPORARILY_DISABLED:
+        st.info(GOOGLE_DISABLED_MESSAGE)
+        return
+
     setup_error = _google_auth_setup_error()
     if setup_error:
         st.info(setup_error)
@@ -332,12 +355,16 @@ def _render_google_auth_debug():
     config = check_google_auth_config()
     with st.expander("Google login diagnostics", expanded=False):
         st.write(f"Streamlit version: {st.__version__}")
+        st.write(f"Google login disabled: {GOOGLE_LOGIN_TEMPORARILY_DISABLED}")
         st.write("Auth mode: Streamlit built-in OIDC")
         st.write(f"Auth config exists: {config['exists']}")
         st.write(f"Named provider block present: {config['has_named_provider']}")
         st.write(f"Redirect URI configured: {bool(config['redirect_uri'])}")
-        st.write(f"st.user logged in: {_streamlit_user_is_logged_in()}")
-        st.write(f"st.user email exists: {bool(_streamlit_user_value('email', ''))}")
+        if GOOGLE_LOGIN_TEMPORARILY_DISABLED:
+            st.write("st.user checks skipped: Google login is disabled")
+        else:
+            st.write(f"st.user logged in: {_streamlit_user_is_logged_in()}")
+            st.write(f"st.user email exists: {bool(_streamlit_user_value('email', ''))}")
         st.write(f"local user_id set: {bool(st.session_state.get('user_id'))}")
         st.write(f"auth_provider: {st.session_state.get('auth_provider', '')}")
         for key, exists in config["key_status"].items():
