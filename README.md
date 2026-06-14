@@ -251,22 +251,52 @@ server_metadata_url = "https://accounts.google.com/.well-known/openid-configurat
 must be the real OAuth client secret copied from Google Cloud Console. Do not
 leave either value as a placeholder.
 
-Keep all Google auth settings inside the single `[auth]` block. Do not add a
-separate `[auth.google]` block unless you intentionally want a named provider.
+Keep all Google auth settings inside the single `[auth]` block. This app uses
+Streamlit's default OIDC login with `st.login()`, so do not add a separate
+`[auth.google]` block.
 
 ### Streamlit Cloud Google Login Setup
 
 In Streamlit Cloud, open your app settings and add the same TOML under **Secrets**.
 
-Use your deployed URL plus `/oauth2callback`:
+Use your deployed URL plus `/oauth2callback`. For this deployment, the auth
+block should look like this, with your real secret values pasted only in
+Streamlit Cloud Secrets:
 
-```text
-https://your-app-name.streamlit.app/oauth2callback
+```toml
+[auth]
+redirect_uri = "https://infoali014-eng-study-mate-ai-app-f2xtoz.streamlit.app/oauth2callback"
+cookie_secret = "your_cookie_secret_here"
+client_id = "your_google_oauth_client_id_here"
+client_secret = "your_google_oauth_client_secret_here"
+server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
 ```
 
 Also add that exact redirect URI in Google Cloud Console.
 
 Never commit real Google OAuth credentials. `.streamlit/secrets.toml` is ignored by Git.
+
+### Google Sign-In Troubleshooting
+
+- Authorized redirect URI in Google Cloud must be exactly:
+
+```text
+https://infoali014-eng-study-mate-ai-app-f2xtoz.streamlit.app/oauth2callback
+```
+
+- Authorized JavaScript origin in Google Cloud must be exactly:
+
+```text
+https://infoali014-eng-study-mate-ai-app-f2xtoz.streamlit.app
+```
+
+- Do not mix `[auth]` credentials with `[auth.google]`. This app uses `[auth]`
+  only.
+- Reboot the Streamlit app after changing secrets.
+- Wait 1-2 minutes after changing Google OAuth settings.
+- Test in an incognito browser.
+- Check **Manage app > Logs** for the newest error if sign-in still fails.
+- Do not paste real secrets into chat or commit them.
 
 ## Basic Use
 

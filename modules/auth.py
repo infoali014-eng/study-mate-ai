@@ -135,37 +135,57 @@ def _streamlit_user_is_logged_in():
         return False
 
 
-def _get_google_provider_name():
-    """
-    Return the configured Streamlit OIDC provider name.
-
-    Supports either the default [auth] provider or a named [auth.google]
-    provider. Secrets are never read from source files in this repository.
-    """
+def _get_auth_config():
+    """Read the Streamlit auth config without exposing secret values."""
     try:
-        auth_config = st.secrets.get("auth", {})
+        return st.secrets.get("auth", {})
     except Exception:
-        return None
+        return {}
 
-    if not auth_config:
-        return None
 
-    has_shared_settings = bool(
-        auth_config.get("redirect_uri") and auth_config.get("cookie_secret")
-    )
-    named_google = auth_config.get("google")
-    if has_shared_settings and named_google:
-        return "google"
+def check_google_auth_config():
+    """
+    Safely inspect Google OIDC configuration.
 
-    has_default_google = bool(
-        auth_config.get("client_id")
-        and auth_config.get("client_secret")
-        and auth_config.get("server_metadata_url")
-    )
-    if has_default_google:
-        return ""
+    The app intentionally uses Streamlit's default provider mode, so all Google
+    keys must live directly under [auth]. This function never returns secret
+    values, only booleans and the non-secret redirect URI.
+    """
+    auth_config = _get_auth_config()
+    required_keys = [
+        "redirect_uri",
+        "cookie_secret",
+        "client_id",
+        "client_secret",
+        "server_metadata_url",
+    ]
+    key_status = {key: bool(auth_config.get(key)) for key in required_keys}
+    placeholder_status = {
+        key: _looks_like_placeholder(auth_config.get(key))
+        for key in required_keys
+    }
+    has_named_provider = bool(auth_config.get("google"))
 
-    return None
+    missing_keys = [key for key, exists in key_status.items() if not exists]
+    placeholder_keys = [
+        key
+        for key, is_placeholder in placeholder_status.items()
+        if key_status.get(key) and is_placeholder
+    ]
+
+    return {
+        "exists": bool(auth_config),
+        "mode": "default",
+        "has_named_provider": has_named_provider,
+        "key_status": key_status,
+        "missing_keys": missing_keys,
+        "placeholder_keys": placeholder_keys,
+        "redirect_uri": str(auth_config.get("redirect_uri", "")),
+        "is_ready": bool(auth_config)
+        and not has_named_provider
+        and not missing_keys
+        and not placeholder_keys,
+    }
 
 
 def _looks_like_placeholder(value):
@@ -181,45 +201,35 @@ def _looks_like_placeholder(value):
 
 def _google_auth_setup_error():
     """Return a friendly setup message when Google auth secrets are incomplete."""
-    try:
-        auth_config = st.secrets.get("auth", {})
-    except Exception:
+    config = check_google_auth_config()
+    if not config["exists"]:
         return "Google login is not configured yet. Email/password login is available."
 
-    if not auth_config:
-        return "Google login is not configured yet. Email/password login is available."
+    if config["has_named_provider"]:
+        return (
+            "Google login is using default Streamlit auth. Move client_id, "
+            "client_secret, and server_metadata_url directly under [auth] and "
+            "remove [auth.google]."
+        )
 
-    if _looks_like_placeholder(auth_config.get("redirect_uri")):
-        return "Google login needs a real redirect_uri in Streamlit secrets."
-    if _looks_like_placeholder(auth_config.get("cookie_secret")):
-        return "Google login needs a real random cookie_secret in Streamlit secrets."
+    if config["missing_keys"]:
+        return (
+            "Google login is missing this Streamlit secret value: "
+            f"{config['missing_keys'][0]}."
+        )
 
-    google_config = auth_config.get("google")
-    if google_config:
-        if _looks_like_placeholder(google_config.get("client_id")):
-            return "Google login needs the real Google OAuth client_id."
-        if _looks_like_placeholder(google_config.get("client_secret")):
-            return "Google login needs the real Google OAuth client_secret."
-        if _looks_like_placeholder(google_config.get("server_metadata_url")):
-            return "Google login needs Google's server_metadata_url."
-        return ""
+    if config["placeholder_keys"]:
+        return (
+            "Google login still has a placeholder value for: "
+            f"{config['placeholder_keys'][0]}."
+        )
 
-    if auth_config.get("client_id") or auth_config.get("client_secret"):
-        if _looks_like_placeholder(auth_config.get("client_id")):
-            return "Google login needs the real Google OAuth client_id."
-        if _looks_like_placeholder(auth_config.get("client_secret")):
-            return "Google login needs the real Google OAuth client_secret."
-        if _looks_like_placeholder(auth_config.get("server_metadata_url")):
-            return "Google login needs Google's server_metadata_url."
-        return ""
-
-    return "Google login is not configured yet. Email/password login is available."
+    return ""
 
 
 def _google_login_is_configured():
     """Return True when Google/OIDC settings exist in Streamlit secrets."""
-    return _get_google_provider_name() is not None and not _google_auth_setup_error()
-
+    return check_google_auth_config()["is_ready"]
 
 
 def _sync_google_user_to_local_session():
@@ -262,9 +272,8 @@ def _google_login_button(widget_key):
         st.info("Google login needs a newer Streamlit version.")
         return
 
-    provider_name = _get_google_provider_name()
     setup_error = _google_auth_setup_error()
-    if provider_name is None or setup_error:
+    if setup_error:
         st.info(setup_error)
         return
 
@@ -275,10 +284,7 @@ def _google_login_button(widget_key):
         use_container_width=True,
     ):
         try:
-            if provider_name:
-                st.login(provider_name)
-            else:
-                st.login()
+            st.login()
         except Exception as exc:
             if exc.__class__.__name__ == "StreamlitMissingAuthlibError":
                 st.error(
@@ -287,6 +293,19 @@ def _google_login_button(widget_key):
                 )
             else:
                 st.error("Google login could not start. Please check the auth setup.")
+
+
+def _render_google_auth_debug():
+    """Show safe Google auth diagnostics without revealing secrets."""
+    config = check_google_auth_config()
+    with st.expander("Google login diagnostics", expanded=False):
+        st.write(f"Streamlit version: {st.__version__}")
+        st.write("Auth mode: default Streamlit OIDC")
+        st.write(f"Auth config exists: {config['exists']}")
+        st.write(f"Named provider block present: {config['has_named_provider']}")
+        st.write(f"Redirect URI: {config['redirect_uri'] or 'missing'}")
+        for key, exists in config["key_status"].items():
+            st.write(f"{key}: {'present' if exists else 'missing'}")
 
 
 def _login_form():
@@ -391,6 +410,8 @@ def render_auth_screen():
         _login_form()
     with signup_tab:
         _signup_form()
+
+    _render_google_auth_debug()
 
 
 def require_login():
