@@ -167,10 +167,68 @@ def _compact_chat_history(limit=6):
     return "\n".join(lines)
 
 
-def _demo_teach_response(topic, learning_level, language_style, teaching_depth):
+def _demo_teach_response(
+    topic,
+    learning_level,
+    language_style,
+    teaching_depth,
+    notes_context="",
+    user_message="",
+    first_lesson=False,
+):
     """Return a useful teaching template when Demo Mode is selected."""
+    source_note = (
+        "I found relevant uploaded note chunks and I am using them as the lesson base."
+        if notes_context
+        else "I could not find this directly in your uploaded notes, so I'm teaching it using general academic knowledge."
+    )
+
+    if not first_lesson:
+        return f"""
+{source_note}
+
+## Tutor Feedback
+I read your message: **{user_message or 'your follow-up'}**.
+
+### What you are doing well
+- You are continuing the lesson instead of just memorizing.
+- You are focusing on **{topic}**, which helps build concept clarity.
+
+### Improved Explanation
+Let's simplify **{topic}** again:
+
+```text
+Main idea -> Why it matters -> Example -> Practice
+```
+
+For **{learning_level}**, explain the topic in this order:
+
+| Step | What to say |
+|---|---|
+| 1 | Define the topic in one simple line |
+| 2 | Explain the purpose |
+| 3 | Give one example |
+| 4 | Mention one common mistake |
+
+### Mini Example
+If the topic feels hard, connect it to a small real-life example first, then
+write the academic version.
+
+### Quick Check
+Now answer in one or two lines: what is the main purpose of **{topic}**?
+
+### Next Suggestions
+- Explain again more simply
+- Give me a real-life example
+- Ask me a question
+- Give exam-style answer
+- Test me like viva
+
+Demo Mode is active, so this is a basic offline tutor response.
+"""
+
     return f"""
-I could not find this directly in your uploaded notes, so I'm teaching it using general academic knowledge.
+{source_note}
 
 ## 1. Topic Roadmap
 - Understand what **{topic}** means.
@@ -356,6 +414,9 @@ def generate_teach_me_answer(question, context, first_lesson=False):
             context.get("learning_level", "Normal"),
             context.get("language_style", "Simple English"),
             context.get("teaching_depth", "Balanced"),
+            notes_context=notes_context,
+            user_message=question,
+            first_lesson=first_lesson,
         )
     else:
         prompt = build_teach_me_prompt(
@@ -367,7 +428,7 @@ def generate_teach_me_answer(question, context, first_lesson=False):
             notes_context=notes_context,
             chat_history=_compact_chat_history(),
             user_message=question,
-            context_label=context.get("label", "Teach Me Mode"),
+            context_label=context.get("source_label", context.get("label", "Teach Me Mode")),
             first_lesson=first_lesson,
         )
         try:
@@ -552,10 +613,17 @@ with st.container(border=True):
     with top_col1:
         default_mode_index = 0
         if prefill_document_id:
-            default_mode_index = CHAT_MODES.index("Chat with Specific Notes")
+            st.session_state.study_chat_mode_selector = "Chat with Specific Notes"
         elif prefill_subject_id:
-            default_mode_index = CHAT_MODES.index("Chat with Subject")
-        chat_mode = st.selectbox("Chat mode", CHAT_MODES, index=default_mode_index)
+            st.session_state.study_chat_mode_selector = "Chat with Subject"
+        elif st.session_state.get("study_chat_mode_selector") not in CHAT_MODES:
+            st.session_state.study_chat_mode_selector = CHAT_MODES[default_mode_index]
+        chat_mode = st.selectbox(
+            "Chat mode",
+            CHAT_MODES,
+            index=default_mode_index,
+            key="study_chat_mode_selector",
+        )
 
     with top_col2:
         answer_style = st.selectbox("Answer style", ANSWER_STYLES)
@@ -726,7 +794,12 @@ if chat_mode == "Teach Me Mode":
             unsafe_allow_html=True,
         )
 
-        if st.button("Start Lesson", type="primary", use_container_width=True):
+        if st.button(
+            "Start Lesson",
+            type="primary",
+            key="start_teach_lesson",
+            use_container_width=True,
+        ):
             clean_topic = topic.strip()
             if not clean_topic:
                 st.warning("Enter a topic first.")
@@ -754,25 +827,26 @@ if chat_mode == "Teach Me Mode":
                 "source_label": source_label,
                 "first_lesson": True,
             }
-            st.session_state.study_chat_teach_context = teach_context
+            request_context = dict(teach_context)
+            active_context = dict(teach_context)
+            active_context["first_lesson"] = False
+            st.session_state.study_chat_teach_context = active_context
             start_prompt = f"Start teaching me {clean_topic}."
             st.session_state.study_chat_last_question = start_prompt
             st.session_state.study_chat_last_request = {
                 "question": start_prompt,
                 "answer_style": language_style,
                 "chat_mode": chat_mode,
-                "context": teach_context,
+                "context": request_context,
             }
             with st.spinner("StudyMate Tutor is preparing your lesson..."):
                 answer_data = generate_chat_answer(
                     question=start_prompt,
                     answer_style=language_style,
                     chat_mode=chat_mode,
-                    context=teach_context,
+                    context=request_context,
                 )
-            teach_context["first_lesson"] = False
-            st.session_state.study_chat_teach_context = teach_context
-            add_chat_pair(start_prompt, answer_data, teach_context)
+            add_chat_pair(start_prompt, answer_data, active_context)
             st.rerun()
 
 context = build_context(chat_mode, selected_subject, selected_documents)

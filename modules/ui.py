@@ -71,9 +71,30 @@ def apply_theme():
                 color: var(--sm-ink);
             }
 
+            header[data-testid="stHeader"] {
+                background:
+                    linear-gradient(90deg, rgba(255, 255, 255, 0.86), rgba(245, 252, 255, 0.82), rgba(255, 247, 251, 0.84)) !important;
+                border-bottom: 1px solid rgba(216, 228, 243, 0.72);
+                box-shadow: 0 8px 28px rgba(57, 76, 119, 0.08);
+                backdrop-filter: blur(18px);
+                -webkit-backdrop-filter: blur(18px);
+            }
+
+            header[data-testid="stHeader"] * {
+                color: #17213a !important;
+            }
+
+            [data-testid="stToolbar"] {
+                right: 0.85rem;
+            }
+
+            [data-testid="stAppViewContainer"] > .main {
+                background: transparent;
+            }
+
             .block-container {
                 max-width: 1200px;
-                padding-top: 1.7rem;
+                padding-top: 3rem;
                 padding-bottom: 3.5rem;
             }
 
@@ -109,6 +130,25 @@ def apply_theme():
                 color: var(--sm-ink);
             }
 
+            [data-testid="stSidebar"] [data-testid="stPageLink"] {
+                margin: 0.35rem 0;
+            }
+
+            [data-testid="stSidebar"] [data-testid="stPageLink"] a,
+            [data-testid="stSidebar"] .fallback-nav-link {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                min-height: 3rem;
+                border-radius: 18px;
+                padding: 0.7rem 0.85rem;
+                color: #485775 !important;
+                font-weight: 820;
+                transition: all 170ms ease;
+                border: 1px solid transparent;
+                text-decoration: none !important;
+            }
+
             [data-testid="stSidebar"] a {
                 min-height: 3rem;
                 border-radius: 16px;
@@ -134,9 +174,10 @@ def apply_theme():
                 transform: translateX(3px);
             }
 
-            [data-testid="stSidebar"] a[aria-current="page"] {
+            [data-testid="stSidebar"] a[aria-current="page"],
+            [data-testid="stSidebar"] [data-testid="stPageLink"] a[aria-current="page"] {
                 background: linear-gradient(135deg, rgba(213, 251, 244, 0.95), rgba(232, 244, 255, 0.98));
-                color: #087c78;
+                color: #087c78 !important;
                 border-color: rgba(20, 184, 180, 0.32);
                 box-shadow: 0 10px 22px rgba(20, 184, 180, 0.14);
             }
@@ -670,54 +711,115 @@ def apply_theme():
                 color: #ffffff !important;
             }
 
-            .stTextInput input,
-            .stTextArea textarea,
-            .stNumberInput input,
-            .stDateInput input,
-            div[data-baseweb="select"] > div,
-            div[data-baseweb="select"] input,
-            .stFileUploader section {
-                border-radius: 16px;
-                border-color: #d8e4f3;
-                background-color: #ffffff;
+            .stTextInput,
+            .stTextArea,
+            .stNumberInput,
+            .stDateInput,
+            .stSelectbox,
+            .stMultiSelect,
+            .stFileUploader,
+            [data-testid="stChatInput"] {
                 color: #14213d;
-                caret-color: #14213d;
+            }
+
+            .stTextInput > div,
+            .stTextArea > div,
+            .stNumberInput > div,
+            .stDateInput > div,
+            .stSelectbox > div,
+            .stMultiSelect > div,
+            [data-testid="stChatInput"] > div {
+                border-radius: 18px !important;
+            }
+
+            div[data-baseweb="input"],
+            div[data-baseweb="textarea"],
+            div[data-baseweb="select"] > div,
+            [data-testid="stChatInput"] div[data-baseweb="textarea"],
+            .stFileUploader section {
+                overflow: hidden;
+                border: 1px solid #dbe7ff !important;
+                border-radius: 18px !important;
+                background: #ffffff !important;
+                color: #14213d !important;
+                box-shadow: 0 8px 20px rgba(31, 78, 121, 0.06) !important;
+                transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+            }
+
+            div[data-baseweb="input"]:focus-within,
+            div[data-baseweb="textarea"]:focus-within,
+            div[data-baseweb="select"]:focus-within > div,
+            [data-testid="stChatInput"] div[data-baseweb="textarea"]:focus-within {
+                border-color: var(--sm-teal) !important;
+                box-shadow: 0 0 0 4px rgba(20, 184, 180, 0.12), 0 12px 26px rgba(31, 78, 121, 0.08) !important;
             }
 
             .stTextInput input,
             .stTextArea textarea,
             .stNumberInput input,
-            .stDateInput input {
-                font-weight: 600;
+            .stDateInput input,
+            div[data-baseweb="select"] input,
+            [data-testid="stChatInput"] textarea {
+                border: 0 !important;
+                outline: 0 !important;
+                box-shadow: none !important;
+                background: transparent !important;
+                color: #14213d !important;
+                caret-color: #14213d !important;
+                font-weight: 650;
+            }
+
+            .stTextArea textarea,
+            [data-testid="stChatInput"] textarea {
+                resize: vertical;
             }
 
             .stTextInput input::placeholder,
             .stTextArea textarea::placeholder,
             .stNumberInput input::placeholder,
-            .stDateInput input::placeholder {
-                color: var(--sm-placeholder);
-                opacity: 1;
+            .stDateInput input::placeholder,
+            [data-testid="stChatInput"] textarea::placeholder {
+                color: var(--sm-placeholder) !important;
+                opacity: 1 !important;
+                font-weight: 600;
             }
 
             div[data-baseweb="select"] *,
             div[data-baseweb="popover"] *,
             [role="listbox"] *,
             [role="option"] {
-                color: #14213d;
+                color: #14213d !important;
+            }
+
+            div[data-baseweb="select"] svg,
+            div[data-baseweb="select"] [aria-hidden="true"] {
+                color: #52617d !important;
+                fill: #52617d !important;
             }
 
             div[data-baseweb="popover"],
             [role="listbox"] {
-                background: #ffffff;
-                border-radius: 16px;
-                box-shadow: var(--sm-soft-shadow);
+                overflow: hidden;
+                background: #ffffff !important;
+                border: 1px solid #dbe7ff;
+                border-radius: 18px !important;
+                box-shadow: var(--sm-soft-shadow) !important;
             }
 
-            .stTextInput input:focus,
-            .stTextArea textarea:focus,
-            .stNumberInput input:focus {
-                border-color: var(--sm-teal);
-                box-shadow: 0 0 0 4px rgba(20, 184, 180, 0.12);
+            [role="option"]:hover,
+            [role="option"][aria-selected="true"] {
+                background: #eefaff !important;
+            }
+
+            [data-testid="stChatInput"] {
+                margin-top: 0.75rem;
+            }
+
+            [data-testid="stChatInput"] > div {
+                background: rgba(255, 255, 255, 0.82);
+                border-radius: 22px !important;
+                padding: 0.25rem;
+                box-shadow: 0 18px 45px rgba(57, 76, 119, 0.10);
             }
 
             .stFileUploader section,
