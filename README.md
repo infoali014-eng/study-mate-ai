@@ -240,8 +240,6 @@ Copy-Item .streamlit\secrets.example.toml .streamlit\secrets.toml
 [auth]
 redirect_uri = "http://localhost:8507/oauth2callback"
 cookie_secret = "replace_with_a_long_random_secret"
-
-[auth.google]
 client_id = "your_google_oauth_client_id_here"
 client_secret = "your_google_oauth_client_secret_here"
 server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
@@ -252,6 +250,9 @@ server_metadata_url = "https://accounts.google.com/.well-known/openid-configurat
 `cookie_secret` is any long random string you generate yourself. `client_secret`
 must be the real OAuth client secret copied from Google Cloud Console. Do not
 leave either value as a placeholder.
+
+Keep all Google auth settings inside the single `[auth]` block. Do not add a
+separate `[auth.google]` block unless you intentionally want a named provider.
 
 ### Streamlit Cloud Google Login Setup
 
