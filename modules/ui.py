@@ -15,6 +15,15 @@ NAV_ITEMS = [
 ]
 
 
+def _page_url_from_path(page_path):
+    """Build Streamlit's friendly page URL from a pages/*.py path."""
+    page_name = page_path.rsplit("/", 1)[-1].removesuffix(".py")
+    parts = page_name.split("_", 1)
+    if parts[0].isdigit() and len(parts) == 2:
+        page_name = parts[1]
+    return f"/{page_name}"
+
+
 def apply_theme():
     """Apply the shared Candy Pop Scholar / Aqua Peach Glass theme."""
     st.markdown(
@@ -1054,7 +1063,14 @@ def sidebar_nav():
     )
 
     for label, page, icon in NAV_ITEMS:
-        st.sidebar.page_link(page, label=f"{icon}  {label}")
+        try:
+            st.sidebar.page_link(page, label=f"{icon}  {label}")
+        except Exception:
+            fallback_url = _page_url_from_path(page)
+            st.sidebar.markdown(
+                f"<a class='fallback-nav-link' href='{fallback_url}'>{icon}  {html.escape(label)}</a>",
+                unsafe_allow_html=True,
+            )
 
     st.sidebar.markdown(
         f"""
