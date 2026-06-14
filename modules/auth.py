@@ -89,6 +89,7 @@ def logout():
     st.session_state.auth_message = "You have been logged out safely."
     if google_logged_in and hasattr(st, "logout"):
         st.logout()
+        return
     st.rerun()
 
 
@@ -206,7 +207,7 @@ def _sync_google_user_to_local_session():
     return bool(local_user)
 
 
-def _google_login_button():
+def _google_login_button(widget_key):
     """Render the optional Google login button."""
     if not hasattr(st, "login"):
         st.info("Google login needs a newer Streamlit version.")
@@ -217,7 +218,12 @@ def _google_login_button():
         st.info("Google login is not configured yet. Email/password login is available.")
         return
 
-    if st.button("Continue with Google", type="primary", use_container_width=True):
+    if st.button(
+        "Continue with Google",
+        key=widget_key,
+        type="primary",
+        use_container_width=True,
+    ):
         if provider_name:
             st.login(provider_name)
         else:
@@ -226,7 +232,7 @@ def _google_login_button():
 
 def _login_form():
     """Render the login form."""
-    _google_login_button()
+    _google_login_button("google_login_from_login_tab")
     st.divider()
 
     with st.form("login_form"):
@@ -258,7 +264,7 @@ def _login_form():
 
 def _signup_form():
     """Render the signup form."""
-    _google_login_button()
+    _google_login_button("google_login_from_signup_tab")
     st.divider()
 
     with st.form("signup_form"):
