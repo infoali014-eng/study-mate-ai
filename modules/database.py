@@ -5,7 +5,6 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from cryptography.fernet import Fernet, InvalidToken
 from dotenv import load_dotenv
 
 from modules.security import is_path_inside
@@ -586,6 +585,8 @@ def get_encryption_key():
         return None
 
     try:
+        from cryptography.fernet import Fernet
+
         Fernet(raw_key.encode("utf-8"))
         return raw_key.encode("utf-8")
     except Exception:
@@ -595,7 +596,13 @@ def get_encryption_key():
 
 def api_key_saving_configured():
     """Return True when encrypted API key persistence can be used."""
-    return get_encryption_key() is not None
+    if get_encryption_key() is None:
+        return False
+    try:
+        import cryptography  # noqa: F401
+    except Exception:
+        return False
+    return True
 
 
 def encrypt_secret(value):
@@ -603,6 +610,8 @@ def encrypt_secret(value):
     key = get_encryption_key()
     if not key:
         raise RuntimeError("APP_ENCRYPTION_KEY is not configured.")
+    from cryptography.fernet import Fernet
+
     return Fernet(key).encrypt(value.encode("utf-8")).decode("utf-8")
 
 
@@ -612,8 +621,10 @@ def decrypt_secret(value):
     if not key or not value:
         return ""
     try:
+        from cryptography.fernet import Fernet, InvalidToken
+
         return Fernet(key).decrypt(value.encode("utf-8")).decode("utf-8")
-    except (InvalidToken, ValueError):
+    except Exception:
         return ""
 
 
