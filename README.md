@@ -8,7 +8,7 @@ It is built with Streamlit, SQLite, PyMuPDF, ChromaDB, Gemini, optional Ollama l
 
 - Create and delete study subjects
 - Email/password login with hashed passwords
-- Optional Google sign-in with direct Google OAuth
+- Optional Google sign-in with Streamlit built-in OIDC
 - User-isolated subjects, documents, quizzes, flashcards, weak topics, and plans
 - Upload PDF and TXT notes subject-wise
 - Preview uploaded documents in Study Library
@@ -215,7 +215,7 @@ For public deployments, each user must paste their own key. The key is stored on
 
 ## Optional Google Sign-In
 
-The app supports Google sign-in through a direct Google OAuth flow. Email/password login still works if Google is not configured.
+The app supports Google sign-in through Streamlit's built-in OIDC flow. Email/password login still works if Google is not configured.
 
 ### Local Google Login Setup
 
@@ -291,8 +291,8 @@ https://infoali014-eng-study-mate-ai-app-f2xtoz.streamlit.app
 
 - Do not mix `[auth]` credentials with `[auth.google]`. This app uses `[auth]`
   only.
-- If you previously saw `/~/+/auth/login?provider=...`, reboot after updating.
-  The app now uses direct Google OAuth and should send you to `accounts.google.com`.
+- The Continue with Google button uses Streamlit's built-in `st.login()` flow.
+  After Google redirects back, the app syncs `st.user` into the local SQLite user session.
 - Reboot the Streamlit app after changing secrets.
 - Wait 1-2 minutes after changing Google OAuth settings.
 - Test in an incognito browser.
