@@ -279,6 +279,17 @@ def get_user_by_email(email):
         ).fetchone()
 
 
+def get_user_by_id(user_id):
+    """Return one user by id."""
+    if not user_id:
+        return None
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            "SELECT * FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+
+
 def subject_belongs_to_user(subject_id, user_id):
     """Check subject ownership before sensitive actions."""
     if not user_id:

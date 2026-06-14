@@ -8,9 +8,10 @@ from urllib.parse import urlencode
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from passlib.hash import pbkdf2_sha256
 
-from modules.database import create_user, get_user_by_email, init_db
+from modules.database import create_user, get_user_by_email, get_user_by_id, init_db
 from modules.security import validate_email, validate_full_name, validate_password
 from modules.ui import apply_theme
 
@@ -21,6 +22,9 @@ GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 OAUTH_STATE_MAX_AGE_SECONDS = 600
+LOGIN_TRANSFER_MAX_AGE_SECONDS = 600
+AUTH_COOKIE_NAME = "studymate_login"
+AUTH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 
 
 USER_SESSION_KEYS = {
@@ -94,13 +98,9 @@ def _clear_study_session_state():
 
 def logout():
     """Log out and remove user-related session values."""
-    google_logged_in = _streamlit_user_is_logged_in()
     _clear_study_session_state()
     st.session_state.auth_message = "You have been logged out safely."
-    if google_logged_in and hasattr(st, "logout"):
-        st.logout()
-        return
-    st.rerun()
+    _clear_login_cookie_and_redirect("/")
 
 
 def _record_failed_login():
@@ -170,6 +170,170 @@ def _query_param_value(params, key):
     if isinstance(value, list):
         return value[0] if value else ""
     return value or ""
+
+
+def _cookie_is_secure():
+    """Use Secure cookies on deployed HTTPS apps and plain cookies locally."""
+    auth_config = _get_auth_config()
+    redirect_uri = str(auth_config.get("redirect_uri", ""))
+    return redirect_uri.startswith("https://")
+
+
+def _cookie_attributes(max_age):
+    """Build browser cookie attributes for the signed app login cookie."""
+    attributes = [
+        f"Max-Age={max_age}",
+        "Path=/",
+        "SameSite=Lax",
+    ]
+    if _cookie_is_secure():
+        attributes.append("Secure")
+    return "; ".join(attributes)
+
+
+def _sign_payload(payload):
+    """Sign a small JSON payload with the configured cookie secret."""
+    auth_config = _get_auth_config()
+    cookie_secret = str(auth_config.get("cookie_secret", ""))
+    payload_json = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    payload_b64 = _b64url_encode(payload_json)
+    signature = hmac.new(
+        cookie_secret.encode("utf-8"),
+        payload_b64.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return f"{payload_b64}.{_b64url_encode(signature)}"
+
+
+def _verify_signed_payload(token, max_age_seconds):
+    """Verify a signed payload and return it when it is valid and fresh."""
+    auth_config = _get_auth_config()
+    cookie_secret = str(auth_config.get("cookie_secret", ""))
+    try:
+        payload_b64, signature_b64 = str(token or "").split(".", 1)
+    except ValueError:
+        return None
+
+    expected_signature = hmac.new(
+        cookie_secret.encode("utf-8"),
+        payload_b64.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+    try:
+        received_signature = _b64url_decode(signature_b64)
+        payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError, TypeError):
+        return None
+
+    if not hmac.compare_digest(received_signature, expected_signature):
+        return None
+
+    issued_at = int(payload.get("iat", 0))
+    if not 0 <= time.time() - issued_at <= max_age_seconds:
+        return None
+    return payload
+
+
+def _make_login_token(user):
+    """Create a signed browser token for a local StudyMate user."""
+    return _sign_payload(
+        {
+            "kind": "studymate_login",
+            "user_id": int(user["id"]),
+            "email": str(user["email"]).strip().lower(),
+            "iat": int(time.time()),
+        }
+    )
+
+
+def _get_login_cookie():
+    """Read the app login cookie without requiring secrets in source code."""
+    try:
+        return st.context.cookies.get(AUTH_COOKIE_NAME, "")
+    except Exception:
+        return ""
+
+
+def _restore_user_from_cookie():
+    """Restore a StudyMate session from the signed login cookie."""
+    token = _get_login_cookie()
+    if not token:
+        return False
+
+    return _restore_user_from_token(token, AUTH_COOKIE_MAX_AGE_SECONDS)
+
+
+def _restore_user_from_login_query():
+    """Restore a StudyMate session from the short-lived Google redirect token."""
+    token = _query_param_value(st.query_params, "login_token")
+    if not token:
+        return False
+
+    restored = _restore_user_from_token(token, LOGIN_TRANSFER_MAX_AGE_SECONDS)
+    if restored:
+        st.query_params.clear()
+    return restored
+
+
+def _restore_user_from_token(token, max_age_seconds):
+    """Verify a signed login token and load the matching local user."""
+    payload = _verify_signed_payload(token, max_age_seconds)
+    if not payload:
+        return False
+
+    if payload.get("kind") != "studymate_login":
+        return False
+
+    user = get_user_by_id(payload.get("user_id"))
+    if not user:
+        return False
+
+    if str(user["email"]).strip().lower() != str(payload.get("email", "")).lower():
+        return False
+
+    _set_logged_in_user(user)
+    return True
+
+
+def _set_login_cookie_and_redirect(user, target_path="/Dashboard"):
+    """Write the signed login cookie in the browser and move to the app."""
+    token = _make_login_token(user)
+    cookie_value = json.dumps(
+        f"{AUTH_COOKIE_NAME}={token}; {_cookie_attributes(AUTH_COOKIE_MAX_AGE_SECONDS)}"
+    )
+    separator = "&" if "?" in target_path else "?"
+    target_with_token = f"{target_path}{separator}{urlencode({'login_token': token})}"
+    target_value = json.dumps(target_with_token)
+    components.html(
+        f"""
+        <script>
+            document.cookie = {cookie_value};
+            window.location.replace({target_value});
+        </script>
+        """,
+        height=0,
+    )
+    st.success("Google login successful. Opening your dashboard...")
+    st.stop()
+
+
+def _clear_login_cookie_and_redirect(target_path="/"):
+    """Clear the browser login cookie after logout."""
+    cookie_value = json.dumps(
+        f"{AUTH_COOKIE_NAME}=; {_cookie_attributes(0)}"
+    )
+    target_value = json.dumps(target_path)
+    components.html(
+        f"""
+        <script>
+            document.cookie = {cookie_value};
+            window.location.replace({target_value});
+        </script>
+        """,
+        height=0,
+    )
+    st.stop()
 
 
 def check_google_auth_config():
@@ -368,8 +532,7 @@ def _handle_google_oauth_callback():
         return False
 
     _set_logged_in_user(local_user)
-    st.query_params.clear()
-    st.rerun()
+    _set_login_cookie_and_redirect(local_user)
     return True
 
 
@@ -582,6 +745,12 @@ def require_login():
         return current_user_id()
 
     if _handle_google_oauth_callback():
+        return current_user_id()
+
+    if _restore_user_from_login_query():
+        return current_user_id()
+
+    if _restore_user_from_cookie():
         return current_user_id()
 
     if _sync_google_user_to_local_session():
