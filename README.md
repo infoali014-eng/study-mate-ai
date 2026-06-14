@@ -10,9 +10,9 @@ It is built with Streamlit, SQLite, PyMuPDF, ChromaDB, Gemini, optional Ollama l
 - Email/password login with hashed passwords
 - Manual email/password authentication with hashed passwords
 - User-isolated subjects, documents, quizzes, flashcards, weak topics, and plans
-- Upload PDF and TXT notes subject-wise
+- Upload PDF, image, DOCX, PPTX, TXT, and Markdown notes subject-wise
 - Preview uploaded documents in Study Library
-- Extract PDF text with PyMuPDF
+- Extract text from PDFs, Office files, text files, and OCR-capable images/scanned pages when OCR is available
 - Store searchable note chunks in local ChromaDB
 - Chat with uploaded notes
 - Generate summaries, quizzes, flashcards, and revision plans
@@ -128,7 +128,7 @@ Run:
 pip install -r requirements.txt
 ```
 
-This installs Streamlit, PyMuPDF, python-dotenv, and other required packages.
+This installs Streamlit, PyMuPDF, python-dotenv, Office parsers, OCR helpers, and other required packages.
 
 For Streamlit Cloud, the app uses a lightweight built-in vector fallback so deployment stays simple. If you want ChromaDB locally, run:
 
@@ -235,7 +235,7 @@ When Google auth is restored later, add setup instructions in a new change.
 2. Create a subject, for example `OOP` or `Database`
 3. Open `Upload Notes`
 4. Select the subject
-5. Upload a PDF or TXT file
+5. Upload a PDF, image, DOCX, PPTX, TXT, or Markdown file
 6. Open `Study Library` to view uploaded material
 7. Open `Chat With Notes` and ask questions from your uploaded notes
 8. Use `Quiz Mode`, `Flashcards`, and `Revision Planner` for exam practice
@@ -326,8 +326,10 @@ gemini-2.0-flash
 Make sure:
 
 - You uploaded notes under the correct subject
-- The PDF contains selectable text, not only scanned images
+- The document has extractable text, or OCR is available for scanned/image-based material
 - You selected the same subject in Chat With Notes
+
+For OCR on images or scanned PDFs, `pytesseract` is installed by Python requirements, but the system Tesseract binary must also be available on the deployment. If it is missing, uploads still work and Study Library will show an OCR warning.
 
 ## Developer Commands
 

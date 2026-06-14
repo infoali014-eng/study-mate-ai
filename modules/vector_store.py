@@ -101,7 +101,16 @@ def _safe_user_id(user_id):
     return int(user_id)
 
 
-def add_text_chunks(subject_id, subject_name, document_id, file_name, chunks, user_id=None):
+def add_text_chunks(
+    subject_id,
+    subject_name,
+    document_id,
+    file_name,
+    chunks,
+    user_id=None,
+    file_type="",
+    extraction_method="",
+):
     """Store text chunks in ChromaDB with helpful metadata."""
     if not chunks:
         return 0
@@ -121,6 +130,8 @@ def add_text_chunks(subject_id, subject_name, document_id, file_name, chunks, us
             "subject_name": subject_name,
             "document_id": int(document_id),
             "file_name": file_name,
+            "file_type": file_type,
+            "extraction_method": extraction_method,
             "chunk_index": index,
         }
         for index in range(len(chunks))

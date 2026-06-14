@@ -68,6 +68,24 @@ def preview_text_file(file_path, max_characters=20000):
     )
 
 
+def preview_image(file_path):
+    """Display an uploaded image inside the app."""
+    st.image(str(file_path), use_container_width=True)
+
+
+def preview_extracted_text(text, max_characters=20000):
+    """Show extracted text in the same scrollable preview style."""
+    preview_text = html.escape((text or "")[:max_characters])
+    st.markdown(
+        f"""
+        <div class="text-preview">
+            <pre>{preview_text or "No extracted text available."}</pre>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def read_text_preview(file_path, max_characters=3000):
     """Read a short text preview from a file if possible."""
     if not file_exists(file_path):

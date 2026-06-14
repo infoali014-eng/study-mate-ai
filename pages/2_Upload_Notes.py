@@ -5,7 +5,7 @@ import streamlit as st
 
 from modules.auth import require_login
 from modules.database import get_subjects, init_db, save_uploaded_document_metadata
-from modules.pdf_reader import extract_text_from_pdf
+from modules.document_processor import ocr_status, process_uploaded_file
 from modules.security import validate_description, validate_upload
 from modules.text_splitter import split_text
 from modules.ui import (
@@ -38,15 +38,15 @@ sidebar_nav()
 
 page_header(
     "Upload Notes",
-    "Turn PDF notes into searchable chunks for chat, quizzes, and flashcards.",
+    "Turn PDFs, images, DOCX, PPTX, TXT, and Markdown into searchable study material.",
     "Knowledge Builder",
 )
 
 feature1, feature2, feature3 = st.columns(3)
 with feature1:
-    render_feature_card("PDF to text", "Extract readable text from uploaded notes with PyMuPDF.", "\U0001f4c4", "#14b8b4", "#d8fff6")
+    render_feature_card("Many file types", "Upload PDFs, images, Word, PowerPoint, TXT, and Markdown.", "\U0001f4c4", "#14b8b4", "#d8fff6")
 with feature2:
-    render_feature_card("Smart chunks", "Split long notes into searchable study-sized pieces.", "\U0001f9e9", "#ff637d", "#ffe3e9")
+    render_feature_card("Smart extraction", "Extract selectable text, Office text, and OCR when available.", "\U0001f9e9", "#ff637d", "#ffe3e9")
 with feature3:
     render_feature_card("Local memory", "Save vectors subject-wise in ChromaDB for offline AI search.", "\U0001f4be", "#8b5cf6", "#efe7ff")
 
@@ -69,7 +69,11 @@ with st.container(border=True):
         placeholder="Optional: Chapter name, lecture number, lab manual, or exam notes.",
         height=90,
     )
-    uploaded_file = st.file_uploader("Upload a PDF or TXT file", type=["pdf", "txt"])
+    st.info(f"OCR status: {ocr_status()}. Image/scanned notes may be limited if OCR is unavailable.")
+    uploaded_file = st.file_uploader(
+        "Upload study material",
+        type=["pdf", "png", "jpg", "jpeg", "webp", "docx", "pptx", "txt", "md"],
+    )
 
 if uploaded_file:
     st.write(f"Selected file: `{uploaded_file.name}`")
@@ -94,17 +98,9 @@ if uploaded_file:
         file_path.write_bytes(uploaded_file.getbuffer())
 
         progress.progress(25, text="Extracting readable text...")
-        if file_type == "PDF":
-            extracted_text = extract_text_from_pdf(file_path)
-        elif file_type == "TXT":
-            extracted_text = file_path.read_text(encoding="utf-8", errors="ignore")
-        else:
-            extracted_text = ""
-
-        if not extracted_text:
-            progress.empty()
-            st.error("No readable text was found in this document.")
-            st.stop()
+        process_result = process_uploaded_file(file_path, file_type)
+        extracted_text = process_result["text"]
+        warning_message = " ".join(process_result.get("warnings", []))
 
         text_path.write_text(extracted_text, encoding="utf-8")
 
@@ -120,6 +116,10 @@ if uploaded_file:
             extracted_text_path=str(text_path),
             chunk_count=len(chunks),
             description=clean_description,
+            extraction_method=process_result.get("method", ""),
+            extraction_status=process_result.get("status", ""),
+            warning_message=warning_message,
+            page_count=process_result.get("page_count", 0),
             user_id=user_id,
         )
 
@@ -129,28 +129,38 @@ if uploaded_file:
             st.stop()
 
         progress.progress(85, text="Saving chunks into ChromaDB...")
-        try:
-            saved_count = add_text_chunks(
-                subject_id=selected_subject["id"],
-                subject_name=selected_subject["name"],
-                document_id=document_id,
-                file_name=safe_name,
-                chunks=chunks,
-                user_id=user_id,
-            )
-        except VectorStoreError as exc:
-            saved_count = 0
-            st.warning("Search storage is unavailable right now. The document was still saved.")
-            st.info(
-                "The document metadata and extracted text were saved, but searchable "
-                "chat/quiz/flashcard features need ChromaDB to be available."
-            )
+        saved_count = 0
+        if chunks:
+            try:
+                saved_count = add_text_chunks(
+                    subject_id=selected_subject["id"],
+                    subject_name=selected_subject["name"],
+                    document_id=document_id,
+                    file_name=safe_name,
+                    chunks=chunks,
+                    user_id=user_id,
+                    file_type=file_type,
+                    extraction_method=process_result.get("method", ""),
+                )
+            except VectorStoreError as exc:
+                saved_count = 0
+                st.warning("Search storage is unavailable right now. The document was still saved.")
+                st.info(
+                    "The document metadata and extracted text were saved, but searchable "
+                    "chat/quiz/flashcard features need ChromaDB to be available."
+                )
 
         progress.progress(100, text="Upload complete.")
-        st.success(
-            f"Uploaded `{safe_name}` for {selected_subject['name']} "
-            f"and saved {saved_count} chunks into ChromaDB."
-        )
+        st.success(f"Uploaded `{safe_name}` for {selected_subject['name']}.")
+        if chunks:
+            st.success(f"Saved {saved_count} searchable chunks into ChromaDB.")
+        else:
+            st.warning(
+                "File uploaded, but no readable text was extracted. You can still preview it, "
+                "but AI chat may not use its content."
+            )
+        for warning in process_result.get("warnings", []):
+            st.warning(warning)
 
         with st.expander("Preview extracted text"):
-            st.write(extracted_text[:3000])
+            st.write(extracted_text[:3000] if extracted_text else "No extracted text available.")

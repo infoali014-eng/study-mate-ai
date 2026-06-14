@@ -2,7 +2,17 @@ import re
 from pathlib import Path
 
 
-ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".txt", ".docx", ".pptx"}
+ALLOWED_UPLOAD_EXTENSIONS = {
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".docx",
+    ".pptx",
+    ".txt",
+    ".md",
+}
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
@@ -83,7 +93,7 @@ def sanitize_filename(file_name):
     path = Path(original)
     suffix = path.suffix.lower()
     if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
-        return "", "Only PDF, TXT, DOCX, and PPTX files are allowed."
+        return "", "Only PDF, image, DOCX, PPTX, TXT, and Markdown files are allowed."
 
     safe_stem = re.sub(r"[^A-Za-z0-9._ -]+", "_", path.stem).strip(" ._")
     if not safe_stem:

@@ -358,6 +358,8 @@ For the first lesson response, use exactly these sections:
 8. Common Mistakes
 9. Quick Check Question
 10. Follow-up Suggestions
+Use clean Markdown headings, bullets, and tables. For math or logic topics,
+use formulas, truth tables, ASCII diagrams, or step-by-step solving when useful.
 """
     else:
         response_structure = """
@@ -397,7 +399,7 @@ Student message:
 {response_structure}
 
 Always include a Quick Check question unless the student specifically asks for
-only a concise exam/viva answer. End with 3-5 follow-up suggestions.
+only a concise exam/viva answer. End with 3-5 follow-up suggestions as bullets.
 """
 
 

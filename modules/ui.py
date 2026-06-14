@@ -886,6 +886,42 @@ def apply_theme():
                 color: #14213d;
             }
 
+            [data-testid="stChatMessage"] h1,
+            [data-testid="stChatMessage"] h2,
+            [data-testid="stChatMessage"] h3 {
+                margin-top: 0.8rem;
+                margin-bottom: 0.45rem;
+                color: #101832;
+            }
+
+            [data-testid="stChatMessage"] table {
+                width: 100%;
+                border-collapse: collapse;
+                overflow: hidden;
+                border-radius: 14px;
+                background: #ffffff;
+                box-shadow: 0 8px 20px rgba(31, 78, 121, 0.06);
+            }
+
+            [data-testid="stChatMessage"] th,
+            [data-testid="stChatMessage"] td {
+                border: 1px solid #dbe7ff;
+                padding: 0.55rem 0.65rem;
+                color: #14213d;
+            }
+
+            [data-testid="stChatMessage"] th {
+                background: #eefaff;
+                font-weight: 850;
+            }
+
+            [data-testid="stChatMessage"] pre {
+                border-radius: 16px;
+                border: 1px solid #dbe7ff;
+                background: #f7fbff !important;
+                color: #14213d !important;
+            }
+
             [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
                 background: linear-gradient(135deg, #e8fff9, #eef6ff);
                 border-color: rgba(20, 184, 180, 0.25);

@@ -67,6 +67,10 @@ def create_tables():
                 file_type TEXT DEFAULT 'PDF',
                 extracted_text_path TEXT DEFAULT '',
                 chunk_count INTEGER DEFAULT 0,
+                extraction_method TEXT DEFAULT '',
+                extraction_status TEXT DEFAULT '',
+                warning_message TEXT DEFAULT '',
+                page_count INTEGER DEFAULT 0,
                 description TEXT DEFAULT '',
                 uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 is_deleted INTEGER DEFAULT 0,
@@ -160,6 +164,7 @@ def create_tables():
         _add_missing_column(conn, "subjects", "is_deleted", "INTEGER DEFAULT 0")
         _ensure_subjects_table_allows_per_user_names(conn)
         _run_migrations(conn)
+        _repair_subject_foreign_keys(conn)
 
 
 def _add_missing_column(conn, table_name, column_name, column_definition):
@@ -232,6 +237,10 @@ def _run_migrations(conn):
     _add_missing_column(conn, "uploaded_documents", "file_type", "TEXT DEFAULT 'PDF'")
     _add_missing_column(conn, "uploaded_documents", "description", "TEXT DEFAULT ''")
     _add_missing_column(conn, "uploaded_documents", "is_deleted", "INTEGER DEFAULT 0")
+    _add_missing_column(conn, "uploaded_documents", "extraction_method", "TEXT DEFAULT ''")
+    _add_missing_column(conn, "uploaded_documents", "extraction_status", "TEXT DEFAULT ''")
+    _add_missing_column(conn, "uploaded_documents", "warning_message", "TEXT DEFAULT ''")
+    _add_missing_column(conn, "uploaded_documents", "page_count", "INTEGER DEFAULT 0")
     _add_missing_column(conn, "quiz_results", "user_id", "INTEGER")
     _add_missing_column(conn, "flashcards", "user_id", "INTEGER")
     _add_missing_column(conn, "flashcards", "status", "TEXT DEFAULT 'New'")
@@ -271,6 +280,199 @@ def _run_migrations(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_weak_topics_user ON weak_topics(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_user ON revision_plans(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_user_api_keys_user ON user_api_keys(user_id)")
+    conn.commit()
+
+
+def _table_references_subjects_old(conn, table_name):
+    """Return True when an old migration left a broken subjects_old FK."""
+    rows = conn.execute(f"PRAGMA foreign_key_list({table_name})").fetchall()
+    return any(row["table"] == "subjects_old" for row in rows)
+
+
+def _rebuild_table(conn, table_name, create_sql, columns, insert_or_ignore=False):
+    """Rebuild a table while preserving common columns from the old version."""
+    old_table = f"{table_name}_broken_fk"
+    old_columns = [
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    ]
+    insert_columns = [column for column in columns if column in old_columns]
+    if not insert_columns:
+        return
+
+    conn.execute(f"ALTER TABLE {table_name} RENAME TO {old_table}")
+    conn.execute(create_sql)
+    insert_mode = "INSERT OR IGNORE" if insert_or_ignore else "INSERT"
+    column_csv = ", ".join(insert_columns)
+    conn.execute(
+        f"""
+        {insert_mode} INTO {table_name} ({column_csv})
+        SELECT {column_csv}
+        FROM {old_table}
+        """
+    )
+    conn.execute(f"DROP TABLE {old_table}")
+
+
+def _repair_subject_foreign_keys(conn):
+    """Repair older databases whose child tables still reference subjects_old."""
+    tables = [
+        "uploaded_documents",
+        "quiz_results",
+        "flashcards",
+        "weak_topics",
+        "revision_plans",
+    ]
+    if not any(_table_references_subjects_old(conn, table) for table in tables):
+        return
+
+    conn.execute("PRAGMA foreign_keys = OFF")
+
+    if _table_references_subjects_old(conn, "uploaded_documents"):
+        _rebuild_table(
+            conn,
+            "uploaded_documents",
+            """
+            CREATE TABLE uploaded_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                subject_id INTEGER NOT NULL,
+                file_name TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_type TEXT DEFAULT 'PDF',
+                extracted_text_path TEXT DEFAULT '',
+                chunk_count INTEGER DEFAULT 0,
+                extraction_method TEXT DEFAULT '',
+                extraction_status TEXT DEFAULT '',
+                warning_message TEXT DEFAULT '',
+                page_count INTEGER DEFAULT 0,
+                description TEXT DEFAULT '',
+                uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_deleted INTEGER DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE CASCADE
+            )
+            """,
+            [
+                "id",
+                "user_id",
+                "subject_id",
+                "file_name",
+                "file_path",
+                "file_type",
+                "extracted_text_path",
+                "chunk_count",
+                "extraction_method",
+                "extraction_status",
+                "warning_message",
+                "page_count",
+                "description",
+                "uploaded_at",
+                "is_deleted",
+            ],
+        )
+
+    if _table_references_subjects_old(conn, "quiz_results"):
+        _rebuild_table(
+            conn,
+            "quiz_results",
+            """
+            CREATE TABLE quiz_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                subject_id INTEGER NOT NULL,
+                score INTEGER NOT NULL,
+                total_questions INTEGER NOT NULL,
+                topic TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE CASCADE
+            )
+            """,
+            ["id", "user_id", "subject_id", "score", "total_questions", "topic", "created_at"],
+        )
+
+    if _table_references_subjects_old(conn, "flashcards"):
+        _rebuild_table(
+            conn,
+            "flashcards",
+            """
+            CREATE TABLE flashcards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                subject_id INTEGER NOT NULL,
+                question TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                topic TEXT DEFAULT '',
+                status TEXT DEFAULT 'New',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE CASCADE
+            )
+            """,
+            ["id", "user_id", "subject_id", "question", "answer", "topic", "status", "created_at"],
+        )
+
+    if _table_references_subjects_old(conn, "weak_topics"):
+        _rebuild_table(
+            conn,
+            "weak_topics",
+            """
+            CREATE TABLE weak_topics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                subject_id INTEGER NOT NULL,
+                topic TEXT NOT NULL,
+                weakness_score INTEGER DEFAULT 1,
+                notes TEXT DEFAULT '',
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, subject_id, topic),
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE CASCADE
+            )
+            """,
+            ["id", "user_id", "subject_id", "topic", "weakness_score", "notes", "updated_at"],
+            insert_or_ignore=True,
+        )
+
+    if _table_references_subjects_old(conn, "revision_plans"):
+        _rebuild_table(
+            conn,
+            "revision_plans",
+            """
+            CREATE TABLE revision_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                subject_id INTEGER NOT NULL,
+                exam_date TEXT NOT NULL,
+                preparation_level INTEGER NOT NULL,
+                confidence_level INTEGER NOT NULL,
+                weak_topics TEXT DEFAULT '',
+                plan_text TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE CASCADE
+            )
+            """,
+            [
+                "id",
+                "user_id",
+                "subject_id",
+                "exam_date",
+                "preparation_level",
+                "confidence_level",
+                "weak_topics",
+                "plan_text",
+                "created_at",
+            ],
+        )
+
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_user ON uploaded_documents(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_quiz_user ON quiz_results(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_flashcards_user ON flashcards(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_weak_topics_user ON weak_topics(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_user ON revision_plans(user_id)")
     conn.commit()
 
 
@@ -640,6 +842,10 @@ def save_uploaded_document_metadata(
     extracted_text_path="",
     file_type="PDF",
     description="",
+    extraction_method="",
+    extraction_status="",
+    warning_message="",
+    page_count=0,
     user_id=None,
 ):
     """Save metadata for an uploaded document and return the document id."""
@@ -649,8 +855,12 @@ def save_uploaded_document_metadata(
         cursor = conn.execute(
             """
             INSERT INTO uploaded_documents
-                (user_id, subject_id, file_name, file_path, file_type, extracted_text_path, chunk_count, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (
+                    user_id, subject_id, file_name, file_path, file_type,
+                    extracted_text_path, chunk_count, extraction_method,
+                    extraction_status, warning_message, page_count, description
+                )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -660,6 +870,10 @@ def save_uploaded_document_metadata(
                 file_type.upper(),
                 extracted_text_path,
                 chunk_count,
+                extraction_method,
+                extraction_status,
+                warning_message,
+                int(page_count or 0),
                 description.strip(),
             ),
         )

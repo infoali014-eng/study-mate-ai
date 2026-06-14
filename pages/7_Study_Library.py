@@ -15,6 +15,8 @@ from modules.database import (
 from modules.file_preview import (
     file_exists,
     get_file_download_button,
+    preview_extracted_text,
+    preview_image,
     preview_pdf,
     preview_text_file,
 )
@@ -25,6 +27,17 @@ from modules.vector_store import VectorStoreError, delete_document_vectors
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
+FILE_ICONS = {
+    "PDF": "\U0001f4c4",
+    "PNG": "\U0001f5bc\ufe0f",
+    "JPG": "\U0001f5bc\ufe0f",
+    "JPEG": "\U0001f5bc\ufe0f",
+    "WEBP": "\U0001f5bc\ufe0f",
+    "DOCX": "\U0001f4dd",
+    "PPTX": "\U0001f4ca",
+    "TXT": "\U0001f4c3",
+    "MD": "\U0001f4c3",
+}
 
 
 def ask_selected_ai(prompt):
@@ -92,8 +105,12 @@ def set_subject_filter(subject_name):
 def material_row(document):
     """Render one clean material list row."""
     file_type = (document["file_type"] or "PDF").upper()
-    file_icon = "\U0001f4c4" if file_type == "PDF" else "\U0001f4dd"
+    file_icon = FILE_ICONS.get(file_type, "\U0001f4c1")
     description = document["description"] or "No description added."
+    extraction_status = document["extraction_status"] or (
+        "Text extracted" if int(document["chunk_count"] or 0) else "Text not found"
+    )
+    extraction_method = document["extraction_method"] or "unknown"
 
     with st.container(border=True):
         info_col, action_col = st.columns([6, 3])
@@ -112,10 +129,11 @@ def material_row(document):
                         Subject: {html.escape(document['subject_name'])}
                         <span>|</span> Type: {html.escape(file_type)}
                         <span>|</span> Chunks: {int(document['chunk_count'] or 0)}
+                        <span>|</span> Status: {html.escape(extraction_status)}
                         <span>|</span> Uploaded: {html.escape(document['uploaded_at'])}
                     </div>
                     <div class="material-row-description" title="{html.escape(description)}">
-                        {html.escape(description)}
+                        {html.escape(description)} Method: {html.escape(extraction_method)}.
                     </div>
                 </div>
                 """,
@@ -160,7 +178,10 @@ def render_document_details(document):
             st.markdown(f"### {document['file_name']}")
             st.caption(
                 f"{document['subject_name']} | {(document['file_type'] or 'PDF').upper()} | "
-                f"{document['chunk_count']} chunks | Uploaded: {document['uploaded_at']}"
+                f"{document['chunk_count']} chunks | "
+                f"Status: {document['extraction_status'] or 'Unknown'} | "
+                f"Method: {document['extraction_method'] or 'unknown'} | "
+                f"Uploaded: {document['uploaded_at']}"
             )
         with top_right:
             if st.button("Close Preview", use_container_width=True):
@@ -171,6 +192,8 @@ def render_document_details(document):
 
         if document["description"]:
             st.write(document["description"])
+        if document["warning_message"]:
+            st.warning(document["warning_message"])
 
         original_path = document["file_path"]
         file_type = (document["file_type"] or Path(document["file_name"]).suffix.replace(".", "") or "PDF").upper()
@@ -184,8 +207,17 @@ def render_document_details(document):
             if file_type == "PDF":
                 st.info("PDF preview is embedded below. If your browser blocks it, use the download button.")
                 preview_pdf(original_path)
-            elif file_type == "TXT":
+                with st.expander("Extracted text preview", expanded=False):
+                    preview_extracted_text(extracted_text)
+            elif file_type in {"PNG", "JPG", "JPEG", "WEBP"}:
+                preview_image(original_path)
+                st.markdown("**Extracted OCR text**")
+                preview_extracted_text(extracted_text)
+            elif file_type in {"TXT", "MD"}:
                 preview_text_file(original_path)
+            elif file_type in {"DOCX", "PPTX"}:
+                st.info("Preview uses extracted text. Download the original file for full formatting.")
+                preview_extracted_text(extracted_text)
             else:
                 st.info("Preview is not available for this file type, but you can open or download the file.")
 

@@ -596,7 +596,19 @@ Style instruction: {style_instruction}
 Student question:
 {question}
 
-Answer with readable Markdown. Be detailed, organized, and useful for exam preparation.
+Answer with clean, study-friendly Markdown. For non-trivial questions, use a natural subset of:
+# Topic Title
+## Simple Explanation
+## Key Points
+## Example
+## Visual / Table
+## Exam-Style Answer
+## Common Mistakes
+## Quick Revision Tip
+## Follow-up Suggestions
+
+Do not force every section for simple questions. Use tables, formulas, ASCII diagrams,
+or step-by-step layouts when they make the answer easier to study.
 """
 
 
