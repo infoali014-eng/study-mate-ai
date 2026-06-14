@@ -72,7 +72,9 @@ def generate_flashcards(subject_id, topic, card_count=8, model=None, user_id=Non
         }
 
     prompt = f"""
-You are StudyMate AI. Create flashcards using only the notes below.
+{ai_engine.build_study_assistant_system_prompt()}
+
+Create flashcards using only the notes below.
 
 Return only valid JSON. Do not add markdown.
 The JSON must be an array of objects.

@@ -216,7 +216,8 @@ def render_document_details(document):
             elif document["id"] not in st.session_state.library_summary:
                 with st.spinner("Generating summary with the selected AI provider..."):
                     prompt = (
-                        "Summarize these study notes for a student. Keep it clear, "
+                        f"{ai_engine.build_study_assistant_system_prompt()}\n\n"
+                        "Summarize these study notes for the signed-in student. Keep it clear, "
                         "organized, and exam-focused.\n\n"
                         f"NOTES:\n{extracted_text[:6000]}"
                     )

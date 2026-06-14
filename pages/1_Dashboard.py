@@ -1,6 +1,6 @@
 import streamlit as st
 
-from modules.auth import require_login
+from modules.auth import get_current_user_display_name, require_login
 from modules.database import (
     create_subject,
     delete_subject,
@@ -28,9 +28,9 @@ apply_theme()
 sidebar_nav()
 
 page_header(
-    f"Welcome back, {st.session_state.get('user_name', 'Student')} \U0001f44b",
+    f"Welcome back, {get_current_user_display_name()} \U0001f44b",
     "Let's organize your subjects, notes, quizzes, and revision plans.",
-    "Ali's Study Command Center",
+    f"{get_current_user_display_name()}'s Study Command Center",
 )
 
 if "subject_pending_delete" not in st.session_state:

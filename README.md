@@ -1,6 +1,6 @@
 # StudyMate AI
 
-StudyMate AI is Ali Shair's personal exam preparation workspace for organizing notes, chatting with study material, generating quizzes, reviewing flashcards, and planning revision.
+StudyMate AI is a secure, multi-user exam preparation workspace for organizing notes, chatting with study material, generating quizzes, reviewing flashcards, and planning revision.
 
 It is built with Streamlit, SQLite, PyMuPDF, ChromaDB, Gemini, optional Ollama local mode, and Demo Mode fallback.
 
@@ -155,6 +155,7 @@ Add your own Gemini key:
 ```text
 GEMINI_API_KEY=your_gemini_api_key_here
 GROQ_API_KEY=your_groq_api_key_here
+APP_ENCRYPTION_KEY=replace_with_a_long_random_secret_for_saved_user_keys
 ```
 
 If you do not use Groq, leave the Groq placeholder as it is.
@@ -174,6 +175,8 @@ REQUIRE_USER_API_KEYS=true
 ```
 
 Only set this to `false` for a private app where you intentionally want everyone to use one shared app key.
+
+To let signed-in users save their own Gemini keys securely, set `APP_ENCRYPTION_KEY` in `.env` locally or in Streamlit Cloud secrets. Use a long random value and never commit the real value.
 
 ### 7. Run The App
 
@@ -209,9 +212,10 @@ Inside the app sidebar:
 2. Select `Gemini`
 3. Confirm Gemini model is `gemini-2.0-flash`
 4. Paste your own Gemini API key into the password field
-5. Click `Test Gemini Connection`
+5. Click `Save Gemini Key` if `APP_ENCRYPTION_KEY` is configured, or `Use Temporarily` for the current browser session
+6. Click `Test Gemini Connection`
 
-For public deployments, each user must paste their own key. The key is stored only in that user's current browser session.
+For public deployments, each user must use their own key. Saved keys are encrypted and linked to that user's account. Temporary keys stay only in that user's current browser session.
 
 ## Google Sign-In Status
 
@@ -280,12 +284,14 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ### Gemini API Key Is Missing
 
 For public deployments, open `AI Settings` and paste your own Gemini key into the password field.
+If the app says API key saving is not configured, add `APP_ENCRYPTION_KEY` in Streamlit secrets or use `Use Temporarily`.
 
 For private local development, check that `.env` exists and contains:
 
 ```text
 GEMINI_API_KEY=your_gemini_api_key_here
 REQUIRE_USER_API_KEYS=false
+APP_ENCRYPTION_KEY=replace_with_a_long_random_secret_for_saved_user_keys
 ```
 
 Then restart Streamlit:

@@ -5,6 +5,7 @@ from pathlib import Path
 import requests
 from dotenv import dotenv_values, load_dotenv
 
+from modules.database import get_user_api_key
 from modules.vector_store import VectorStoreError, query_subject_notes
 
 
@@ -29,8 +30,8 @@ AI_REQUEST_LIMIT = 30
 AI_REQUEST_WINDOW_SECONDS = 300
 
 MISSING_GEMINI_KEY_MESSAGE = (
-    "Gemini API key is missing. Enter your own Gemini API key in AI Settings. "
-    "It is stored only for your current browser session."
+    "Gemini API key is missing. Add it in AI Settings, save it securely for your account, "
+    "or enter a temporary session key."
 )
 
 ANSWER_STYLE_INSTRUCTIONS = {
@@ -70,21 +71,6 @@ RELEVANCE_STOPWORDS = {
     "why",
     "with",
 }
-
-STUDY_ASSISTANT_SYSTEM_PROMPT = """
-You are Ali Shair's AI Study Assistant.
-You help a CS student prepare for exams using uploaded notes and general academic knowledge.
-Give clear, detailed, concept-based, exam-focused answers.
-If uploaded notes do not contain the answer, say that clearly and then answer from general knowledge.
-Use simple English unless the selected style asks for Roman Urdu.
-For academic questions, prefer this structure when useful:
-- Simple explanation
-- Key points
-- Example
-- Exam-style answer
-- Quick revision tip
-"""
-
 
 class AIProviderError(Exception):
     """Raised when the selected AI provider cannot return a response."""
@@ -150,6 +136,44 @@ def _get_streamlit_secret(name):
         return ""
 
 
+def _get_current_user_id():
+    """Return the current Streamlit user id when running inside the app."""
+    try:
+        import streamlit as st
+
+        return st.session_state.get("user_id")
+    except Exception:
+        return None
+
+
+def get_current_user_display_name():
+    """Return the current user's display name for AI prompts."""
+    try:
+        from modules.auth import get_current_user_display_name as auth_display_name
+
+        return auth_display_name()
+    except Exception:
+        return "Student"
+
+
+def build_study_assistant_system_prompt(user_name=None):
+    """Build the shared study assistant system prompt with current user context."""
+    clean_name = (user_name or get_current_user_display_name() or "Student").strip()
+    return f"""
+You are {clean_name}'s AI Study Assistant.
+You help {clean_name} prepare for exams using uploaded notes and general academic knowledge.
+Give clear, detailed, concept-based, exam-focused answers.
+If uploaded notes do not contain the answer, say that clearly and then answer from general knowledge.
+Use simple English unless the selected style asks for Roman Urdu.
+For academic questions, prefer this structure when useful:
+- Simple explanation
+- Key points
+- Example
+- Exam-style answer
+- Quick revision tip
+"""
+
+
 def get_session_ai_settings():
     """Read temporary AI settings saved in Streamlit session state."""
     try:
@@ -183,13 +207,16 @@ def get_gemini_api_key():
     for private deployments where using a shared app key is intentional.
     """
     settings = get_session_ai_settings()
+    user_id = _get_current_user_id()
+    saved_user_key = get_user_api_key(user_id, "gemini") if user_id else ""
     session_key = settings.get("gemini_api_key")
 
     if REQUIRE_USER_API_KEYS:
-        return session_key
+        return saved_user_key or session_key
 
     return (
-        session_key
+        saved_user_key
+        or session_key
         or os.getenv("GEMINI_API_KEY", "")
         or _get_streamlit_secret("GEMINI_API_KEY")
     )
@@ -213,11 +240,15 @@ def get_groq_api_key():
 def get_gemini_key_source():
     """Return where the active Gemini key is coming from, without exposing it."""
     settings = get_session_ai_settings()
+    user_id = _get_current_user_id()
+    if user_id and get_user_api_key(user_id, "gemini"):
+        return "saved securely for this user"
+
     if settings.get("gemini_api_key"):
-        return "AI Settings session password field"
+        return "temporary AI Settings session password field"
 
     if REQUIRE_USER_API_KEYS:
-        return "missing - each user must enter their own key in AI Settings"
+        return "missing - each user must add their own key in AI Settings"
 
     env_file_values = dotenv_values(PROJECT_ROOT / ".env")
     if env_file_values.get("GEMINI_API_KEY"):
@@ -495,7 +526,8 @@ def chat_with_notes(
         }
 
     prompt = f"""
-You are StudyMate AI, a helpful study assistant.
+{build_study_assistant_system_prompt()}
+
 Answer the student's question using only the notes below.
 If the notes do not contain the answer, say that clearly.
 Answer style: {answer_style}
@@ -554,7 +586,7 @@ Then answer helpfully using general academic knowledge.
 """
 
     return f"""
-{STUDY_ASSISTANT_SYSTEM_PROMPT}
+{build_study_assistant_system_prompt()}
 
 Answer style: {answer_style}
 Style instruction: {style_instruction}

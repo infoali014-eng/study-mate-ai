@@ -3,7 +3,13 @@ import time
 import streamlit as st
 from passlib.hash import pbkdf2_sha256
 
-from modules.database import create_user, get_user_by_email, init_db, verify_user_login
+from modules.database import (
+    create_user,
+    get_user_by_email,
+    get_user_by_id,
+    init_db,
+    verify_user_login,
+)
 from modules.security import validate_email, validate_full_name, validate_password
 from modules.ui import apply_theme
 
@@ -95,6 +101,20 @@ def get_current_user():
         "email": st.session_state.get("user_email", ""),
         "auth_provider": st.session_state.get("auth_provider", "email"),
     }
+
+
+def get_current_user_display_name():
+    """Return the signed-in user's name, with a generic fallback."""
+    session_name = str(st.session_state.get("user_name", "")).strip()
+    if session_name:
+        return session_name
+
+    user = get_user_by_id(st.session_state.get("user_id"))
+    if user and str(user["name"]).strip():
+        st.session_state.user_name = user["name"]
+        return str(user["name"]).strip()
+
+    return "Student"
 
 
 def _clear_user_session_state():
@@ -214,7 +234,7 @@ def _signup_form():
     st.divider()
 
     with st.form("signup_form"):
-        full_name = st.text_input("Full name", placeholder="Ali Shair")
+        full_name = st.text_input("Full name", placeholder="Your full name")
         email = st.text_input("Email", placeholder="you@example.com")
         password = st.text_input("Password", type="password")
         confirm_password = st.text_input("Confirm password", type="password")

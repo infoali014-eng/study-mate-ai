@@ -1,6 +1,12 @@
+import base64
+import hashlib
+import os
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+
+from cryptography.fernet import Fernet, InvalidToken
+from dotenv import load_dotenv
 
 from modules.security import is_path_inside
 
@@ -8,6 +14,7 @@ from modules.security import is_path_inside
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "studymate.db"
+load_dotenv(dotenv_path=BASE_DIR / ".env")
 
 
 def get_connection():
@@ -132,6 +139,21 @@ def create_tables():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                provider TEXT NOT NULL,
+                encrypted_api_key TEXT NOT NULL,
+                key_suffix TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, provider),
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+            """
+        )
         conn.commit()
 
         _add_missing_column(conn, "subjects", "user_id", "INTEGER")
@@ -215,6 +237,7 @@ def _run_migrations(conn):
     _add_missing_column(conn, "flashcards", "status", "TEXT DEFAULT 'New'")
     _add_missing_column(conn, "weak_topics", "user_id", "INTEGER")
     _add_missing_column(conn, "revision_plans", "user_id", "INTEGER")
+    _add_missing_column(conn, "user_api_keys", "key_suffix", "TEXT DEFAULT ''")
 
     for table in ["uploaded_documents", "quiz_results", "flashcards", "weak_topics", "revision_plans"]:
         conn.execute(
@@ -247,6 +270,7 @@ def _run_migrations(conn):
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_weak_topics_user ON weak_topics(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_user ON revision_plans(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_api_keys_user ON user_api_keys(user_id)")
     conn.commit()
 
 
@@ -332,6 +356,143 @@ def get_user_by_id(user_id):
             "SELECT * FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
+
+
+def _get_streamlit_secret(name):
+    """Read a Streamlit secret without failing in CLI tests."""
+    try:
+        import streamlit as st
+
+        return st.secrets.get(name, "")
+    except Exception:
+        return ""
+
+
+def get_encryption_key():
+    """
+    Return a Fernet-compatible encryption key.
+
+    APP_ENCRYPTION_KEY can be either a Fernet key or any long random secret. If
+    it is a normal secret string, we derive a Fernet key with SHA-256 so users do
+    not need to understand Fernet formatting.
+    """
+    raw_key = (
+        os.getenv("APP_ENCRYPTION_KEY", "").strip()
+        or _get_streamlit_secret("APP_ENCRYPTION_KEY").strip()
+    )
+    if not raw_key:
+        return None
+
+    try:
+        Fernet(raw_key.encode("utf-8"))
+        return raw_key.encode("utf-8")
+    except Exception:
+        digest = hashlib.sha256(raw_key.encode("utf-8")).digest()
+        return base64.urlsafe_b64encode(digest)
+
+
+def api_key_saving_configured():
+    """Return True when encrypted API key persistence can be used."""
+    return get_encryption_key() is not None
+
+
+def encrypt_secret(value):
+    """Encrypt a secret value with APP_ENCRYPTION_KEY."""
+    key = get_encryption_key()
+    if not key:
+        raise RuntimeError("APP_ENCRYPTION_KEY is not configured.")
+    return Fernet(key).encrypt(value.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_secret(value):
+    """Decrypt a secret value, returning an empty string if it cannot be read."""
+    key = get_encryption_key()
+    if not key or not value:
+        return ""
+    try:
+        return Fernet(key).decrypt(value.encode("utf-8")).decode("utf-8")
+    except (InvalidToken, ValueError):
+        return ""
+
+
+def save_user_api_key(user_id, provider, api_key):
+    """Save one encrypted provider API key for the current user."""
+    clean_provider = (provider or "").strip().lower()
+    clean_key = (api_key or "").strip()
+    if not user_id or not clean_provider or not clean_key:
+        return False
+
+    encrypted_key = encrypt_secret(clean_key)
+    key_suffix = clean_key[-4:] if len(clean_key) >= 4 else ""
+    with closing(get_connection()) as conn:
+        conn.execute(
+            """
+            INSERT INTO user_api_keys (user_id, provider, encrypted_api_key, key_suffix)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id, provider)
+            DO UPDATE SET
+                encrypted_api_key = excluded.encrypted_api_key,
+                key_suffix = excluded.key_suffix,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, clean_provider, encrypted_key, key_suffix),
+        )
+        conn.commit()
+    return True
+
+
+def get_user_api_key(user_id, provider):
+    """Return the decrypted API key for this user/provider only."""
+    clean_provider = (provider or "").strip().lower()
+    if not user_id or not clean_provider or not api_key_saving_configured():
+        return ""
+    with closing(get_connection()) as conn:
+        row = conn.execute(
+            """
+            SELECT encrypted_api_key
+            FROM user_api_keys
+            WHERE user_id = ? AND provider = ?
+            """,
+            (user_id, clean_provider),
+        ).fetchone()
+    if not row:
+        return ""
+    return decrypt_secret(row["encrypted_api_key"])
+
+
+def get_user_api_key_status(user_id, provider):
+    """Return safe metadata about a saved key without exposing the key."""
+    clean_provider = (provider or "").strip().lower()
+    if not user_id or not clean_provider:
+        return None
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            """
+            SELECT provider, key_suffix, created_at, updated_at
+            FROM user_api_keys
+            WHERE user_id = ? AND provider = ?
+            """,
+            (user_id, clean_provider),
+        ).fetchone()
+
+
+def has_user_api_key(user_id, provider):
+    """Return True when a user has a saved key record for this provider."""
+    return get_user_api_key_status(user_id, provider) is not None
+
+
+def delete_user_api_key(user_id, provider):
+    """Delete only the current user's saved provider key."""
+    clean_provider = (provider or "").strip().lower()
+    if not user_id or not clean_provider:
+        return False
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            "DELETE FROM user_api_keys WHERE user_id = ? AND provider = ?",
+            (user_id, clean_provider),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 def subject_belongs_to_user(subject_id, user_id):

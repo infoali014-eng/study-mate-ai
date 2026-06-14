@@ -1,9 +1,10 @@
 import html
+from datetime import datetime
 
 import streamlit as st
 
 from modules import ai_engine
-from modules.auth import require_login
+from modules.auth import get_current_user_display_name, require_login
 from modules.database import get_documents_by_subject, get_subjects, init_db
 from modules.security import validate_chat_question
 from modules.ui import (
@@ -118,16 +119,45 @@ def render_follow_up_suggestions(message_index, suggestions):
                 st.rerun()
 
 
+def _chat_messages_key():
+    """Return the active chat history key for the logged-in user."""
+    return f"study_chat_messages_user_{st.session_state.get('user_id', 'guest')}"
+
+
+def _chat_messages():
+    """Return this user's active session chat history."""
+    key = _chat_messages_key()
+    if key not in st.session_state:
+        st.session_state[key] = []
+    st.session_state.study_chat_messages = st.session_state[key]
+    return st.session_state[key]
+
+
+def _set_chat_messages(messages):
+    """Replace only this user's active session chat history."""
+    key = _chat_messages_key()
+    st.session_state[key] = messages
+    st.session_state.study_chat_messages = st.session_state[key]
+
+
+def _message_timestamp():
+    """Return a simple timestamp for chat history records."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 def add_chat_pair(question, answer_data, context):
     """Append one user message and one assistant response to session history."""
-    st.session_state.study_chat_messages.append(
+    messages = _chat_messages()
+    timestamp = _message_timestamp()
+    messages.append(
         {
             "role": "user",
             "content": question,
             "context": context,
+            "created_at": timestamp,
         }
     )
-    st.session_state.study_chat_messages.append(
+    messages.append(
         {
             "role": "assistant",
             "content": answer_data["answer"],
@@ -136,13 +166,14 @@ def add_chat_pair(question, answer_data, context):
             "source_count": answer_data["source_count"],
             "context": context,
             "suggestions": answer_data.get("suggestions", []),
+            "created_at": _message_timestamp(),
         }
     )
 
 
 def add_assistant_message(answer_data, context):
     """Append only an assistant response, used when regenerating."""
-    st.session_state.study_chat_messages.append(
+    _chat_messages().append(
         {
             "role": "assistant",
             "content": answer_data["answer"],
@@ -151,13 +182,14 @@ def add_assistant_message(answer_data, context):
             "source_count": answer_data["source_count"],
             "context": context,
             "suggestions": answer_data.get("suggestions", []),
+            "created_at": _message_timestamp(),
         }
     )
 
 
 def _compact_chat_history(limit=6):
     """Return a compact recent chat history for tutor continuity."""
-    recent_messages = st.session_state.get("study_chat_messages", [])[-limit:]
+    recent_messages = st.session_state.get(_chat_messages_key(), [])[-limit:]
     lines = []
     for message in recent_messages:
         role = "Student" if message.get("role") == "user" else "Tutor"
@@ -420,7 +452,7 @@ def generate_teach_me_answer(question, context, first_lesson=False):
         )
     else:
         prompt = build_teach_me_prompt(
-            user_name=st.session_state.get("user_name", "Student"),
+            user_name=get_current_user_display_name(),
             topic=context.get("topic", "this topic"),
             learning_level=context.get("learning_level", "Normal"),
             language_style=context.get("language_style", "Simple English"),
@@ -482,7 +514,7 @@ def generate_chat_answer(question, answer_style, chat_mode, context):
         )
 
     prompt = f"""
-You are Ali Shair's AI Study Assistant.
+You are {get_current_user_display_name()}'s AI Study Assistant.
 Answer this student question clearly and in a study-friendly way.
 Answer style: {answer_style}
 
@@ -579,7 +611,7 @@ sidebar_nav()
 page_header(
     "Chat With Notes",
     "Ask from your notes, selected documents, or general AI knowledge.",
-    "Ali's Study Chatbot",
+    f"{get_current_user_display_name()}'s Study Chatbot",
 )
 
 feature1, feature2, feature3 = st.columns(3)
@@ -590,8 +622,7 @@ with feature2:
 with feature3:
     render_feature_card("Exam-ready answers", "Get explanations, examples, key points, and revision tips.", "\U0001f4dd", "#ffb703", "#fff3c4")
 
-if "study_chat_messages" not in st.session_state:
-    st.session_state.study_chat_messages = []
+_chat_messages()
 if "study_chat_last_question" not in st.session_state:
     st.session_state.study_chat_last_question = ""
 if "study_chat_last_request" not in st.session_state:
@@ -694,7 +725,7 @@ with st.container(border=True):
     action_col1, action_col2 = st.columns([1, 1])
     with action_col1:
         if st.button("New Chat", use_container_width=True):
-            st.session_state.study_chat_messages = []
+            _set_chat_messages([])
             st.session_state.study_chat_last_question = ""
             st.session_state.study_chat_last_request = None
             st.session_state.study_chat_teach_context = {}
@@ -872,19 +903,22 @@ if prefill_question:
         st.rerun()
 
 section_title("Conversation", "\U0001f4ac")
-if not st.session_state.study_chat_messages:
+messages = _chat_messages()
+if not messages:
     render_empty_state(
         "Ask anything about your notes, subjects, or studies.",
         "Use General Chat or choose a subject/note above, then type at the bottom.",
         "\U0001f4ad",
     )
 
-for message_index, message in enumerate(st.session_state.study_chat_messages):
+for message_index, message in enumerate(messages):
     avatar = "\U0001f468\u200d\U0001f393" if message["role"] == "user" else "\U0001f916"
     with st.chat_message(message["role"], avatar=avatar):
         message_context = message.get("context", {})
         if message_context:
             st.caption(f"{message_context.get('badge', 'Chat')} | {message_context.get('label', '')}")
+        if message.get("created_at"):
+            st.caption(message["created_at"])
 
         if message.get("warning"):
             st.warning(message["warning"])
@@ -904,8 +938,9 @@ for message_index, message in enumerate(st.session_state.study_chat_messages):
 
 if st.session_state.get("study_chat_regenerate"):
     st.session_state.study_chat_regenerate = False
-    if st.session_state.study_chat_messages and st.session_state.study_chat_messages[-1]["role"] == "assistant":
-        st.session_state.study_chat_messages.pop()
+    messages = _chat_messages()
+    if messages and messages[-1]["role"] == "assistant":
+        messages.pop()
 
     last_request = st.session_state.study_chat_last_request
     if last_request:

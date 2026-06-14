@@ -59,7 +59,9 @@ def generate_revision_plan(
     weak_topic_text = ", ".join(weak_topics) if weak_topics else "No weak topics selected"
 
     prompt = f"""
-You are StudyMate AI, an offline study planner for students.
+{ai_engine.build_study_assistant_system_prompt()}
+
+You are also an offline study planner for students.
 Create a practical day-wise revision plan.
 
 Subject: {subject_name}

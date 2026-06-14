@@ -4,7 +4,13 @@ import streamlit as st
 
 from modules import ai_engine
 from modules.auth import require_login
-from modules.database import init_db
+from modules.database import (
+    api_key_saving_configured,
+    delete_user_api_key,
+    get_user_api_key_status,
+    init_db,
+    save_user_api_key,
+)
 from modules.ui import (
     apply_theme,
     page_header,
@@ -18,8 +24,8 @@ GEMINI_MODEL = getattr(ai_engine, "GEMINI_MODEL", "gemini-2.0-flash")
 OLLAMA_MODEL = getattr(ai_engine, "OLLAMA_MODEL", "llama3.2")
 GROQ_MODEL = getattr(ai_engine, "GROQ_MODEL", "llama-3.1-8b-instant")
 MISSING_KEY_MESSAGE = (
-    "Gemini API key is missing. Enter your own Gemini API key in AI Settings. "
-    "It is stored only for your current browser session."
+    "Gemini API key is missing. Add it in AI Settings, save it securely for your account, "
+    "or enter a temporary session key."
 )
 
 
@@ -80,7 +86,7 @@ feature1, feature2, feature3 = st.columns(3)
 with feature1:
     render_feature_card(
         "User-owned Gemini",
-        "Each visitor enters their own Gemini key for this browser session.",
+        "Each visitor uses their own saved or temporary Gemini key.",
         "\u2728",
         "#14b8b4",
         "#d8fff6",
@@ -136,16 +142,67 @@ with st.container(border=True):
 
 section_title("API Key", "\U0001f512")
 with st.container(border=True):
+    saved_key_status = get_user_api_key_status(user_id, "gemini")
+    saving_ready = api_key_saving_configured()
+
+    if saved_key_status and saving_ready:
+        suffix = saved_key_status["key_suffix"] or "****"
+        st.success(f"Gemini API key saved securely. Key ending in ****{suffix}.")
+    elif saved_key_status:
+        st.warning(
+            "A saved Gemini key record exists, but API key saving is not configured on this server. "
+            "Add APP_ENCRYPTION_KEY to unlock saved keys, or use a temporary key."
+        )
+    elif saving_ready:
+        st.info("No saved Gemini API key for this account yet.")
+    else:
+        st.warning(
+            "API key saving is not configured. Add APP_ENCRYPTION_KEY in Streamlit secrets "
+            "or environment variables to store keys securely."
+        )
+
     entered_key = st.text_input(
         "Gemini API key",
         type="password",
-        placeholder="Paste key for this browser session only",
-        help="This is stored only in Streamlit session state and is never printed.",
+        placeholder="Paste Gemini key",
+        help="The key is never displayed or printed. Save it securely, or use it temporarily for this session.",
+        key="gemini_key_entry",
     )
 
-    if entered_key:
-        st.session_state.gemini_api_key = entered_key
-        st.success("Gemini API key saved for this session only.")
+    save_label = "Replace Saved Gemini Key" if saved_key_status else "Save Gemini Key"
+    save_col, temp_col, remove_col = st.columns(3)
+    with save_col:
+        if st.button(save_label, type="primary", use_container_width=True):
+            clean_key = entered_key.strip()
+            if not clean_key:
+                st.warning("Paste a Gemini API key first.")
+            elif not saving_ready:
+                st.error("Secure key saving is not configured. Add APP_ENCRYPTION_KEY first.")
+            else:
+                try:
+                    save_user_api_key(user_id, "gemini", clean_key)
+                    st.session_state.pop("gemini_api_key", None)
+                    st.success("Gemini API key saved securely for this account.")
+                    st.rerun()
+                except Exception:
+                    st.error("Could not save the Gemini API key securely. Check APP_ENCRYPTION_KEY.")
+
+    with temp_col:
+        if st.button("Use Temporarily", use_container_width=True):
+            clean_key = entered_key.strip()
+            if not clean_key:
+                st.warning("Paste a Gemini API key first.")
+            else:
+                st.session_state.gemini_api_key = clean_key
+                st.success("Gemini API key saved for this browser session only.")
+                st.rerun()
+
+    with remove_col:
+        if st.button("Remove Saved Key", use_container_width=True):
+            delete_user_api_key(user_id, "gemini")
+            st.session_state.pop("gemini_api_key", None)
+            st.success("Saved Gemini key removed for this account.")
+            st.rerun()
 
     if has_gemini_key():
         st.success(f"Gemini API key is available from: {gemini_key_source()}.")
@@ -154,13 +211,14 @@ with st.container(border=True):
 
     if getattr(ai_engine, "user_api_keys_required", lambda: True)():
         st.info(
-            "Public app mode is active: every user must enter their own Gemini key. "
-            "Streamlit secrets or .env keys are not used for visitors, so your quota is protected."
+            "Public app mode is active: Gemini uses the signed-in user's saved key first, "
+            "then their temporary session key. Shared deployment keys are not used unless "
+            "REQUIRE_USER_API_KEYS=false is configured intentionally."
         )
 
-    if st.button("Clear Gemini Key From This Session", use_container_width=True):
+    if st.button("Clear Temporary Gemini Key From This Session", use_container_width=True):
         st.session_state.pop("gemini_api_key", None)
-        st.success("Gemini key removed from this browser session.")
+        st.success("Temporary Gemini key removed from this browser session.")
         st.rerun()
 
     if st.button("Test Gemini Connection", type="primary", use_container_width=True):

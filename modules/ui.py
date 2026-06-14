@@ -1145,9 +1145,9 @@ def apply_theme():
 
 def sidebar_nav():
     """Render shared sidebar navigation."""
-    user_name = st.session_state.get("user_name", "Ali Shair")
+    user_name = st.session_state.get("user_name", "Student")
     user_email = st.session_state.get("user_email", "")
-    initials = "".join(part[0] for part in user_name.split()[:2]).upper() or "AS"
+    initials = "".join(part[0] for part in user_name.split()[:2]).upper() or "ST"
     escaped_name = html.escape(user_name)
     escaped_email = html.escape(user_email)
 
@@ -1189,7 +1189,7 @@ def sidebar_nav():
         <div class="sidebar-helper">
             <div class="sidebar-helper-icon">&#129302;</div>
             <strong>StudyMate AI</strong>
-            <p>Personalized study power for Ali Shair.</p>
+            <p>Your personal exam preparation workspace.</p>
         </div>
         """,
         unsafe_allow_html=True,

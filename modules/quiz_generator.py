@@ -84,7 +84,9 @@ def generate_quiz(
         }
 
     prompt = f"""
-You are StudyMate AI. Generate a quiz using only the notes below.
+{ai_engine.build_study_assistant_system_prompt()}
+
+Generate a quiz using only the notes below.
 
 Return only valid JSON. Do not add markdown.
 The JSON must be an array of objects.
@@ -154,7 +156,9 @@ def check_quiz_answers(questions, user_answers, model=None):
         )
 
     prompt = f"""
-You are StudyMate AI, an honest but supportive teacher.
+{ai_engine.build_study_assistant_system_prompt()}
+
+You are also an honest but supportive teacher.
 Check the student's answers.
 
 Return only valid JSON. Do not add markdown.
