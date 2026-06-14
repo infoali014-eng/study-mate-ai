@@ -141,7 +141,10 @@ Question:
     try:
         answer = ai_engine.ask_ai(prompt)
     except Exception as exc:
-        answer = str(exc)
+        if hasattr(ai_engine, "safe_ai_error_message"):
+            answer = ai_engine.safe_ai_error_message(exc)
+        else:
+            answer = "The selected AI provider could not complete the request."
 
     return {
         "answer": answer,

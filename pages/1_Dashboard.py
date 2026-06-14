@@ -123,8 +123,8 @@ with right:
                             try:
                                 try:
                                     delete_subject_vectors(subject["id"], user_id=user_id)
-                                except VectorStoreError as exc:
-                                    st.warning(str(exc))
+                                except VectorStoreError:
+                                    st.warning("Could not clean search chunks right now.")
 
                                 deleted = delete_subject(subject["id"], user_id=user_id)
 

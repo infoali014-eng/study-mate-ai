@@ -90,6 +90,13 @@ class AIProviderError(Exception):
     """Raised when the selected AI provider cannot return a response."""
 
 
+def safe_ai_error_message(exc):
+    """Return a user-safe AI error without leaking URLs, keys, or stack details."""
+    if isinstance(exc, AIProviderError):
+        return str(exc)
+    return "The selected AI provider could not complete the request. Please try again or switch provider."
+
+
 def _check_ai_rate_limit():
     """Limit rapid AI requests per Streamlit browser session."""
     try:
@@ -506,7 +513,7 @@ ANSWER:
     try:
         answer = ask_ai(prompt, provider=provider, model=model)
     except Exception as exc:
-        answer = str(exc)
+        answer = safe_ai_error_message(exc)
 
     return {
         "answer": answer,
@@ -638,7 +645,7 @@ def generate_study_chat_response(
     try:
         answer = ask_ai(prompt)
     except Exception as exc:
-        answer = str(exc)
+        answer = safe_ai_error_message(exc)
 
     return {
         "answer": answer,

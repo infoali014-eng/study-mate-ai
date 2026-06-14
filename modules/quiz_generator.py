@@ -111,7 +111,7 @@ NOTES:
             "sources": matches,
             "error": (
                 "Could not generate quiz with the selected AI provider. "
-                f"Reason: {exc}"
+                f"Reason: {ai_engine.safe_ai_error_message(exc)}"
             ),
         }
 
@@ -178,7 +178,7 @@ QUIZ:
             "results": [],
             "error": (
                 "Could not check answers with the selected AI provider. "
-                f"Reason: {exc}"
+                f"Reason: {ai_engine.safe_ai_error_message(exc)}"
             ),
         }
 

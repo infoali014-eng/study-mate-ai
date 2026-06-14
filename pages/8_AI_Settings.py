@@ -168,7 +168,10 @@ with st.container(border=True):
             response = ai_engine.ask_gemini("Say OK only.")
             st.success(f"Gemini connection works. Response: {response[:40]}")
         except Exception as exc:
-            st.error(str(exc))
+            if hasattr(ai_engine, "safe_ai_error_message"):
+                st.error(ai_engine.safe_ai_error_message(exc))
+            else:
+                st.error("Gemini could not complete the test request.")
             st.info(
                 "If this is a quota/rate-limit message, your key is being found, "
                 "but Google is blocking more Gemini requests right now. You can wait, "

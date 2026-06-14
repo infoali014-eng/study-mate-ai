@@ -16,6 +16,13 @@ USER_SESSION_KEYS = {
     "user_id",
     "user_name",
     "user_email",
+    "gemini_api_key",
+    "groq_api_key",
+    "ai_provider",
+    "gemini_model",
+    "groq_model",
+    "ollama_model",
+    "ai_request_times",
 }
 
 STUDY_SESSION_PREFIXES = (

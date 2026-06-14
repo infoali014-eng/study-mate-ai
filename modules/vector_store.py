@@ -107,6 +107,9 @@ def add_text_chunks(subject_id, subject_name, document_id, file_name, chunks, us
         return 0
 
     clean_user_id = _safe_user_id(user_id)
+    if clean_user_id is None:
+        raise VectorStoreError("Cannot save note chunks without a logged-in user.")
+
     ids = [
         f"user-{clean_user_id}-subject-{subject_id}-document-{document_id}-chunk-{index}"
         for index in range(len(chunks))
@@ -180,6 +183,9 @@ def _build_chroma_filter(subject_id=None, document_ids=None, user_id=None):
 
 def query_subject_notes(subject_id, question, limit=5, document_ids=None, user_id=None):
     """Find the most relevant notes for a question in one subject/doc filter."""
+    if user_id is None:
+        return []
+
     query_embedding = _hash_embedding(question)
     chroma_filter = _build_chroma_filter(
         subject_id=subject_id,
@@ -247,6 +253,9 @@ def query_subject_notes(subject_id, question, limit=5, document_ids=None, user_i
 
 def delete_subject_vectors(subject_id, user_id=None):
     """Delete all ChromaDB note chunks saved for one subject."""
+    if user_id is None:
+        return False
+
     where = _build_chroma_filter(subject_id=subject_id, user_id=user_id)
     try:
         collection = _collection()
@@ -271,6 +280,9 @@ def delete_subject_vectors(subject_id, user_id=None):
 
 def delete_document_vectors(document_id, user_id=None):
     """Delete all ChromaDB note chunks saved for one uploaded document."""
+    if user_id is None:
+        return False
+
     where = _build_chroma_filter(document_ids=[document_id], user_id=user_id)
     try:
         collection = _collection()
