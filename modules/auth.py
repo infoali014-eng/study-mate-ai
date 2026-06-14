@@ -224,10 +224,19 @@ def _google_login_button(widget_key):
         type="primary",
         use_container_width=True,
     ):
-        if provider_name:
-            st.login(provider_name)
-        else:
-            st.login()
+        try:
+            if provider_name:
+                st.login(provider_name)
+            else:
+                st.login()
+        except Exception as exc:
+            if exc.__class__.__name__ == "StreamlitMissingAuthlibError":
+                st.error(
+                    "Google login needs the Authlib package. The app owner should "
+                    "redeploy after installing the latest requirements."
+                )
+            else:
+                st.error("Google login could not start. Please check the auth setup.")
 
 
 def _login_form():
