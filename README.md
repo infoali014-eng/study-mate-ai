@@ -8,7 +8,7 @@ It is built with Streamlit, SQLite, PyMuPDF, ChromaDB, Gemini, optional Ollama l
 
 - Create and delete study subjects
 - Email/password login with hashed passwords
-- Optional Google sign-in with Streamlit built-in OIDC
+- Manual email/password authentication with hashed passwords
 - User-isolated subjects, documents, quizzes, flashcards, weak topics, and plans
 - Upload PDF and TXT notes subject-wise
 - Preview uploaded documents in Study Library
@@ -213,91 +213,17 @@ Inside the app sidebar:
 
 For public deployments, each user must paste their own key. The key is stored only in that user's current browser session.
 
-## Optional Google Sign-In
+## Google Sign-In Status
 
-The app supports Google sign-in through Streamlit's built-in OIDC flow. Email/password login still works if Google is not configured.
+Google sign-in is temporarily disabled. Use email/password signup and login.
 
-### Local Google Login Setup
+The app intentionally does not call `st.login()`, `st.logout()`, or `st.user`
+while Google login is disabled, so invalid Google OAuth settings should not
+break the app.
 
-1. Create OAuth credentials in Google Cloud Console.
-2. Add this authorized redirect URI:
+Keep real Google OAuth credentials out of the repository. `.streamlit/secrets.toml` is ignored by Git.
 
-```text
-http://localhost:8507/oauth2callback
-```
-
-Use `8501` instead of `8507` if you run Streamlit on the default port.
-
-3. Copy the example secrets file:
-
-```powershell
-Copy-Item .streamlit\secrets.example.toml .streamlit\secrets.toml
-```
-
-4. Edit `.streamlit/secrets.toml` and add your real Google OAuth values:
-
-```toml
-[auth]
-redirect_uri = "http://localhost:8507/oauth2callback"
-cookie_secret = "replace_with_a_long_random_secret"
-client_id = "your_google_oauth_client_id_here"
-client_secret = "your_google_oauth_client_secret_here"
-server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
-```
-
-5. Restart Streamlit.
-
-`cookie_secret` is any long random string you generate yourself. `client_secret`
-must be the real OAuth client secret copied from Google Cloud Console. Do not
-leave either value as a placeholder.
-
-Keep all Google auth settings inside the single `[auth]` block. Do not add a
-separate `[auth.google]` block.
-
-### Streamlit Cloud Google Login Setup
-
-In Streamlit Cloud, open your app settings and add the same TOML under **Secrets**.
-
-Use your deployed URL plus `/oauth2callback`. For this deployment, the auth
-block should look like this, with your real secret values pasted only in
-Streamlit Cloud Secrets:
-
-```toml
-[auth]
-redirect_uri = "https://infoali014-eng-study-mate-ai-app-f2xtoz.streamlit.app/oauth2callback"
-cookie_secret = "your_cookie_secret_here"
-client_id = "your_google_oauth_client_id_here"
-client_secret = "your_google_oauth_client_secret_here"
-server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
-```
-
-Also add that exact redirect URI in Google Cloud Console.
-
-Never commit real Google OAuth credentials. `.streamlit/secrets.toml` is ignored by Git.
-
-### Google Sign-In Troubleshooting
-
-- Authorized redirect URI in Google Cloud must be exactly:
-
-```text
-https://infoali014-eng-study-mate-ai-app-f2xtoz.streamlit.app/oauth2callback
-```
-
-- Authorized JavaScript origin in Google Cloud must be exactly:
-
-```text
-https://infoali014-eng-study-mate-ai-app-f2xtoz.streamlit.app
-```
-
-- Do not mix `[auth]` credentials with `[auth.google]`. This app uses `[auth]`
-  only.
-- The Continue with Google button uses Streamlit's built-in `st.login()` flow.
-  After Google redirects back, the app syncs `st.user` into the local SQLite user session.
-- Reboot the Streamlit app after changing secrets.
-- Wait 1-2 minutes after changing Google OAuth settings.
-- Test in an incognito browser.
-- Check **Manage app > Logs** for the newest error if sign-in still fails.
-- Do not paste real secrets into chat or commit them.
+When Google auth is restored later, add setup instructions in a new change.
 
 ## Basic Use
 

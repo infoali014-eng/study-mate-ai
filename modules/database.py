@@ -29,7 +29,7 @@ def create_tables():
                 name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL DEFAULT '',
-                auth_provider TEXT DEFAULT 'password',
+                auth_provider TEXT DEFAULT 'email',
                 study_goal TEXT DEFAULT '',
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -202,7 +202,7 @@ def _ensure_subjects_table_allows_per_user_names(conn):
 def _run_migrations(conn):
     """Add user scoping and indexes to older databases without losing records."""
     _add_missing_column(conn, "users", "password_hash", "TEXT NOT NULL DEFAULT ''")
-    _add_missing_column(conn, "users", "auth_provider", "TEXT DEFAULT 'password'")
+    _add_missing_column(conn, "users", "auth_provider", "TEXT DEFAULT 'email'")
     _add_missing_column(conn, "users", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
     _add_missing_column(conn, "subjects", "user_id", "INTEGER")
     _add_missing_column(conn, "subjects", "is_deleted", "INTEGER DEFAULT 0")
@@ -255,16 +255,16 @@ def init_db():
     create_tables()
 
 
-def create_user(name, email, password_hash):
+def create_user(name, email, password_hash, auth_provider="email"):
     """Create a user account. Returns the id or None if the email is taken."""
     try:
         with closing(get_connection()) as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO users (name, email, password_hash)
-                VALUES (?, ?, ?)
+                INSERT INTO users (name, email, password_hash, auth_provider)
+                VALUES (?, ?, ?, ?)
                 """,
-                (name, email, password_hash),
+                (name, email, password_hash, auth_provider),
             )
             conn.commit()
             return cursor.lastrowid
@@ -279,6 +279,21 @@ def get_user_by_email(email):
             "SELECT * FROM users WHERE email = ?",
             (email,),
         ).fetchone()
+
+
+def verify_user_login(email, password, verify_password_callback):
+    """Return the user when an email/password pair is valid."""
+    clean_email = (email or "").strip().lower()
+    if not clean_email or not password:
+        return None
+
+    user = get_user_by_email(clean_email)
+    if not user:
+        return None
+
+    if verify_password_callback(password, user["password_hash"]):
+        return user
+    return None
 
 
 def get_or_create_oauth_user(email, full_name, provider="google"):

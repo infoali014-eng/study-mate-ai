@@ -3,19 +3,13 @@ import time
 import streamlit as st
 from passlib.hash import pbkdf2_sha256
 
-from modules.database import (
-    create_user,
-    get_or_create_oauth_user,
-    get_user_by_email,
-    init_db,
-)
+from modules.database import create_user, get_user_by_email, init_db, verify_user_login
 from modules.security import validate_email, validate_full_name, validate_password
 from modules.ui import apply_theme
 
 
 FAILED_LOGIN_LIMIT = 5
 FAILED_LOGIN_WAIT_SECONDS = 60
-GOOGLE_LOGIN_TEMPORARILY_DISABLED = True
 GOOGLE_DISABLED_MESSAGE = (
     "Google login is temporarily disabled. Please use email/password login."
 )
@@ -56,33 +50,55 @@ STUDY_SESSION_KEYS = {
 
 
 def hash_password(password):
-    """Hash a password with passlib before storing it."""
+    """Hash a password before it is saved in SQLite."""
     return pbkdf2_sha256.hash(password)
 
 
 def verify_password(password, password_hash):
-    """Verify a password without exposing whether an email exists."""
+    """Verify a password without exposing whether the account exists."""
     try:
-        return pbkdf2_sha256.verify(password, password_hash)
+        return pbkdf2_sha256.verify(password, password_hash or "")
     except Exception:
         return False
 
 
-def is_logged_in():
-    """Return True when a local app user is present in session state."""
+def is_authenticated():
+    """Return True when a local email/password user is signed in."""
     return bool(
         st.session_state.get("authenticated")
         and st.session_state.get("user_id")
     )
 
 
-def current_user_id():
-    """Return the current user id from Streamlit session state."""
+def is_logged_in():
+    """Compatibility helper used by older pages."""
+    return is_authenticated()
+
+
+def get_current_user_id():
+    """Return the current signed-in user's id."""
     return st.session_state.get("user_id")
 
 
-def _clear_study_session_state():
-    """Remove user-specific page state during logout."""
+def current_user_id():
+    """Compatibility helper used by older pages."""
+    return get_current_user_id()
+
+
+def get_current_user():
+    """Return the current signed-in user's safe profile fields."""
+    if not is_authenticated():
+        return None
+    return {
+        "id": st.session_state.get("user_id"),
+        "name": st.session_state.get("user_name", ""),
+        "email": st.session_state.get("user_email", ""),
+        "auth_provider": st.session_state.get("auth_provider", "email"),
+    }
+
+
+def _clear_user_session_state():
+    """Remove user-specific state during logout."""
     keys_to_remove = []
     for key in list(st.session_state.keys()):
         if key in USER_SESSION_KEYS or key in STUDY_SESSION_KEYS:
@@ -95,21 +111,28 @@ def _clear_study_session_state():
         st.session_state.pop(key, None)
 
 
-def logout():
-    """Log out of the local app session and Streamlit Google auth if active."""
-    google_logged_in = (
-        False
-        if GOOGLE_LOGIN_TEMPORARILY_DISABLED
-        else _streamlit_user_is_logged_in()
-    )
-    _clear_study_session_state()
+def login_user(user, message=None):
+    """Store the authenticated user's safe profile in session state."""
+    st.session_state.authenticated = True
+    st.session_state.auth_provider = "email"
+    st.session_state.user_id = user["id"]
+    st.session_state.user_name = user["name"]
+    st.session_state.user_email = user["email"]
+    st.session_state.failed_login_attempts = []
+    if message:
+        st.session_state.auth_message = message
+
+
+def logout_user():
+    """Clear the local email/password session and return to login."""
+    _clear_user_session_state()
     st.session_state.auth_message = "You have been logged out safely."
-
-    if google_logged_in and hasattr(st, "logout"):
-        st.logout()
-        return
-
     st.rerun()
+
+
+def logout():
+    """Compatibility helper used by the sidebar logout button."""
+    logout_user()
 
 
 def _record_failed_login():
@@ -138,274 +161,56 @@ def _login_is_rate_limited():
     return len(attempts) >= FAILED_LOGIN_LIMIT
 
 
-def _set_logged_in_user(user, provider="password"):
-    """Save only safe profile fields in session state."""
-    st.session_state.authenticated = True
-    st.session_state.auth_provider = provider
-    st.session_state.user_id = user["id"]
-    st.session_state.user_name = user["name"]
-    st.session_state.user_email = user["email"]
-    st.session_state.failed_login_attempts = []
-
-
-def _streamlit_user_is_logged_in():
-    """Return True when Streamlit OIDC has authenticated a Google user."""
-    try:
-        return bool(st.user.is_logged_in)
-    except Exception:
-        try:
-            return bool(st.user.get("is_logged_in", False))
-        except Exception:
-            return False
-
-
-def _streamlit_user_value(key, default=""):
-    """Read a st.user field safely across Streamlit versions."""
-    try:
-        value = getattr(st.user, key)
-    except Exception:
-        try:
-            value = st.user.get(key, default)
-        except Exception:
-            value = default
-    return value or default
-
-
-def _get_auth_config():
-    """Read the Streamlit auth config without exposing secret values."""
-    try:
-        return st.secrets.get("auth", {})
-    except Exception:
-        return {}
-
-
-def _looks_like_placeholder(value):
-    """Detect placeholder OAuth values before starting Google login."""
-    lowered = str(value or "").strip().lower()
-    if not lowered:
-        return True
-    return any(
-        marker in lowered
-        for marker in ["your_", "paste_", "replace_", "placeholder", "xxx"]
-    )
-
-
-def check_google_auth_config():
-    """
-    Safely inspect Streamlit Google auth configuration.
-
-    This app uses Streamlit's default OIDC flow, so Google credentials must be
-    directly under [auth]. This function never returns secret values.
-    """
-    required_keys = [
-        "redirect_uri",
-        "cookie_secret",
-        "client_id",
-        "client_secret",
-        "server_metadata_url",
-    ]
-
-    try:
-        auth_config = _get_auth_config()
-        if not hasattr(auth_config, "get"):
-            auth_config = {}
-        key_status = {key: bool(auth_config.get(key)) for key in required_keys}
-        placeholder_status = {
-            key: _looks_like_placeholder(auth_config.get(key))
-            for key in required_keys
-        }
-        has_named_provider = bool(auth_config.get("google"))
-        redirect_uri = str(auth_config.get("redirect_uri", ""))
-    except Exception:
-        auth_config = {}
-        key_status = {key: False for key in required_keys}
-        placeholder_status = {key: True for key in required_keys}
-        has_named_provider = False
-        redirect_uri = ""
-
-    missing_keys = [key for key, exists in key_status.items() if not exists]
-    placeholder_keys = [
-        key
-        for key, is_placeholder in placeholder_status.items()
-        if key_status.get(key) and is_placeholder
-    ]
-
-    return {
-        "exists": bool(auth_config),
-        "mode": "streamlit",
-        "has_named_provider": has_named_provider,
-        "key_status": key_status,
-        "missing_keys": missing_keys,
-        "placeholder_keys": placeholder_keys,
-        "redirect_uri": redirect_uri,
-        "is_ready": bool(auth_config)
-        and not has_named_provider
-        and not missing_keys
-        and not placeholder_keys,
-    }
-
-
-def _google_auth_setup_error():
-    """Return a friendly setup message when Google auth secrets are incomplete."""
-    config = check_google_auth_config()
-    if not config["exists"]:
-        return "Google login is not configured yet. Email/password login is available."
-
-    if config["has_named_provider"]:
-        return (
-            "Google login uses Streamlit's default [auth] block. Move client_id, "
-            "client_secret, and server_metadata_url directly under [auth] and "
-            "remove [auth.google]."
-        )
-
-    if config["missing_keys"]:
-        return (
-            "Google login is missing this Streamlit secret value: "
-            f"{config['missing_keys'][0]}."
-        )
-
-    if config["placeholder_keys"]:
-        return (
-            "Google login still has a placeholder value for: "
-            f"{config['placeholder_keys'][0]}."
-        )
-
-    return ""
-
-
-def _google_login_is_configured():
-    """Return True when Streamlit Google auth settings exist."""
-    return check_google_auth_config()["is_ready"]
-
-
-def sync_google_user_to_local_session():
-    """
-    Sync Streamlit's authenticated Google user into the local SQLite user table.
-
-    This must run before the login page is rendered, otherwise the app can
-    bounce back to login after Google redirects to /oauth2callback.
-    """
-    if GOOGLE_LOGIN_TEMPORARILY_DISABLED or not _streamlit_user_is_logged_in():
-        return False
-
-    email = str(_streamlit_user_value("email", "")).strip().lower()
-    if not email:
-        st.error("Google login succeeded, but no email address was returned.")
-        return False
-
-    name = (
-        _streamlit_user_value("name", "")
-        or _streamlit_user_value("given_name", "")
-        or email.split("@")[0]
-    )
-
-    try:
-        local_user = get_or_create_oauth_user(
-            email=email,
-            full_name=str(name)[:80],
-            provider="google",
-        )
-    except Exception:
-        st.error("Google login succeeded, but local account setup failed. Please try again.")
-        return False
-
-    if not local_user:
-        st.error("Google login succeeded, but local account setup failed. Please try again.")
-        return False
-
-    _set_logged_in_user(local_user, provider="google")
-    return True
-
-
-def _google_login_button(widget_key):
-    """Render the optional Google login button using Streamlit's official flow."""
-    if GOOGLE_LOGIN_TEMPORARILY_DISABLED:
-        st.info(GOOGLE_DISABLED_MESSAGE)
-        return
-
-    setup_error = _google_auth_setup_error()
-    if setup_error:
-        st.info(setup_error)
-        return
-
-    if not hasattr(st, "login"):
-        st.info("Google login needs a newer Streamlit version.")
-        return
-
-    if st.button(
-        "Continue with Google",
-        key=widget_key,
-        type="primary",
-        use_container_width=True,
-    ):
-        try:
-            st.login()
-        except Exception as exc:
-            if exc.__class__.__name__ == "StreamlitMissingAuthlibError":
-                st.error(
-                    "Google login needs the Authlib package. Redeploy after "
-                    "installing the latest requirements."
-                )
-            else:
-                st.error("Google login could not start. Please check the auth setup.")
-
-
-def _render_google_auth_debug():
-    """Show safe Google auth diagnostics without revealing secrets."""
-    config = check_google_auth_config()
-    with st.expander("Google login diagnostics", expanded=False):
-        st.write(f"Streamlit version: {st.__version__}")
-        st.write(f"Google login disabled: {GOOGLE_LOGIN_TEMPORARILY_DISABLED}")
-        st.write("Auth mode: Streamlit built-in OIDC")
-        st.write(f"Auth config exists: {config['exists']}")
-        st.write(f"Named provider block present: {config['has_named_provider']}")
-        st.write(f"Redirect URI configured: {bool(config['redirect_uri'])}")
-        if GOOGLE_LOGIN_TEMPORARILY_DISABLED:
-            st.write("st.user checks skipped: Google login is disabled")
-        else:
-            st.write(f"st.user logged in: {_streamlit_user_is_logged_in()}")
-            st.write(f"st.user email exists: {bool(_streamlit_user_value('email', ''))}")
-        st.write(f"local user_id set: {bool(st.session_state.get('user_id'))}")
-        st.write(f"auth_provider: {st.session_state.get('auth_provider', '')}")
-        for key, exists in config["key_status"].items():
-            st.write(f"{key}: {'present' if exists else 'missing'}")
+def _disabled_google_note():
+    """Show the current temporary Google login status."""
+    st.info(GOOGLE_DISABLED_MESSAGE)
 
 
 def _login_form():
-    """Render the login form."""
-    _google_login_button("google_login_from_login_tab")
+    """Render and process manual email/password login."""
+    _disabled_google_note()
     st.divider()
 
     with st.form("login_form"):
         email = st.text_input("Email", placeholder="you@example.com")
         password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
+        submitted = st.form_submit_button(
+            "Log In",
+            type="primary",
+            use_container_width=True,
+        )
 
-    if submitted:
-        if _login_is_rate_limited():
-            st.warning("Too many failed attempts. Please wait a moment and try again.")
-            return
+    if not submitted:
+        return
 
-        clean_email, email_error = validate_email(email)
-        if email_error:
-            _record_failed_login()
-            st.error("Invalid email or password.")
-            return
+    if _login_is_rate_limited():
+        st.warning("Too many failed attempts. Please wait a moment and try again.")
+        return
 
-        user = get_user_by_email(clean_email)
-        if not user or not verify_password(password, user["password_hash"]):
-            _record_failed_login()
-            st.error("Invalid email or password.")
-            return
+    clean_email, email_error = validate_email(email)
+    if email_error:
+        _record_failed_login()
+        st.error("Invalid email or password.")
+        return
 
-        _set_logged_in_user(user, provider="password")
-        st.success("Logged in successfully.")
-        st.rerun()
+    if not password:
+        _record_failed_login()
+        st.error("Invalid email or password.")
+        return
+
+    user = verify_user_login(clean_email, password, verify_password)
+    if not user:
+        _record_failed_login()
+        st.error("Invalid email or password.")
+        return
+
+    login_user(user, message=f"Welcome back, {user['name']}!")
+    st.rerun()
 
 
 def _signup_form():
-    """Render the signup form."""
-    _google_login_button("google_login_from_signup_tab")
+    """Render and process manual email/password signup."""
+    _disabled_google_note()
     st.divider()
 
     with st.form("signup_form"):
@@ -413,39 +218,54 @@ def _signup_form():
         email = st.text_input("Email", placeholder="you@example.com")
         password = st.text_input("Password", type="password")
         confirm_password = st.text_input("Confirm password", type="password")
-        submitted = st.form_submit_button("Create Account", type="primary", use_container_width=True)
-
-    if submitted:
-        clean_name, name_error = validate_full_name(full_name)
-        clean_email, email_error = validate_email(email)
-        password_error = validate_password(password)
-
-        if name_error:
-            st.warning(name_error)
-            return
-        if email_error:
-            st.warning(email_error)
-            return
-        if password_error:
-            st.warning(password_error)
-            return
-        if password != confirm_password:
-            st.warning("Passwords do not match.")
-            return
-
-        user_id = create_user(
-            name=clean_name,
-            email=clean_email,
-            password_hash=hash_password(password),
+        submitted = st.form_submit_button(
+            "Create Account",
+            type="primary",
+            use_container_width=True,
         )
-        if not user_id:
-            st.error("Could not create this account. Please check your details or try again.")
-            return
 
-        user = get_user_by_email(clean_email)
-        _set_logged_in_user(user, provider="password")
-        st.success("Account created successfully.")
-        st.rerun()
+    if not submitted:
+        return
+
+    clean_name, name_error = validate_full_name(full_name)
+    clean_email, email_error = validate_email(email)
+    password_error = validate_password(password)
+
+    if name_error:
+        st.warning(name_error)
+        return
+    if email_error:
+        st.warning(email_error)
+        return
+    if password_error:
+        st.warning(password_error)
+        return
+    if password != confirm_password:
+        st.warning("Passwords do not match.")
+        return
+
+    if get_user_by_email(clean_email):
+        st.warning("An account with this email already exists. Please log in.")
+        return
+
+    password_hash = hash_password(password)
+    user_id = create_user(
+        name=clean_name,
+        email=clean_email,
+        password_hash=password_hash,
+        auth_provider="email",
+    )
+    if not user_id:
+        st.error("Could not create this account. Please try again.")
+        return
+
+    user = get_user_by_email(clean_email)
+    if not user:
+        st.error("Account created, but login could not start. Please log in.")
+        return
+
+    login_user(user, message=f"Account created successfully. Welcome, {clean_name}!")
+    st.rerun()
 
 
 def render_auth_screen():
@@ -458,7 +278,7 @@ def render_auth_screen():
                 <div class="hero-kicker">SECURE STUDY WORKSPACE</div>
                 <h1>StudyMate AI</h1>
                 <p>Log in to keep your notes, quizzes, flashcards, and plans separate from other users.</p>
-                <div class="auth-note">Your notes are kept separate from other users.</div>
+                <div class="auth-note">Manual email/password login is active.</div>
             </div>
         </div>
         """,
@@ -474,18 +294,15 @@ def render_auth_screen():
     with signup_tab:
         _signup_form()
 
-    _render_google_auth_debug()
-
 
 def require_login():
     """Block a page until the visitor logs in."""
     init_db()
 
-    if sync_google_user_to_local_session():
-        return current_user_id()
-
-    if is_logged_in():
-        return current_user_id()
+    if is_authenticated():
+        if st.session_state.get("auth_message"):
+            st.success(st.session_state.pop("auth_message"))
+        return get_current_user_id()
 
     render_auth_screen()
     st.stop()
