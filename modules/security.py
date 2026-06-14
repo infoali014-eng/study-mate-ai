@@ -13,7 +13,8 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     ".txt",
     ".md",
 }
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_MB = 100
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 
 def clean_text(value, max_length=200):
@@ -110,7 +111,7 @@ def validate_upload(uploaded_file):
 
     size = getattr(uploaded_file, "size", 0) or 0
     if size > MAX_UPLOAD_BYTES:
-        return "", "This file is too large. Please upload a file under 25 MB."
+        return "", f"This file is too large. Please upload a file under {MAX_UPLOAD_MB} MB."
 
     return safe_name, ""
 
