@@ -1,11 +1,12 @@
-import re
 from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
 
+from modules.auth import require_login
 from modules.database import get_subjects, init_db, save_uploaded_document_metadata
 from modules.pdf_reader import extract_text_from_pdf
+from modules.security import validate_description, validate_upload
 from modules.text_splitter import split_text
 from modules.ui import (
     apply_theme,
@@ -23,27 +24,14 @@ UPLOAD_DIR = BASE_DIR / "data" / "uploads"
 EXTRACTED_TEXT_DIR = BASE_DIR / "data" / "extracted_text"
 
 
-def safe_folder_name(name):
-    """Turn a subject name into a safe folder name."""
-    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
-    return safe.strip("_") or "subject"
-
-
-def safe_file_name(file_name):
-    """Keep uploaded file names safe for local storage."""
-    path = Path(file_name)
-    safe_stem = re.sub(r"[^a-zA-Z0-9_-]+", "_", path.stem).strip("_")
-    safe_suffix = path.suffix.lower() or ".pdf"
-    return f"{safe_stem or 'notes'}{safe_suffix}"
-
-
 def build_unique_file_path(folder, file_name):
     """Create a PDF path that will not overwrite an older upload."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return folder / f"{timestamp}_{safe_file_name(file_name)}"
+    return folder / f"{timestamp}_{file_name}"
 
 
 st.set_page_config(page_title="Upload Notes - StudyMate AI", layout="wide")
+user_id = require_login()
 init_db()
 apply_theme()
 sidebar_nav()
@@ -62,7 +50,7 @@ with feature2:
 with feature3:
     render_feature_card("Local memory", "Save vectors subject-wise in ChromaDB for offline AI search.", "\U0001f4be", "#8b5cf6", "#efe7ff")
 
-subjects = get_subjects()
+subjects = get_subjects(user_id=user_id)
 if not subjects:
     render_empty_state(
         "No subjects available.",
@@ -87,14 +75,20 @@ if uploaded_file:
     st.write(f"Selected file: `{uploaded_file.name}`")
 
     if st.button("Process Document", type="primary", use_container_width=True):
-        subject_folder = UPLOAD_DIR / safe_folder_name(selected_subject["name"])
-        text_subject_folder = EXTRACTED_TEXT_DIR / safe_folder_name(selected_subject["name"])
+        safe_name, validation_error = validate_upload(uploaded_file)
+        if validation_error:
+            st.error(validation_error)
+            st.stop()
+
+        clean_description = validate_description(document_description)
+        subject_folder = UPLOAD_DIR / str(user_id) / str(selected_subject["id"])
+        text_subject_folder = EXTRACTED_TEXT_DIR / str(user_id) / str(selected_subject["id"])
         subject_folder.mkdir(parents=True, exist_ok=True)
         text_subject_folder.mkdir(parents=True, exist_ok=True)
 
-        file_path = build_unique_file_path(subject_folder, uploaded_file.name)
+        file_path = build_unique_file_path(subject_folder, safe_name)
         text_path = text_subject_folder / file_path.with_suffix(".txt").name
-        file_type = Path(uploaded_file.name).suffix.replace(".", "").upper() or "PDF"
+        file_type = Path(safe_name).suffix.replace(".", "").upper() or "PDF"
 
         progress = st.progress(0, text="Saving uploaded document...")
         file_path.write_bytes(uploaded_file.getbuffer())
@@ -120,13 +114,19 @@ if uploaded_file:
         progress.progress(70, text="Saving document metadata in SQLite...")
         document_id = save_uploaded_document_metadata(
             subject_id=selected_subject["id"],
-            file_name=uploaded_file.name,
+            file_name=safe_name,
             file_path=str(file_path),
             file_type=file_type,
             extracted_text_path=str(text_path),
             chunk_count=len(chunks),
-            description=document_description,
+            description=clean_description,
+            user_id=user_id,
         )
+
+        if not document_id:
+            progress.empty()
+            st.error("Access denied. This subject does not belong to your account.")
+            st.stop()
 
         progress.progress(85, text="Saving chunks into ChromaDB...")
         try:
@@ -134,12 +134,13 @@ if uploaded_file:
                 subject_id=selected_subject["id"],
                 subject_name=selected_subject["name"],
                 document_id=document_id,
-                file_name=uploaded_file.name,
+                file_name=safe_name,
                 chunks=chunks,
+                user_id=user_id,
             )
         except VectorStoreError as exc:
             saved_count = 0
-            st.warning(str(exc))
+            st.warning("Search storage is unavailable right now. The document was still saved.")
             st.info(
                 "The document metadata and extracted text were saved, but searchable "
                 "chat/quiz/flashcard features need ChromaDB to be available."
@@ -147,10 +148,9 @@ if uploaded_file:
 
         progress.progress(100, text="Upload complete.")
         st.success(
-            f"Uploaded `{uploaded_file.name}` for {selected_subject['name']} "
+            f"Uploaded `{safe_name}` for {selected_subject['name']} "
             f"and saved {saved_count} chunks into ChromaDB."
         )
-        st.info(f"SQLite document id: {document_id}")
 
         with st.expander("Preview extracted text"):
             st.write(extracted_text[:3000])

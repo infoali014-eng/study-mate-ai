@@ -4,6 +4,7 @@ from pathlib import Path
 import streamlit as st
 
 from modules import ai_engine
+from modules.auth import require_login
 from modules.database import (
     delete_document,
     get_all_documents,
@@ -17,8 +18,13 @@ from modules.file_preview import (
     preview_pdf,
     preview_text_file,
 )
+from modules.security import is_path_inside
 from modules.ui import apply_theme, render_empty_state, section_title, sidebar_nav
 from modules.vector_store import VectorStoreError, delete_document_vectors
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
 
 
 def ask_selected_ai(prompt):
@@ -31,7 +37,9 @@ def ask_selected_ai(prompt):
 def read_extracted_text(document):
     """Return extracted text for a document when it is available."""
     text_path = document["extracted_text_path"]
-    if text_path and Path(text_path).exists():
+    user_id = st.session_state.get("user_id")
+    allowed_root = DATA_DIR / "extracted_text" / str(user_id)
+    if text_path and is_path_inside(allowed_root, text_path) and Path(text_path).exists():
         return Path(text_path).read_text(encoding="utf-8", errors="ignore")
     return ""
 
@@ -45,6 +53,9 @@ def open_document(document):
 
 def chat_with_document(document):
     """Send the selected document context to Chat With Notes."""
+    if not get_document_by_id(document["id"], user_id=st.session_state.get("user_id")):
+        st.error("Access denied. This document does not belong to your account.")
+        return
     st.session_state.chat_prefill_subject_id = document["subject_id"]
     st.session_state.chat_prefill_document_id = document["id"]
     st.session_state.chat_prefill_question = f"Explain {document['file_name']}"
@@ -163,8 +174,11 @@ def render_document_details(document):
 
         original_path = document["file_path"]
         file_type = (document["file_type"] or Path(document["file_name"]).suffix.replace(".", "") or "PDF").upper()
+        allowed_root = DATA_DIR / "uploads" / str(st.session_state.get("user_id"))
 
-        if not file_exists(original_path):
+        if not is_path_inside(allowed_root, original_path):
+            st.error("Access denied. This file does not belong to your account.")
+        elif not file_exists(original_path):
             st.error("Original file not found. Please re-upload this document.")
         else:
             if file_type == "PDF":
@@ -208,8 +222,8 @@ def render_document_details(document):
                     )
                     try:
                         st.session_state.library_summary[document["id"]] = ask_selected_ai(prompt)
-                    except Exception as exc:
-                        st.error(f"Could not generate summary. Technical detail: {exc}")
+                    except Exception:
+                        st.error("Could not generate summary with the selected AI provider.")
 
         if document["id"] in st.session_state.library_summary:
             st.markdown("**Generated Summary**")
@@ -240,6 +254,7 @@ def apply_filters(documents, selected_subject, selected_file_type, search_text):
 
 
 st.set_page_config(page_title="Study Library - StudyMate AI", layout="wide")
+user_id = require_login()
 init_db()
 apply_theme()
 sidebar_nav()
@@ -275,8 +290,8 @@ if st.session_state.library_success:
     st.success(st.session_state.library_success)
     st.session_state.library_success = ""
 
-subjects = get_subjects()
-documents = get_all_documents()
+subjects = get_subjects(user_id=user_id)
+documents = get_all_documents(user_id=user_id)
 
 subject_names = ["All"] + [subject["name"] for subject in subjects]
 file_types = ["All types"] + sorted({(document["file_type"] or "PDF").upper() for document in documents})
@@ -358,12 +373,15 @@ else:
 
 selected_document_id = st.session_state.library_selected_document
 if selected_document_id:
-    selected_document = get_document_by_id(selected_document_id)
+    selected_document = get_document_by_id(selected_document_id, user_id=user_id)
     if selected_document:
         render_document_details(selected_document)
+    else:
+        st.error("Access denied. This document does not belong to your account.")
+        st.session_state.library_selected_document = None
 
 if st.session_state.library_pending_delete:
-    pending_doc = get_document_by_id(st.session_state.library_pending_delete)
+    pending_doc = get_document_by_id(st.session_state.library_pending_delete, user_id=user_id)
     if pending_doc:
         st.warning(
             f"Are you sure you want to delete `{pending_doc['file_name']}`? "
@@ -374,11 +392,11 @@ if st.session_state.library_pending_delete:
             if st.button("Yes, delete document", type="primary", use_container_width=True):
                 try:
                     try:
-                        delete_document_vectors(pending_doc["id"])
+                        delete_document_vectors(pending_doc["id"], user_id=user_id)
                     except VectorStoreError as exc:
-                        st.warning(str(exc))
+                        st.warning("Could not clean search chunks right now.")
 
-                    deleted = delete_document(pending_doc["id"])
+                    deleted = delete_document(pending_doc["id"], user_id=user_id)
                     if deleted:
                         st.session_state.library_pending_delete = None
                         st.session_state.library_selected_document = None
@@ -387,8 +405,8 @@ if st.session_state.library_pending_delete:
                         st.rerun()
                     else:
                         st.error("Document was not found or was already deleted.")
-                except Exception as exc:
-                    st.error(f"Could not delete this document. Technical detail: {exc}")
+                except Exception:
+                    st.error("Could not delete this document. Please try again.")
         with cancel_col:
             if st.button("Cancel delete", use_container_width=True):
                 st.session_state.library_pending_delete = None

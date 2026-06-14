@@ -1,6 +1,7 @@
 import streamlit as st
 
 from modules import ai_engine
+from modules.auth import require_login
 from modules.database import (
     get_subjects,
     init_db,
@@ -8,6 +9,7 @@ from modules.database import (
     update_weak_topic,
 )
 from modules.quiz_generator import check_quiz_answers, generate_quiz
+from modules.security import clean_text
 from modules.ui import (
     apply_theme,
     page_header,
@@ -30,6 +32,7 @@ def get_provider_label():
 
 
 st.set_page_config(page_title="Quiz Mode - StudyMate AI", layout="wide")
+user_id = require_login()
 init_db()
 apply_theme()
 sidebar_nav()
@@ -48,7 +51,7 @@ with feature2:
 with feature3:
     render_feature_card("AI marking", "Get marks, feedback, and weak-topic tracking.", "\U0001f4dd", "#14b8b4", "#d8fff6")
 
-subjects = get_subjects()
+subjects = get_subjects(user_id=user_id)
 if not subjects:
     render_empty_state(
         "No quiz source yet.",
@@ -96,16 +99,18 @@ if "quiz_feedback" not in st.session_state:
     st.session_state.quiz_feedback = None
 
 if generate_button:
-    if not topic.strip():
+    clean_topic = clean_text(topic, max_length=120)
+    if not clean_topic:
         st.warning("Please enter a topic.")
     else:
         with st.spinner("Searching uploaded notes and generating quiz with the selected AI provider..."):
             quiz_data = generate_quiz(
                 subject_id=selected_subject["id"],
-                topic=topic,
+                topic=clean_topic,
                 question_type=question_type,
                 difficulty=difficulty,
                 question_count=int(question_count),
+                user_id=user_id,
             )
 
         if quiz_data["error"]:
@@ -116,7 +121,7 @@ if generate_button:
             st.session_state.quiz_data = {
                 "subject_id": selected_subject["id"],
                 "subject_name": selected_subject["name"],
-                "topic": topic,
+                "topic": clean_topic,
                 "question_type": question_type,
                 "difficulty": difficulty,
                 "questions": quiz_data["questions"],
@@ -186,6 +191,7 @@ if quiz_data:
                 score=score,
                 total_questions=total,
                 topic=quiz_data["topic"],
+                user_id=user_id,
             )
 
             if score < total:
@@ -194,6 +200,7 @@ if quiz_data:
                     topic=quiz_data["topic"],
                     weakness_score=total - score,
                     notes=f"Quiz result: {score}/{total}",
+                    user_id=user_id,
                 )
 
             st.session_state.quiz_feedback = {
@@ -208,8 +215,7 @@ feedback = st.session_state.quiz_feedback
 if feedback:
     section_title("Marks and Feedback", "\U0001f31f")
     st.success(
-        f"Score: {feedback['score']} / {feedback['total']} "
-        f"| Saved quiz result id: {feedback['result_id']}"
+        f"Score: {feedback['score']} / {feedback['total']} | Quiz result saved."
     )
 
     for result in feedback["results"]:

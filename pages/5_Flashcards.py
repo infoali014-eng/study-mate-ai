@@ -1,7 +1,9 @@
 import streamlit as st
 
 from modules import ai_engine
+from modules.auth import require_login
 from modules.database import (
+    delete_flashcards_by_subject,
     get_flashcards,
     get_subjects,
     init_db,
@@ -10,6 +12,7 @@ from modules.database import (
     update_weak_topic,
 )
 from modules.flashcard_generator import generate_flashcards
+from modules.security import clean_text
 from modules.ui import (
     apply_theme,
     page_header,
@@ -28,6 +31,7 @@ def get_provider_label():
 
 
 st.set_page_config(page_title="Flashcards - StudyMate AI", layout="wide")
+user_id = require_login()
 init_db()
 apply_theme()
 sidebar_nav()
@@ -46,7 +50,7 @@ with feature2:
 with feature3:
     render_feature_card("Track weak cards", "Mark cards as Learned or Weak for revision planning.", "\U0001f4cc", "#14b8b4", "#d8fff6")
 
-subjects = get_subjects()
+subjects = get_subjects(user_id=user_id)
 if not subjects:
     render_empty_state(
         "No flashcard source yet.",
@@ -94,16 +98,20 @@ if "flashcard_review_index" not in st.session_state:
     st.session_state.flashcard_review_index = 0
 if "show_flashcard_answer" not in st.session_state:
     st.session_state.show_flashcard_answer = False
+if "flashcard_pending_delete_set" not in st.session_state:
+    st.session_state.flashcard_pending_delete_set = None
 
 if generate_button:
-    if not topic.strip():
+    clean_topic = clean_text(topic, max_length=120)
+    if not clean_topic:
         st.warning("Please enter a topic.")
     else:
         with st.spinner("Searching uploaded notes and generating flashcards with the selected AI provider..."):
             generated = generate_flashcards(
                 subject_id=selected_subject["id"],
-                topic=topic,
+                topic=clean_topic,
                 card_count=int(card_count),
+                user_id=user_id,
             )
 
         if generated["error"]:
@@ -117,7 +125,8 @@ if generate_button:
                     subject_id=selected_subject["id"],
                     question=card["question"],
                     answer=card["answer"],
-                    topic=topic,
+                    topic=clean_topic,
+                    user_id=user_id,
                 )
                 saved_count += 1
 
@@ -133,7 +142,7 @@ if generate_button:
                         st.markdown(f"**Source {index}: {file_name}**")
                         st.write(source["text"])
 
-saved_cards = get_flashcards(subject_id=selected_subject["id"])
+saved_cards = get_flashcards(subject_id=selected_subject["id"], user_id=user_id)
 
 section_title("Review Flashcards", "\U0001f4d8")
 
@@ -159,6 +168,30 @@ metric1.metric("Total", total_cards)
 metric2.metric("New", new_count)
 metric3.metric("Learned", learned_count)
 metric4.metric("Weak", weak_count)
+
+if st.button("Delete This Flashcard Set", use_container_width=True):
+    st.session_state.flashcard_pending_delete_set = selected_subject["id"]
+
+if st.session_state.flashcard_pending_delete_set == selected_subject["id"]:
+    st.warning(
+        "Are you sure you want to delete this flashcard set? "
+        "All flashcards for this subject will be removed from your account."
+    )
+    confirm_delete, cancel_delete = st.columns(2)
+    with confirm_delete:
+        if st.button("Yes, delete flashcards", type="primary", use_container_width=True):
+            if delete_flashcards_by_subject(selected_subject["id"], user_id=user_id):
+                st.session_state.flashcard_pending_delete_set = None
+                st.session_state.flashcard_review_index = 0
+                st.session_state.show_flashcard_answer = False
+                st.success("Flashcard set deleted successfully.")
+                st.rerun()
+            else:
+                st.error("Could not delete this flashcard set.")
+    with cancel_delete:
+        if st.button("Cancel", use_container_width=True):
+            st.session_state.flashcard_pending_delete_set = None
+            st.rerun()
 
 st.progress((current_index + 1) / total_cards)
 
@@ -200,19 +233,20 @@ mark_left, mark_right = st.columns(2)
 
 with mark_left:
     if st.button("Mark as Learned", type="primary", use_container_width=True):
-        update_flashcard_status(current_card["id"], "Learned")
+        update_flashcard_status(current_card["id"], "Learned", user_id=user_id)
         st.session_state.flashcard_review_index = (current_index + 1) % total_cards
         st.session_state.show_flashcard_answer = False
         st.rerun()
 
 with mark_right:
     if st.button("Mark as Weak", use_container_width=True):
-        update_flashcard_status(current_card["id"], "Weak")
+        update_flashcard_status(current_card["id"], "Weak", user_id=user_id)
         update_weak_topic(
             subject_id=selected_subject["id"],
             topic=current_card["topic"] or current_card["question"][:60],
             weakness_score=1,
             notes=f"Weak flashcard: {current_card['question']}",
+            user_id=user_id,
         )
         st.session_state.flashcard_review_index = (current_index + 1) % total_cards
         st.session_state.show_flashcard_answer = False

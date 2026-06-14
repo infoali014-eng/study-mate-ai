@@ -3,6 +3,7 @@ import os
 import streamlit as st
 
 from modules import ai_engine
+from modules.auth import require_login
 from modules.database import init_db
 from modules.ui import (
     apply_theme,
@@ -64,6 +65,7 @@ def normalize_model(model):
 
 
 st.set_page_config(page_title="AI Settings - StudyMate AI", layout="wide")
+user_id = require_login()
 init_db()
 apply_theme()
 sidebar_nav()
@@ -196,6 +198,10 @@ with st.container(border=True):
         st.success("Groq key removed from this browser session.")
         st.rerun()
 
+st.info(
+    "Privacy note: Online AI providers may receive selected note chunks needed to answer "
+    "your question. Use Offline/Demo mode for maximum privacy."
+)
 st.info(
     "Safe setup: public users should paste their own key above. Never commit real keys."
 )

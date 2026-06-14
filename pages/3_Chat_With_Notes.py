@@ -1,7 +1,9 @@
 import streamlit as st
 
 from modules import ai_engine
+from modules.auth import require_login
 from modules.database import get_documents_by_subject, get_subjects, init_db
+from modules.security import validate_chat_question
 from modules.ui import (
     apply_theme,
     page_header,
@@ -117,6 +119,7 @@ def generate_chat_answer(question, answer_style, chat_mode, context):
             subject_id=context["subject_id"],
             document_ids=context["document_ids"],
             context_label=context["label"],
+            user_id=st.session_state.get("user_id"),
         )
 
     if chat_mode != "General Chat" and context["subject_id"] is not None:
@@ -124,6 +127,7 @@ def generate_chat_answer(question, answer_style, chat_mode, context):
             subject_id=context["subject_id"],
             question=question,
             answer_style=answer_style,
+            user_id=st.session_state.get("user_id"),
         )
 
     prompt = f"""
@@ -210,6 +214,7 @@ def build_context(chat_mode, selected_subject, selected_documents):
 
 
 st.set_page_config(page_title="Chat With Notes - StudyMate AI", layout="wide")
+user_id = require_login()
 init_db()
 apply_theme()
 sidebar_nav()
@@ -235,7 +240,7 @@ if "study_chat_last_question" not in st.session_state:
 if "study_chat_last_request" not in st.session_state:
     st.session_state.study_chat_last_request = None
 
-subjects = get_subjects()
+subjects = get_subjects(user_id=user_id)
 prefill_subject_id = st.session_state.pop("chat_prefill_subject_id", None)
 prefill_document_id = st.session_state.pop("chat_prefill_document_id", None)
 prefill_question = st.session_state.pop("chat_prefill_question", "")
@@ -280,7 +285,9 @@ with st.container(border=True):
             selected_subject = next(
                 subject for subject in subjects if subject["name"] == selected_subject_name
             )
-            subject_documents = list(get_documents_by_subject(selected_subject["id"]))
+            subject_documents = list(
+                get_documents_by_subject(selected_subject["id"], user_id=user_id)
+            )
 
             if chat_mode in {"Chat with Specific Notes", "Chat with Multiple Notes"}:
                 if not subject_documents:
@@ -399,6 +406,11 @@ if st.session_state.get("study_chat_regenerate"):
 prompt = st.chat_input("Ask StudyMate anything... Follow-up questions are welcome.")
 
 if prompt:
+    clean_prompt, prompt_error = validate_chat_question(prompt)
+    if prompt_error:
+        st.warning(prompt_error)
+        st.stop()
+
     if chat_mode != "General Chat" and not selected_subject:
         st.warning("Select a subject first, or switch to General Chat.")
         st.stop()
@@ -411,20 +423,20 @@ if prompt:
         st.warning("Select at least one uploaded note first, or switch to General Chat.")
         st.stop()
 
-    st.session_state.study_chat_last_question = prompt
+    st.session_state.study_chat_last_question = clean_prompt
     st.session_state.study_chat_last_request = {
-        "question": prompt,
+        "question": clean_prompt,
         "answer_style": answer_style,
         "chat_mode": chat_mode,
         "context": context,
     }
     with st.spinner("StudyMate is thinking..."):
         answer_data = generate_chat_answer(
-            question=prompt,
+            question=clean_prompt,
             answer_style=answer_style,
             chat_mode=chat_mode,
             context=context,
         )
 
-    add_chat_pair(prompt, answer_data, context)
+    add_chat_pair(clean_prompt, answer_data, context)
     st.rerun()

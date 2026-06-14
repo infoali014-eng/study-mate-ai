@@ -1,5 +1,6 @@
 import streamlit as st
 
+from modules.auth import require_login
 from modules.database import (
     create_subject,
     delete_subject,
@@ -16,16 +17,18 @@ from modules.ui import (
     section_title,
     sidebar_nav,
 )
+from modules.security import validate_description, validate_subject_name
 from modules.vector_store import VectorStoreError, delete_subject_vectors
 
 
 st.set_page_config(page_title="Dashboard - StudyMate AI", layout="wide")
+user_id = require_login()
 init_db()
 apply_theme()
 sidebar_nav()
 
 page_header(
-    "Welcome back, Ali Shair \U0001f44b",
+    f"Welcome back, {st.session_state.get('user_name', 'Student')} \U0001f44b",
     "Let's organize your subjects, notes, quizzes, and revision plans.",
     "Ali's Study Command Center",
 )
@@ -39,7 +42,7 @@ if st.session_state.dashboard_success:
     st.success(st.session_state.dashboard_success)
     st.session_state.dashboard_success = ""
 
-counts = get_dashboard_counts()
+counts = get_dashboard_counts(user_id=user_id)
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     render_stat_card("Subjects", counts["subjects"], "Start your first subject", "\U0001f4da", "#14b8b4", "#d8fff6")
@@ -63,16 +66,18 @@ with left:
         submitted = st.form_submit_button("Create Subject", use_container_width=True)
 
     if submitted:
-        if not name.strip():
-            st.warning("Please enter a subject name.")
-        elif create_subject(name, description):
-            st.success(f"Created subject: {name.strip()}")
+        clean_name, name_error = validate_subject_name(name)
+        clean_description = validate_description(description)
+        if name_error:
+            st.warning(name_error)
+        elif create_subject(clean_name, clean_description, user_id=user_id):
+            st.success(f"Created subject: {clean_name}")
         else:
             st.error("A subject with this name already exists.")
 
 with right:
     section_title("Your Subjects", "\U0001f4da")
-    subjects = get_subjects()
+    subjects = get_subjects(user_id=user_id)
 
     if not subjects:
         render_empty_state(
@@ -117,11 +122,11 @@ with right:
                         ):
                             try:
                                 try:
-                                    delete_subject_vectors(subject["id"])
+                                    delete_subject_vectors(subject["id"], user_id=user_id)
                                 except VectorStoreError as exc:
                                     st.warning(str(exc))
 
-                                deleted = delete_subject(subject["id"])
+                                deleted = delete_subject(subject["id"], user_id=user_id)
 
                                 if deleted:
                                     st.session_state.subject_pending_delete = None
@@ -131,11 +136,8 @@ with right:
                                     st.rerun()
                                 else:
                                     st.error("Subject was not found or was already deleted.")
-                            except Exception as exc:
-                                st.error(
-                                    "Could not delete this subject. "
-                                    f"Technical detail: {exc}"
-                                )
+                            except Exception:
+                                st.error("Could not delete this subject. Please try again.")
 
                     with cancel_col:
                         if st.button(

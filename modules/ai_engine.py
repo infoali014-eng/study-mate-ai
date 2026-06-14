@@ -25,6 +25,8 @@ GEMINI_FALLBACK_MODELS = [
     "gemini-2.5-flash",
 ]
 TEMPORARY_GEMINI_STATUSES = {429, 500, 502, 503, 504}
+AI_REQUEST_LIMIT = 30
+AI_REQUEST_WINDOW_SECONDS = 300
 
 MISSING_GEMINI_KEY_MESSAGE = (
     "Gemini API key is missing. Enter your own Gemini API key in AI Settings. "
@@ -86,6 +88,28 @@ For academic questions, prefer this structure when useful:
 
 class AIProviderError(Exception):
     """Raised when the selected AI provider cannot return a response."""
+
+
+def _check_ai_rate_limit():
+    """Limit rapid AI requests per Streamlit browser session."""
+    try:
+        import streamlit as st
+    except Exception:
+        return
+
+    now = time.time()
+    request_times = st.session_state.get("ai_request_times", [])
+    request_times = [
+        request_time
+        for request_time in request_times
+        if now - request_time < AI_REQUEST_WINDOW_SECONDS
+    ]
+    if len(request_times) >= AI_REQUEST_LIMIT:
+        st.session_state.ai_request_times = request_times
+        raise AIProviderError("You are sending requests too quickly. Please wait a moment.")
+
+    request_times.append(now)
+    st.session_state.ai_request_times = request_times
 
 
 def normalize_gemini_model(model):
@@ -412,6 +436,7 @@ def ask_demo(prompt):
 
 def ask_ai(prompt, provider=None, model=None):
     """Ask the selected AI provider. Gemini is the default provider."""
+    _check_ai_rate_limit()
     selected_provider = provider or get_selected_provider()
 
     if selected_provider == "Gemini":
@@ -439,10 +464,11 @@ def chat_with_notes(
     model=None,
     answer_style="Simple English",
     provider=None,
+    user_id=None,
 ):
     """Answer a student question using only the uploaded notes for a subject."""
     try:
-        matches = query_subject_notes(subject_id, question)
+        matches = query_subject_notes(subject_id, question, user_id=user_id)
     except VectorStoreError as exc:
         return {
             "answer": str(exc),
@@ -570,6 +596,7 @@ def generate_study_chat_response(
     document_ids=None,
     context_label="General Chat",
     limit=5,
+    user_id=None,
 ):
     """Generate a chatbot answer with optional RAG context and sources."""
     sources = []
@@ -583,6 +610,7 @@ def generate_study_chat_response(
                 question=question,
                 limit=limit,
                 document_ids=document_ids,
+                user_id=user_id,
             )
             sources = _filter_relevant_sources(question, sources)
         except VectorStoreError as exc:

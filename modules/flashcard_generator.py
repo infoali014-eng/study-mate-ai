@@ -51,10 +51,10 @@ def _fallback_flashcards(raw_text, card_count):
     return cards[:card_count]
 
 
-def generate_flashcards(subject_id, topic, card_count=8, model=None):
+def generate_flashcards(subject_id, topic, card_count=8, model=None, user_id=None):
     """Generate structured flashcards from uploaded notes."""
     try:
-        matches = query_subject_notes(subject_id, topic, limit=8)
+        matches = query_subject_notes(subject_id, topic, limit=8, user_id=user_id)
     except VectorStoreError as exc:
         return {
             "flashcards": [],
@@ -95,7 +95,7 @@ NOTES:
             "sources": matches,
             "error": (
                 "Could not generate flashcards with the selected AI provider. "
-                f"Technical detail: {exc}"
+                f"Reason: {exc}"
             ),
         }
 

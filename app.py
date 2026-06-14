@@ -1,5 +1,6 @@
 import streamlit as st
 
+from modules.auth import require_login
 from modules.database import init_db
 from modules.ui import apply_theme, page_header, sidebar_nav
 
@@ -10,12 +11,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+user_id = require_login()
 init_db()
 apply_theme()
 sidebar_nav()
 
 page_header(
-    "StudyMate AI",
+    f"Welcome back, {st.session_state.get('user_name', 'Student')}",
     "A local study assistant for notes, quizzes, flashcards, and revision planning.",
     "Offline AI Study Workspace",
 )

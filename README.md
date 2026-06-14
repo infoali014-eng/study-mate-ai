@@ -7,6 +7,8 @@ It is built with Streamlit, SQLite, PyMuPDF, ChromaDB, Gemini, optional Ollama l
 ## Features
 
 - Create and delete study subjects
+- Email/password login with hashed passwords
+- User-isolated subjects, documents, quizzes, flashcards, weak topics, and plans
 - Upload PDF and TXT notes subject-wise
 - Preview uploaded documents in Study Library
 - Extract PDF text with PyMuPDF
@@ -29,6 +31,22 @@ This project ignores private files such as:
 ```
 
 Use `.env.example` as a template only. It must contain placeholders, not real keys.
+
+## Multi-User Security Checklist
+
+Before deploying or sharing the app:
+
+1. Keep `.env` and `.streamlit/secrets.toml` private and never commit them.
+2. Keep `REQUIRE_USER_API_KEYS=true` for public deployments so each visitor uses their own Gemini/Groq key.
+3. Keep the SQLite database and `data/uploads` folder private to the app server.
+4. Test with two separate accounts before sharing the app:
+   - User A creates subjects and uploads notes.
+   - User A logs out.
+   - User B signs up and confirms User A data is not visible.
+5. Confirm uploaded files are saved under `data/uploads/{user_id}/{subject_id}/`.
+6. Confirm Chat, Study Library, Quiz Mode, Flashcards, and Revision Planner only show the logged-in user's data.
+7. Do not expose uploaded files through a public static folder.
+8. Use Streamlit secrets only for private deployments where a shared app key is intentional.
 
 ## Requirements
 

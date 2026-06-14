@@ -61,11 +61,12 @@ def generate_quiz(
     difficulty="Easy",
     question_count=5,
     model=None,
+    user_id=None,
 ):
     """Generate structured quiz questions from uploaded notes."""
     search_text = f"{topic} {question_type} {difficulty}"
     try:
-        matches = query_subject_notes(subject_id, search_text, limit=8)
+        matches = query_subject_notes(subject_id, search_text, limit=8, user_id=user_id)
     except VectorStoreError as exc:
         return {
             "questions": [],
@@ -110,7 +111,7 @@ NOTES:
             "sources": matches,
             "error": (
                 "Could not generate quiz with the selected AI provider. "
-                f"Technical detail: {exc}"
+                f"Reason: {exc}"
             ),
         }
 
@@ -177,7 +178,7 @@ QUIZ:
             "results": [],
             "error": (
                 "Could not check answers with the selected AI provider. "
-                f"Technical detail: {exc}"
+                f"Reason: {exc}"
             ),
         }
 

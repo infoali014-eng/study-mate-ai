@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import streamlit as st
 
 from modules import ai_engine
+from modules.auth import require_login
 from modules.database import (
     get_revision_plans,
     get_subjects,
@@ -11,6 +12,7 @@ from modules.database import (
     save_revision_plan,
 )
 from modules.planner import generate_revision_plan
+from modules.security import clean_text
 from modules.ui import (
     apply_theme,
     page_header,
@@ -29,6 +31,7 @@ def get_provider_label():
 
 
 st.set_page_config(page_title="Revision Planner - StudyMate AI", layout="wide")
+user_id = require_login()
 init_db()
 apply_theme()
 sidebar_nav()
@@ -47,7 +50,7 @@ with feature2:
 with feature3:
     render_feature_card("Weak-topic focus", "Prioritize topics marked weak in quizzes and flashcards.", "\U0001f4cc", "#ff637d", "#ffe3e9")
 
-subjects = get_subjects()
+subjects = get_subjects(user_id=user_id)
 if not subjects:
     render_empty_state(
         "No subject to plan yet.",
@@ -60,7 +63,7 @@ subject_options = {subject["name"]: subject for subject in subjects}
 selected_name = st.selectbox("Choose subject", list(subject_options.keys()))
 selected_subject = subject_options[selected_name]
 
-weak_topic_rows = get_weak_topics(subject_id=selected_subject["id"])
+weak_topic_rows = get_weak_topics(subject_id=selected_subject["id"], user_id=user_id)
 available_weak_topics = [row["topic"] for row in weak_topic_rows]
 
 section_title("Plan Builder", "\U0001f4ca")
@@ -106,7 +109,11 @@ with st.container(border=True):
         use_container_width=True,
     )
 
-manual_topics = [topic.strip() for topic in extra_weak_topics.splitlines() if topic.strip()]
+manual_topics = [
+    clean_text(topic, max_length=120)
+    for topic in extra_weak_topics.splitlines()
+    if clean_text(topic, max_length=120)
+]
 all_weak_topics = selected_weak_topics + [
     topic for topic in manual_topics if topic not in selected_weak_topics
 ]
@@ -131,20 +138,21 @@ if generate_button:
         confidence_level=confidence_level,
         weak_topics=all_weak_topics,
         plan_text=plan_text,
+        user_id=user_id,
     )
 
     st.session_state.latest_revision_plan = {
         "id": plan_id,
         "plan_text": plan_text,
     }
-    st.success(f"Revision plan generated and saved locally. Plan id: {plan_id}")
+    st.success("Revision plan generated and saved locally.")
 
 if st.session_state.latest_revision_plan:
     section_title("Latest Generated Plan", "\u2728")
     with st.container(border=True):
         st.markdown(st.session_state.latest_revision_plan["plan_text"])
 
-saved_plans = get_revision_plans(subject_id=selected_subject["id"])
+saved_plans = get_revision_plans(subject_id=selected_subject["id"], user_id=user_id)
 
 section_title("Saved Plans", "\U0001f4da")
 if not saved_plans:
@@ -156,7 +164,7 @@ if not saved_plans:
 else:
     for plan in saved_plans:
         with st.expander(
-            f"Plan {plan['id']} | Exam: {plan['exam_date']} | Created: {plan['created_at']}"
+            f"Exam: {plan['exam_date']} | Created: {plan['created_at']}"
         ):
             st.write(f"Preparation level: {plan['preparation_level']} / 10")
             st.write(f"Confidence level: {plan['confidence_level']} / 10")

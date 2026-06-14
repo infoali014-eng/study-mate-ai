@@ -94,17 +94,26 @@ def _cosine_distance(left, right):
     return 1.0 - similarity
 
 
-def add_text_chunks(subject_id, subject_name, document_id, file_name, chunks):
+def _safe_user_id(user_id):
+    """Return an integer user id for metadata filters."""
+    if user_id is None:
+        return None
+    return int(user_id)
+
+
+def add_text_chunks(subject_id, subject_name, document_id, file_name, chunks, user_id=None):
     """Store text chunks in ChromaDB with helpful metadata."""
     if not chunks:
         return 0
 
+    clean_user_id = _safe_user_id(user_id)
     ids = [
-        f"subject-{subject_id}-document-{document_id}-chunk-{index}"
+        f"user-{clean_user_id}-subject-{subject_id}-document-{document_id}-chunk-{index}"
         for index in range(len(chunks))
     ]
     metadatas = [
         {
+            "user_id": clean_user_id,
             "subject_id": int(subject_id),
             "subject_name": subject_name,
             "document_id": int(document_id),
@@ -143,9 +152,12 @@ def add_text_chunks(subject_id, subject_name, document_id, file_name, chunks):
     return len(chunks)
 
 
-def _build_chroma_filter(subject_id=None, document_ids=None):
+def _build_chroma_filter(subject_id=None, document_ids=None, user_id=None):
     """Build a ChromaDB metadata filter for subject and document selection."""
     filters = []
+
+    if user_id is not None:
+        filters.append({"user_id": int(user_id)})
 
     if subject_id is not None:
         filters.append({"subject_id": int(subject_id)})
@@ -166,10 +178,14 @@ def _build_chroma_filter(subject_id=None, document_ids=None):
     return {"$and": filters}
 
 
-def query_subject_notes(subject_id, question, limit=5, document_ids=None):
+def query_subject_notes(subject_id, question, limit=5, document_ids=None, user_id=None):
     """Find the most relevant notes for a question in one subject/doc filter."""
     query_embedding = _hash_embedding(question)
-    chroma_filter = _build_chroma_filter(subject_id=subject_id, document_ids=document_ids)
+    chroma_filter = _build_chroma_filter(
+        subject_id=subject_id,
+        document_ids=document_ids,
+        user_id=user_id,
+    )
 
     try:
         collection = _collection()
@@ -202,6 +218,9 @@ def query_subject_notes(subject_id, question, limit=5, document_ids=None):
         for record in _read_fallback_records():
             metadata = record.get("metadata", {})
 
+            if user_id is not None and int(metadata.get("user_id", -1)) != int(user_id):
+                continue
+
             if subject_id is not None and int(metadata.get("subject_id", -1)) != int(subject_id):
                 continue
 
@@ -226,35 +245,49 @@ def query_subject_notes(subject_id, question, limit=5, document_ids=None):
         ]
 
 
-def delete_subject_vectors(subject_id):
+def delete_subject_vectors(subject_id, user_id=None):
     """Delete all ChromaDB note chunks saved for one subject."""
+    where = _build_chroma_filter(subject_id=subject_id, user_id=user_id)
     try:
         collection = _collection()
-        collection.delete(where={"subject_id": int(subject_id)})
+        collection.delete(where=where)
     except VectorStoreError:
         pass
 
     records = [
         record
         for record in _read_fallback_records()
-        if int(record.get("metadata", {}).get("subject_id", -1)) != int(subject_id)
+        if not (
+            int(record.get("metadata", {}).get("subject_id", -1)) == int(subject_id)
+            and (
+                user_id is None
+                or int(record.get("metadata", {}).get("user_id", -1)) == int(user_id)
+            )
+        )
     ]
     _write_fallback_records(records)
     return True
 
 
-def delete_document_vectors(document_id):
+def delete_document_vectors(document_id, user_id=None):
     """Delete all ChromaDB note chunks saved for one uploaded document."""
+    where = _build_chroma_filter(document_ids=[document_id], user_id=user_id)
     try:
         collection = _collection()
-        collection.delete(where={"document_id": int(document_id)})
+        collection.delete(where=where)
     except VectorStoreError:
         pass
 
     records = [
         record
         for record in _read_fallback_records()
-        if int(record.get("metadata", {}).get("document_id", -1)) != int(document_id)
+        if not (
+            int(record.get("metadata", {}).get("document_id", -1)) == int(document_id)
+            and (
+                user_id is None
+                or int(record.get("metadata", {}).get("user_id", -1)) == int(user_id)
+            )
+        )
     ]
     _write_fallback_records(records)
     return True

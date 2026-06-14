@@ -963,6 +963,43 @@ def apply_theme():
                 border-top: 1px solid var(--sm-line);
             }
 
+            .auth-shell {
+                max-width: 760px;
+                margin: 2rem auto 1rem;
+            }
+
+            .auth-card {
+                border-radius: 28px;
+                padding: 2rem;
+                background:
+                    radial-gradient(circle at 85% 15%, rgba(255,255,255,0.6), transparent 24%),
+                    linear-gradient(135deg, #cbfff3 0%, #dff0ff 48%, #ffe0ef 100%);
+                border: 1px solid rgba(255,255,255,0.9);
+                box-shadow: var(--sm-shadow);
+            }
+
+            .auth-card h1 {
+                margin: 0.35rem 0 0.4rem;
+                font-size: clamp(2rem, 5vw, 4rem);
+            }
+
+            .auth-card p {
+                color: var(--sm-charcoal);
+                font-weight: 700;
+                max-width: 620px;
+            }
+
+            .auth-note {
+                display: inline-flex;
+                margin-top: 0.8rem;
+                padding: 0.7rem 1rem;
+                border-radius: 999px;
+                background: rgba(255,255,255,0.76);
+                color: var(--sm-ink);
+                font-weight: 850;
+                border: 1px solid rgba(255,255,255,0.95);
+            }
+
             @media (max-width: 760px) {
                 .block-container {
                     padding-left: 1rem;
@@ -997,12 +1034,18 @@ def apply_theme():
 
 def sidebar_nav():
     """Render shared sidebar navigation."""
+    user_name = st.session_state.get("user_name", "Ali Shair")
+    user_email = st.session_state.get("user_email", "")
+    initials = "".join(part[0] for part in user_name.split()[:2]).upper() or "AS"
+    escaped_name = html.escape(user_name)
+    escaped_email = html.escape(user_email)
+
     st.sidebar.markdown(
-        """
+        f"""
         <div class="study-brand">
             <div class="study-logo">&#127891;</div>
             <div>
-                <div class="study-brand-title">Ali Shair's <span>AI</span> Study Assistant</div>
+                <div class="study-brand-title">{escaped_name}'s <span>AI</span> Study Assistant</div>
                 <div class="study-brand-subtitle">Your personal exam preparation workspace</div>
             </div>
         </div>
@@ -1014,13 +1057,13 @@ def sidebar_nav():
         st.sidebar.page_link(page, label=f"{icon}  {label}")
 
     st.sidebar.markdown(
-        """
+        f"""
         <div class="profile-card">
             <div class="profile-top">
-                <div class="profile-avatar">AS</div>
+                <div class="profile-avatar">{html.escape(initials)}</div>
                 <div>
-                    <div class="profile-name">Ali Shair</div>
-                    <div class="profile-role">CS Student</div>
+                    <div class="profile-name">{escaped_name}</div>
+                    <div class="profile-role">{escaped_email or "CS Student"}</div>
                 </div>
             </div>
             <div class="profile-mode">Offline AI Workspace</div>
@@ -1033,6 +1076,11 @@ def sidebar_nav():
         """,
         unsafe_allow_html=True,
     )
+    if st.session_state.get("user_id"):
+        if st.sidebar.button("Log Out", use_container_width=True):
+            from modules.auth import logout
+
+            logout()
 
 
 def page_header(title, subtitle, kicker="StudyMate AI"):
