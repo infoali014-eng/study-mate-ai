@@ -1,3 +1,4 @@
+import secrets
 import time
 
 import streamlit as st
@@ -83,8 +84,11 @@ def _clear_study_session_state():
 
 def logout():
     """Log out and remove user-related session values."""
+    google_logged_in = _streamlit_user_is_logged_in()
     _clear_study_session_state()
     st.session_state.auth_message = "You have been logged out safely."
+    if google_logged_in and hasattr(st, "logout"):
+        st.logout()
     st.rerun()
 
 
@@ -122,8 +126,109 @@ def _set_logged_in_user(user):
     st.session_state.failed_login_attempts = []
 
 
+def _streamlit_user_is_logged_in():
+    """Return True when Streamlit OIDC login has authenticated a user."""
+    try:
+        return bool(st.user.get("is_logged_in", False))
+    except Exception:
+        return False
+
+
+def _get_google_provider_name():
+    """
+    Return the configured Streamlit OIDC provider name.
+
+    Supports either the default [auth] provider or a named [auth.google]
+    provider. Secrets are never read from source files in this repository.
+    """
+    try:
+        auth_config = st.secrets.get("auth", {})
+    except Exception:
+        return None
+
+    if not auth_config:
+        return None
+
+    has_shared_settings = bool(
+        auth_config.get("redirect_uri") and auth_config.get("cookie_secret")
+    )
+    named_google = auth_config.get("google")
+    if has_shared_settings and named_google:
+        return "google"
+
+    has_default_google = bool(
+        auth_config.get("client_id")
+        and auth_config.get("client_secret")
+        and auth_config.get("server_metadata_url")
+    )
+    if has_default_google:
+        return ""
+
+    return None
+
+
+def _google_login_is_configured():
+    """Return True when Google/OIDC settings exist in Streamlit secrets."""
+    return _get_google_provider_name() is not None
+
+
+def _sync_google_user_to_local_session():
+    """Create or fetch a local SQLite user for the Google-authenticated email."""
+    if not _streamlit_user_is_logged_in():
+        return False
+
+    google_user = st.user.to_dict()
+    email = (google_user.get("email") or "").strip().lower()
+    email_verified = bool(google_user.get("email_verified", False))
+    if not email or not email_verified:
+        st.warning("Google login did not return a verified email address.")
+        return False
+
+    local_user = get_user_by_email(email)
+    if not local_user:
+        display_name = (
+            google_user.get("name")
+            or google_user.get("given_name")
+            or email.split("@")[0]
+        )
+        random_password_marker = secrets.token_urlsafe(48)
+        create_user(
+            name=display_name[:80],
+            email=email,
+            password_hash=hash_password(random_password_marker),
+        )
+        local_user = get_user_by_email(email)
+
+    if local_user:
+        _set_logged_in_user(local_user)
+        st.rerun()
+
+    return bool(local_user)
+
+
+def _google_login_button():
+    """Render the optional Google login button."""
+    if not hasattr(st, "login"):
+        st.info("Google login needs a newer Streamlit version.")
+        return
+
+    provider_name = _get_google_provider_name()
+    if provider_name is None:
+        st.info("Google login is not configured yet. Email/password login is available.")
+        return
+
+    if st.button("Continue with Google", type="primary", use_container_width=True):
+        if provider_name:
+            st.login(provider_name)
+        else:
+            st.login()
+
+
 def _login_form():
     """Render the login form."""
+    _google_login_button()
+    st.divider()
+
     with st.form("login_form"):
         email = st.text_input("Email", placeholder="you@example.com")
         password = st.text_input("Password", type="password")
@@ -153,6 +258,9 @@ def _login_form():
 
 def _signup_form():
     """Render the signup form."""
+    _google_login_button()
+    st.divider()
+
     with st.form("signup_form"):
         full_name = st.text_input("Full name", placeholder="Ali Shair")
         email = st.text_input("Email", placeholder="you@example.com")
@@ -224,6 +332,9 @@ def require_login():
     """Block a page until the visitor logs in."""
     init_db()
     if is_logged_in():
+        return current_user_id()
+
+    if _sync_google_user_to_local_session():
         return current_user_id()
 
     render_auth_screen()

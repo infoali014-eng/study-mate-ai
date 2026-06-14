@@ -8,6 +8,7 @@ It is built with Streamlit, SQLite, PyMuPDF, ChromaDB, Gemini, optional Ollama l
 
 - Create and delete study subjects
 - Email/password login with hashed passwords
+- Optional Google sign-in with Streamlit OIDC
 - User-isolated subjects, documents, quizzes, flashcards, weak topics, and plans
 - Upload PDF and TXT notes subject-wise
 - Preview uploaded documents in Study Library
@@ -211,6 +212,56 @@ Inside the app sidebar:
 5. Click `Test Gemini Connection`
 
 For public deployments, each user must paste their own key. The key is stored only in that user's current browser session.
+
+## Optional Google Sign-In
+
+The app supports Google sign-in through Streamlit's built-in OIDC login. Email/password login still works if Google is not configured.
+
+### Local Google Login Setup
+
+1. Create OAuth credentials in Google Cloud Console.
+2. Add this authorized redirect URI:
+
+```text
+http://localhost:8507/oauth2callback
+```
+
+Use `8501` instead of `8507` if you run Streamlit on the default port.
+
+3. Copy the example secrets file:
+
+```powershell
+Copy-Item .streamlit\secrets.example.toml .streamlit\secrets.toml
+```
+
+4. Edit `.streamlit/secrets.toml` and add your real Google OAuth values:
+
+```toml
+[auth]
+redirect_uri = "http://localhost:8507/oauth2callback"
+cookie_secret = "replace_with_a_long_random_secret"
+
+[auth.google]
+client_id = "your_google_oauth_client_id_here"
+client_secret = "your_google_oauth_client_secret_here"
+server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+```
+
+5. Restart Streamlit.
+
+### Streamlit Cloud Google Login Setup
+
+In Streamlit Cloud, open your app settings and add the same TOML under **Secrets**.
+
+Use your deployed URL plus `/oauth2callback`:
+
+```text
+https://your-app-name.streamlit.app/oauth2callback
+```
+
+Also add that exact redirect URI in Google Cloud Console.
+
+Never commit real Google OAuth credentials. `.streamlit/secrets.toml` is ignored by Git.
 
 ## Basic Use
 
