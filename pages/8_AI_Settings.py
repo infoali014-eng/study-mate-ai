@@ -156,9 +156,9 @@ with st.container(border=True):
     elif saving_ready:
         st.info("No saved Gemini API key for this account yet.")
     else:
-        st.warning(
-            "API key saving is not configured. Add APP_ENCRYPTION_KEY in Streamlit secrets "
-            "or environment variables to store keys securely."
+        st.info(
+            "Secure key saving is available. For best Streamlit Cloud stability, add "
+            "APP_ENCRYPTION_KEY in secrets; locally the app creates an ignored private key file."
         )
 
     entered_key = st.text_input(
@@ -177,7 +177,7 @@ with st.container(border=True):
             if not clean_key:
                 st.warning("Paste a Gemini API key first.")
             elif not saving_ready:
-                st.error("Secure key saving is not configured. Add APP_ENCRYPTION_KEY first.")
+                st.error("Secure key saving is not available in this environment.")
             else:
                 try:
                     save_user_api_key(user_id, "gemini", clean_key)

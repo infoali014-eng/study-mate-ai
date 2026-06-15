@@ -1,6 +1,8 @@
 import html
+import re
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 NAV_ITEMS = [
@@ -11,6 +13,7 @@ NAV_ITEMS = [
     ("Quiz Mode", "pages/4_Quiz_Mode.py", "\u2754"),
     ("Flashcards", "pages/5_Flashcards.py", "\U0001f4d8"),
     ("Revision Planner", "pages/6_Revision_Planner.py", "\U0001f5d3\ufe0f"),
+    ("Pomodoro Timer", "pages/9_Pomodoro_Timer.py", "\u23f1\ufe0f"),
     ("AI Settings", "pages/8_AI_Settings.py", "\u2699\ufe0f"),
 ]
 
@@ -1786,6 +1789,42 @@ def render_ai_loading(label="StudyMate is thinking"):
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_ai_markdown(content):
+    """Render AI Markdown and Mermaid flowcharts when the response includes them."""
+    text = content or ""
+    pattern = re.compile(r"```mermaid\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+    last_end = 0
+    found_mermaid = False
+
+    for match in pattern.finditer(text):
+        before = text[last_end:match.start()].strip()
+        if before:
+            st.markdown(before)
+
+        diagram = match.group(1).strip()
+        if diagram:
+            found_mermaid = True
+            escaped_diagram = html.escape(diagram)
+            components.html(
+                f"""
+                <div class="mermaid">{escaped_diagram}</div>
+                <script type="module">
+                    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+                    mermaid.initialize({{ startOnLoad: true, theme: 'base' }});
+                </script>
+                """,
+                height=360,
+                scrolling=True,
+            )
+        last_end = match.end()
+
+    remaining = text[last_end:].strip()
+    if remaining:
+        st.markdown(remaining)
+    elif not found_mermaid:
+        st.markdown(text)
 
 
 def render_tip(text):

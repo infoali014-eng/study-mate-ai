@@ -1,8 +1,10 @@
 import base64
 import hashlib
 import os
+import secrets
 import sqlite3
 from contextlib import closing
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -13,6 +15,7 @@ from modules.security import is_path_inside
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "studymate.db"
+LOCAL_SECRET_PATH = DATA_DIR / "app_secret.key"
 load_dotenv(dotenv_path=BASE_DIR / ".env")
 
 
@@ -157,6 +160,86 @@ def create_tables():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS remember_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                last_used_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS document_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                document_id INTEGER NOT NULL,
+                subject_id INTEGER NOT NULL,
+                summary_text TEXT NOT NULL,
+                provider TEXT DEFAULT '',
+                model TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, document_id),
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (document_id) REFERENCES uploaded_documents (id) ON DELETE CASCADE,
+                FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT DEFAULT 'Study Chat',
+                chat_mode TEXT DEFAULT 'General Chat',
+                context_label TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                context_json TEXT DEFAULT '{}',
+                sources_json TEXT DEFAULT '[]',
+                warning TEXT DEFAULT '',
+                source_count INTEGER DEFAULT 0,
+                suggestions_json TEXT DEFAULT '[]',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES chat_sessions (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS study_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                subject_id INTEGER,
+                session_type TEXT DEFAULT 'Focus',
+                duration_minutes INTEGER NOT NULL,
+                completed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                notes TEXT DEFAULT '',
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE SET NULL
+            )
+            """
+        )
         conn.commit()
 
         _add_missing_column(conn, "subjects", "user_id", "INTEGER")
@@ -246,6 +329,11 @@ def _run_migrations(conn):
     _add_missing_column(conn, "weak_topics", "user_id", "INTEGER")
     _add_missing_column(conn, "revision_plans", "user_id", "INTEGER")
     _add_missing_column(conn, "user_api_keys", "key_suffix", "TEXT DEFAULT ''")
+    _add_missing_column(conn, "document_summaries", "provider", "TEXT DEFAULT ''")
+    _add_missing_column(conn, "document_summaries", "model", "TEXT DEFAULT ''")
+    _add_missing_column(conn, "chat_sessions", "chat_mode", "TEXT DEFAULT 'General Chat'")
+    _add_missing_column(conn, "chat_sessions", "context_label", "TEXT DEFAULT ''")
+    _add_missing_column(conn, "study_sessions", "notes", "TEXT DEFAULT ''")
 
     for table in ["uploaded_documents", "quiz_results", "flashcards", "weak_topics", "revision_plans"]:
         conn.execute(
@@ -279,6 +367,11 @@ def _run_migrations(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_weak_topics_user ON weak_topics(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_user ON revision_plans(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_user_api_keys_user ON user_api_keys(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_remember_sessions_hash ON remember_sessions(token_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_document_summaries_user ON document_summaries(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_study_sessions_user ON study_sessions(user_id)")
     conn.commit()
 
 
@@ -582,7 +675,12 @@ def get_encryption_key():
         or _get_streamlit_secret("APP_ENCRYPTION_KEY").strip()
     )
     if not raw_key:
-        return None
+        DATA_DIR.mkdir(exist_ok=True)
+        if LOCAL_SECRET_PATH.exists():
+            raw_key = LOCAL_SECRET_PATH.read_text(encoding="utf-8").strip()
+        else:
+            raw_key = secrets.token_urlsafe(48)
+            LOCAL_SECRET_PATH.write_text(raw_key, encoding="utf-8")
 
     try:
         from cryptography.fernet import Fernet
@@ -703,6 +801,69 @@ def delete_user_api_key(user_id, provider):
         cursor = conn.execute(
             "DELETE FROM user_api_keys WHERE user_id = ? AND provider = ?",
             (user_id, clean_provider),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def _hash_token(token):
+    """Return a one-way hash for persistent login tokens."""
+    return hashlib.sha256((token or "").encode("utf-8")).hexdigest()
+
+
+def create_remember_session(user_id, days=30):
+    """Create a persistent login token for one user."""
+    if not user_id:
+        return ""
+    token = secrets.token_urlsafe(48)
+    token_hash = _hash_token(token)
+    expires_at = (datetime.utcnow() + timedelta(days=days)).isoformat(timespec="seconds")
+    with closing(get_connection()) as conn:
+        conn.execute(
+            """
+            INSERT INTO remember_sessions (user_id, token_hash, expires_at)
+            VALUES (?, ?, ?)
+            """,
+            (user_id, token_hash, expires_at),
+        )
+        conn.commit()
+    return token
+
+
+def get_user_by_remember_token(token):
+    """Return a user for a valid persistent login token."""
+    if not token:
+        return None
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    token_hash = _hash_token(token)
+    with closing(get_connection()) as conn:
+        row = conn.execute(
+            """
+            SELECT users.*
+            FROM remember_sessions
+            JOIN users ON users.id = remember_sessions.user_id
+            WHERE remember_sessions.token_hash = ?
+              AND remember_sessions.expires_at > ?
+            """,
+            (token_hash, now),
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE remember_sessions SET last_used_at = CURRENT_TIMESTAMP WHERE token_hash = ?",
+                (token_hash,),
+            )
+            conn.commit()
+        return row
+
+
+def delete_remember_session(token):
+    """Delete a persistent login token."""
+    if not token:
+        return False
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            "DELETE FROM remember_sessions WHERE token_hash = ?",
+            (_hash_token(token),),
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -844,6 +1005,7 @@ def delete_subject(subject_id, user_id=None):
         conn.execute("DELETE FROM flashcards WHERE subject_id = ? AND user_id = ?", (subject_id, user_id))
         conn.execute("DELETE FROM weak_topics WHERE subject_id = ? AND user_id = ?", (subject_id, user_id))
         conn.execute("DELETE FROM revision_plans WHERE subject_id = ? AND user_id = ?", (subject_id, user_id))
+        conn.execute("DELETE FROM document_summaries WHERE subject_id = ? AND user_id = ?", (subject_id, user_id))
         conn.execute("DELETE FROM subjects WHERE id = ? AND user_id = ?", (subject_id, user_id))
         conn.commit()
         return True
@@ -976,6 +1138,10 @@ def delete_document(document_id, user_id=None):
         _delete_file_if_inside_user_data(document["file_path"], user_id)
         _delete_file_if_inside_user_data(document["extracted_text_path"], user_id)
         conn.execute(
+            "DELETE FROM document_summaries WHERE document_id = ? AND user_id = ?",
+            (document_id, user_id),
+        )
+        conn.execute(
             "DELETE FROM uploaded_documents WHERE id = ? AND user_id = ?",
             (document_id, user_id),
         )
@@ -1032,6 +1198,28 @@ def save_quiz_result(subject_id, score, total_questions, topic="", user_id=None)
         )
         conn.commit()
         return cursor.lastrowid
+
+
+def get_quiz_results(subject_id=None, user_id=None, limit=50):
+    """Return current-user quiz history, newest first."""
+    if not user_id:
+        return []
+    with closing(get_connection()) as conn:
+        params = [user_id, user_id]
+        query = """
+            SELECT quiz_results.*, subjects.name AS subject_name
+            FROM quiz_results
+            JOIN subjects ON subjects.id = quiz_results.subject_id
+            WHERE quiz_results.user_id = ?
+              AND subjects.user_id = ?
+              AND subjects.is_deleted = 0
+        """
+        if subject_id:
+            query += " AND quiz_results.subject_id = ?"
+            params.append(subject_id)
+        query += " ORDER BY quiz_results.created_at DESC LIMIT ?"
+        params.append(int(limit))
+        return conn.execute(query, params).fetchall()
 
 
 def save_flashcard(subject_id, question, answer, topic="", user_id=None):
@@ -1193,6 +1381,179 @@ def get_revision_plans(subject_id=None, user_id=None):
             params.append(subject_id)
         query += " ORDER BY revision_plans.created_at DESC"
         return conn.execute(query, params).fetchall()
+
+
+def save_document_summary(document_id, subject_id, summary_text, user_id=None, provider="", model=""):
+    """Save or update one document summary for the current user."""
+    if not document_belongs_to_user(document_id, user_id):
+        return False
+    with closing(get_connection()) as conn:
+        conn.execute(
+            """
+            INSERT INTO document_summaries
+                (user_id, document_id, subject_id, summary_text, provider, model)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, document_id)
+            DO UPDATE SET
+                summary_text = excluded.summary_text,
+                provider = excluded.provider,
+                model = excluded.model,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, document_id, subject_id, summary_text.strip(), provider, model),
+        )
+        conn.commit()
+    return True
+
+
+def get_document_summary(document_id, user_id=None):
+    """Return a saved summary for one owned document."""
+    if not document_belongs_to_user(document_id, user_id):
+        return None
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            """
+            SELECT *
+            FROM document_summaries
+            WHERE document_id = ? AND user_id = ?
+            """,
+            (document_id, user_id),
+        ).fetchone()
+
+
+def create_chat_session(user_id, title="Study Chat", chat_mode="General Chat", context_label=""):
+    """Create a saved AI chat session."""
+    if not user_id:
+        return None
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO chat_sessions (user_id, title, chat_mode, context_label)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, title.strip() or "Study Chat", chat_mode, context_label),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_chat_sessions(user_id, limit=20):
+    """Return saved chat sessions for a user."""
+    if not user_id:
+        return []
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            """
+            SELECT *
+            FROM chat_sessions
+            WHERE user_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT ?
+            """,
+            (user_id, int(limit)),
+        ).fetchall()
+
+
+def get_chat_messages(session_id, user_id):
+    """Return saved messages for one owned chat session."""
+    if not user_id or not session_id:
+        return []
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            """
+            SELECT chat_messages.*
+            FROM chat_messages
+            JOIN chat_sessions ON chat_sessions.id = chat_messages.session_id
+            WHERE chat_messages.session_id = ?
+              AND chat_messages.user_id = ?
+              AND chat_sessions.user_id = ?
+            ORDER BY chat_messages.id ASC
+            """,
+            (session_id, user_id, user_id),
+        ).fetchall()
+
+
+def save_chat_message(
+    session_id,
+    user_id,
+    role,
+    content,
+    context_json="{}",
+    sources_json="[]",
+    warning="",
+    source_count=0,
+    suggestions_json="[]",
+):
+    """Save one chat message and update its parent session timestamp."""
+    if not session_id or not user_id or role not in {"user", "assistant"}:
+        return None
+    with closing(get_connection()) as conn:
+        owner = conn.execute(
+            "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        ).fetchone()
+        if not owner:
+            return None
+        cursor = conn.execute(
+            """
+            INSERT INTO chat_messages
+                (session_id, user_id, role, content, context_json, sources_json, warning, source_count, suggestions_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                user_id,
+                role,
+                content,
+                context_json,
+                sources_json,
+                warning,
+                int(source_count or 0),
+                suggestions_json,
+            ),
+        )
+        conn.execute(
+            "UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def save_study_session(user_id, subject_id=None, duration_minutes=25, session_type="Focus", notes=""):
+    """Save one completed Pomodoro/study session."""
+    if not user_id:
+        return None
+    if subject_id and not subject_belongs_to_user(subject_id, user_id):
+        return None
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO study_sessions (user_id, subject_id, duration_minutes, session_type, notes)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, subject_id, int(duration_minutes), session_type, notes.strip()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_study_sessions(user_id, limit=20):
+    """Return saved Pomodoro/study sessions."""
+    if not user_id:
+        return []
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            """
+            SELECT study_sessions.*, subjects.name AS subject_name
+            FROM study_sessions
+            LEFT JOIN subjects ON subjects.id = study_sessions.subject_id
+            WHERE study_sessions.user_id = ?
+            ORDER BY study_sessions.completed_at DESC
+            LIMIT ?
+            """,
+            (user_id, int(limit)),
+        ).fetchall()
 
 
 def get_dashboard_counts(user_id=None):

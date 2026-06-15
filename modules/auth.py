@@ -4,9 +4,12 @@ import streamlit as st
 from passlib.hash import pbkdf2_sha256
 
 from modules.database import (
+    create_remember_session,
     create_user,
+    delete_remember_session,
     get_user_by_email,
     get_user_by_id,
+    get_user_by_remember_token,
     init_db,
     verify_user_login,
 )
@@ -19,6 +22,8 @@ FAILED_LOGIN_WAIT_SECONDS = 60
 GOOGLE_DISABLED_MESSAGE = (
     "Google login is temporarily disabled. Please use email/password login."
 )
+REMEMBER_COOKIE_NAME = "studymate_remember_token"
+REMEMBER_COOKIE_DAYS = 30
 
 
 USER_SESSION_KEYS = {
@@ -76,6 +81,79 @@ def is_authenticated():
     )
 
 
+def _get_cookie_controller():
+    """Return the optional cookie controller used for persistent login."""
+    try:
+        from streamlit_cookies_controller import CookieController
+
+        return CookieController()
+    except Exception:
+        return None
+
+
+def _read_remember_cookie():
+    """Read the persistent login cookie without crashing if cookies are unavailable."""
+    controller = _get_cookie_controller()
+    if controller:
+        try:
+            return controller.get(REMEMBER_COOKIE_NAME) or ""
+        except Exception:
+            return ""
+
+    try:
+        return st.context.cookies.get(REMEMBER_COOKIE_NAME, "")
+    except Exception:
+        return ""
+
+
+def _set_remember_cookie(token):
+    """Save a persistent login cookie for this browser."""
+    if not token:
+        return
+    controller = _get_cookie_controller()
+    if controller:
+        try:
+            controller.set(
+                REMEMBER_COOKIE_NAME,
+                token,
+                max_age=REMEMBER_COOKIE_DAYS * 24 * 60 * 60,
+                secure=False,
+                same_site="strict",
+            )
+        except TypeError:
+            controller.set(REMEMBER_COOKIE_NAME, token)
+        except Exception:
+            return
+
+
+def _clear_remember_cookie():
+    """Remove the persistent login cookie when the user logs out."""
+    token = _read_remember_cookie()
+    if token:
+        delete_remember_session(token)
+    controller = _get_cookie_controller()
+    if controller:
+        try:
+            controller.remove(REMEMBER_COOKIE_NAME)
+        except Exception:
+            pass
+
+
+def _restore_login_from_cookie():
+    """Restore a user session after refresh when a remember cookie is valid."""
+    if is_authenticated():
+        return True
+    token = _read_remember_cookie()
+    if not token:
+        return False
+    user = get_user_by_remember_token(token)
+    if not user:
+        _clear_remember_cookie()
+        return False
+    login_user(user, remember=False)
+    return True
+
+
 def is_logged_in():
     """Compatibility helper used by older pages."""
     return is_authenticated()
@@ -131,7 +209,7 @@ def _clear_user_session_state():
         st.session_state.pop(key, None)
 
 
-def login_user(user, message=None):
+def login_user(user, message=None, remember=True):
     """Store the authenticated user's safe profile in session state."""
     st.session_state.authenticated = True
     st.session_state.auth_provider = "email"
@@ -139,12 +217,16 @@ def login_user(user, message=None):
     st.session_state.user_name = user["name"]
     st.session_state.user_email = user["email"]
     st.session_state.failed_login_attempts = []
+    if remember:
+        token = create_remember_session(user["id"], days=REMEMBER_COOKIE_DAYS)
+        _set_remember_cookie(token)
     if message:
         st.session_state.auth_message = message
 
 
 def logout_user():
     """Clear the local email/password session and return to login."""
+    _clear_remember_cookie()
     _clear_user_session_state()
     st.session_state.auth_message = "You have been logged out safely."
     st.rerun()
@@ -318,6 +400,8 @@ def render_auth_screen():
 def require_login():
     """Block a page until the visitor logs in."""
     init_db()
+
+    _restore_login_from_cookie()
 
     if is_authenticated():
         if st.session_state.get("auth_message"):

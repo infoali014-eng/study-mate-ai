@@ -3,6 +3,7 @@ import streamlit as st
 from modules import ai_engine
 from modules.auth import require_login
 from modules.database import (
+    get_quiz_results,
     get_subjects,
     init_db,
     save_quiz_result,
@@ -242,3 +243,35 @@ if quiz_data and quiz_data["sources"]:
             metadata = source["metadata"]
             st.markdown(f"**Source {index}: {metadata.get('file_name', 'Uploaded PDF')}**")
             st.write(source["text"])
+
+section_title("Quiz History", "\U0001f4c8")
+history_subject = st.selectbox(
+    "Filter history by subject",
+    ["All subjects"] + subject_names,
+    key="quiz_history_subject_filter",
+)
+history_subject_id = None
+if history_subject != "All subjects":
+    history_subject_id = subject_options[history_subject]["id"]
+
+quiz_history = get_quiz_results(subject_id=history_subject_id, user_id=user_id, limit=25)
+if not quiz_history:
+    render_empty_state(
+        "No quiz attempts yet.",
+        "Submit a quiz and your score history will appear here.",
+        "\U0001f4c8",
+    )
+else:
+    for attempt in quiz_history:
+        total = int(attempt["total_questions"] or 0)
+        score = int(attempt["score"] or 0)
+        percent = int((score / total) * 100) if total else 0
+        with st.container(border=True):
+            col_a, col_b, col_c = st.columns([2, 1, 1])
+            with col_a:
+                st.markdown(f"**{attempt['subject_name']}**")
+                st.caption(f"Topic: {attempt['topic'] or 'General'} | {attempt['created_at']}")
+            with col_b:
+                st.metric("Score", f"{score}/{total}")
+            with col_c:
+                st.metric("Percent", f"{percent}%")

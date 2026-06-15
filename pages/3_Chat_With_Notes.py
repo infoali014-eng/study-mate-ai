@@ -1,16 +1,26 @@
 import html
+import json
 from datetime import datetime
 
 import streamlit as st
 
 from modules import ai_engine
 from modules.auth import get_current_user_display_name, require_login
-from modules.database import get_documents_by_subject, get_subjects, init_db
+from modules.database import (
+    create_chat_session,
+    get_chat_messages,
+    get_chat_sessions,
+    get_documents_by_subject,
+    get_subjects,
+    init_db,
+    save_chat_message,
+)
 from modules.security import validate_chat_question
 from modules.ui import (
     apply_theme,
     page_header,
     render_ai_loading,
+    render_ai_markdown,
     render_empty_state,
     render_feature_card,
     section_title,
@@ -141,6 +151,89 @@ def _set_chat_messages(messages):
     st.session_state.study_chat_messages = st.session_state[key]
 
 
+def _decode_json(value, fallback):
+    """Decode JSON stored in SQLite chat history."""
+    try:
+        return json.loads(value or "")
+    except Exception:
+        return fallback
+
+
+def _load_saved_chat_messages(session_id):
+    """Load one saved chat session into Streamlit session state."""
+    rows = get_chat_messages(session_id, st.session_state.get("user_id"))
+    messages = []
+    for row in rows:
+        messages.append(
+            {
+                "role": row["role"],
+                "content": row["content"],
+                "context": _decode_json(row["context_json"], {}),
+                "sources": _decode_json(row["sources_json"], []),
+                "warning": row["warning"],
+                "source_count": row["source_count"],
+                "suggestions": _decode_json(row["suggestions_json"], []),
+                "created_at": row["created_at"],
+            }
+        )
+    _set_chat_messages(messages)
+
+
+def _ensure_chat_session(chat_mode="General Chat", context_label=""):
+    """Ensure the logged-in user has a saved chat session selected."""
+    session_key = f"active_chat_session_user_{st.session_state.get('user_id')}"
+    if st.session_state.get(session_key):
+        return st.session_state[session_key]
+
+    sessions = get_chat_sessions(st.session_state.get("user_id"), limit=1)
+    if sessions:
+        st.session_state[session_key] = sessions[0]["id"]
+        _load_saved_chat_messages(sessions[0]["id"])
+        return sessions[0]["id"]
+
+    session_id = create_chat_session(
+        st.session_state.get("user_id"),
+        title="Study Chat",
+        chat_mode=chat_mode,
+        context_label=context_label,
+    )
+    st.session_state[session_key] = session_id
+    return session_id
+
+
+def _start_new_chat_session(chat_mode="General Chat", context_label=""):
+    """Create and select a fresh saved chat session."""
+    session_id = create_chat_session(
+        st.session_state.get("user_id"),
+        title=f"Study Chat - {datetime.now().strftime('%b %d, %H:%M')}",
+        chat_mode=chat_mode,
+        context_label=context_label,
+    )
+    session_key = f"active_chat_session_user_{st.session_state.get('user_id')}"
+    st.session_state[session_key] = session_id
+    _set_chat_messages([])
+    return session_id
+
+
+def _persist_chat_message(message):
+    """Save a chat message to SQLite for this user."""
+    session_id = _ensure_chat_session(
+        message.get("context", {}).get("badge", "General Chat"),
+        message.get("context", {}).get("label", ""),
+    )
+    save_chat_message(
+        session_id=session_id,
+        user_id=st.session_state.get("user_id"),
+        role=message.get("role"),
+        content=message.get("content", ""),
+        context_json=json.dumps(message.get("context", {}), default=str),
+        sources_json=json.dumps(message.get("sources", []), default=str),
+        warning=message.get("warning", ""),
+        source_count=message.get("source_count", 0),
+        suggestions_json=json.dumps(message.get("suggestions", []), default=str),
+    )
+
+
 def _message_timestamp():
     """Return a simple timestamp for chat history records."""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -150,16 +243,13 @@ def add_chat_pair(question, answer_data, context):
     """Append one user message and one assistant response to session history."""
     messages = _chat_messages()
     timestamp = _message_timestamp()
-    messages.append(
-        {
+    user_message = {
             "role": "user",
             "content": question,
             "context": context,
             "created_at": timestamp,
         }
-    )
-    messages.append(
-        {
+    assistant_message = {
             "role": "assistant",
             "content": answer_data["answer"],
             "sources": answer_data["sources"],
@@ -169,13 +259,15 @@ def add_chat_pair(question, answer_data, context):
             "suggestions": answer_data.get("suggestions", []),
             "created_at": _message_timestamp(),
         }
-    )
+    messages.append(user_message)
+    messages.append(assistant_message)
+    _persist_chat_message(user_message)
+    _persist_chat_message(assistant_message)
 
 
 def add_assistant_message(answer_data, context):
     """Append only an assistant response, used when regenerating."""
-    _chat_messages().append(
-        {
+    assistant_message = {
             "role": "assistant",
             "content": answer_data["answer"],
             "sources": answer_data["sources"],
@@ -185,7 +277,8 @@ def add_assistant_message(answer_data, context):
             "suggestions": answer_data.get("suggestions", []),
             "created_at": _message_timestamp(),
         }
-    )
+    _chat_messages().append(assistant_message)
+    _persist_chat_message(assistant_message)
 
 
 def _compact_chat_history(limit=6):
@@ -626,6 +719,7 @@ with feature3:
     render_feature_card("Exam-ready answers", "Get explanations, examples, key points, and revision tips.", "\U0001f4dd", "#ffb703", "#fff3c4")
 
 _chat_messages()
+_ensure_chat_session()
 if "study_chat_last_question" not in st.session_state:
     st.session_state.study_chat_last_question = ""
 if "study_chat_last_request" not in st.session_state:
@@ -728,7 +822,7 @@ with st.container(border=True):
     action_col1, action_col2 = st.columns([1, 1])
     with action_col1:
         if st.button("New Chat", use_container_width=True):
-            _set_chat_messages([])
+            _start_new_chat_session(chat_mode, "New Chat")
             st.session_state.study_chat_last_question = ""
             st.session_state.study_chat_last_request = None
             st.session_state.study_chat_teach_context = {}
@@ -936,7 +1030,7 @@ for message_index, message in enumerate(messages):
         if message.get("warning"):
             st.warning(message["warning"])
 
-        st.markdown(message["content"])
+        render_ai_markdown(message["content"])
 
         if message["role"] == "assistant":
             source_count = message.get("source_count", 0)

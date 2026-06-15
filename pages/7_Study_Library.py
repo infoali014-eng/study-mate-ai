@@ -9,8 +9,10 @@ from modules.database import (
     delete_document,
     get_all_documents,
     get_document_by_id,
+    get_document_summary,
     get_subjects,
     init_db,
+    save_document_summary,
 )
 from modules.file_preview import (
     file_exists,
@@ -25,6 +27,7 @@ from modules.ui import (
     apply_theme,
     file_type_visual,
     render_ai_loading,
+    render_ai_markdown,
     render_empty_state,
     render_subject_card,
     section_title,
@@ -214,6 +217,7 @@ def material_row(document):
 def render_document_details(document):
     """Render the read/preview panel for one selected document."""
     extracted_text = read_extracted_text(document)
+    saved_summary = get_document_summary(document["id"], user_id=st.session_state.get("user_id"))
 
     section_title("Read / Preview", "\U0001f441\ufe0f")
     with st.container(border=True):
@@ -289,6 +293,8 @@ def render_document_details(document):
         if st.session_state.library_auto_summary == document["id"]:
             if not extracted_text:
                 st.warning("No extracted text is available for summary generation.")
+            elif saved_summary and document["id"] not in st.session_state.library_summary:
+                st.session_state.library_summary[document["id"]] = saved_summary["summary_text"]
             elif document["id"] not in st.session_state.library_summary:
                 loading_slot = st.empty()
                 with loading_slot:
@@ -300,15 +306,31 @@ def render_document_details(document):
                     f"NOTES:\n{extracted_text[:6000]}"
                 )
                 try:
-                    st.session_state.library_summary[document["id"]] = ask_selected_ai(prompt)
+                    summary_text = ask_selected_ai(prompt)
+                    st.session_state.library_summary[document["id"]] = summary_text
+                    save_document_summary(
+                        document_id=document["id"],
+                        subject_id=document["subject_id"],
+                        summary_text=summary_text,
+                        user_id=st.session_state.get("user_id"),
+                        provider=ai_engine.get_selected_provider()
+                        if hasattr(ai_engine, "get_selected_provider")
+                        else "",
+                        model=ai_engine.get_session_ai_settings().get("gemini_model", "")
+                        if hasattr(ai_engine, "get_session_ai_settings")
+                        else "",
+                    )
                 except Exception:
                     st.error("Could not generate summary with the selected AI provider.")
                 finally:
                     loading_slot.empty()
 
+        if saved_summary and document["id"] not in st.session_state.library_summary:
+            st.session_state.library_summary[document["id"]] = saved_summary["summary_text"]
+
         if document["id"] in st.session_state.library_summary:
-            st.markdown("**Generated Summary**")
-            st.write(st.session_state.library_summary[document["id"]])
+            st.markdown("**Saved Summary**")
+            render_ai_markdown(st.session_state.library_summary[document["id"]])
 
         with st.expander("Extracted text preview", expanded=False):
             st.write(extracted_text[:3000] if extracted_text else "No extracted text preview found.")
