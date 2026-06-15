@@ -1,3 +1,5 @@
+import html
+
 import streamlit as st
 
 from modules.auth import get_current_user_display_name, require_login
@@ -15,7 +17,6 @@ from modules.ui import (
     render_empty_state,
     render_progress_panel,
     render_stat_card,
-    render_subject_card,
     render_tip,
     section_title,
     sidebar_nav,
@@ -112,7 +113,7 @@ with right:
     else:
         for subject in subjects:
             with st.container(border=True):
-                subject_header, subject_action = st.columns([4, 1])
+                subject_header, subject_action = st.columns([5, 1])
 
                 with subject_header:
                     document_count = next(
@@ -123,9 +124,23 @@ with right:
                         ),
                         0,
                     )
-                    render_subject_card(subject, document_count=document_count)
+                    visual = subject_visual(subject["name"])
+                    description = subject["description"] or "No description added yet."
+                    st.markdown(
+                        f'<div class="subject-mini-row" style="--accent:{visual["accent"]}; --soft:{visual["soft"]};">'
+                        f'<div class="subject-mini-icon">{visual["icon"]}</div>'
+                        '<div>'
+                        f'<div class="subject-mini-title">{html.escape(subject["name"])}</div>'
+                        f'<div class="subject-mini-desc">{html.escape(description)}</div>'
+                        '<div class="subject-mini-meta">'
+                        f'<span class="mini-pill" style="--accent:{visual["accent"]}; --soft:{visual["soft"]};">{document_count} document(s)</span>'
+                        f'<span class="mini-pill" style="--accent:{visual["accent"]}; --soft:{visual["soft"]};">Created {html.escape(str(subject["created_at"])[:10])}</span>'
+                        '</div></div></div>',
+                        unsafe_allow_html=True,
+                    )
 
                 with subject_action:
+                    st.write("")
                     if st.button(
                         "Delete",
                         key=f"delete_subject_{subject['id']}",

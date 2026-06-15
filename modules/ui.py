@@ -767,9 +767,10 @@ def apply_theme():
             button[data-testid="stBaseButton-primary"],
             button[data-testid="stBaseButton-primaryFormSubmit"],
             button[data-testid="stBaseButton-secondaryFormSubmit"] {
-                background: linear-gradient(135deg, #0fb8b3, #2f7df6) !important;
-                border: none !important;
+                background: #0f766e !important;
+                border: 1px solid #0f766e !important;
                 color: #ffffff !important;
+                box-shadow: 0 10px 24px rgba(15, 118, 110, 0.18) !important;
             }
 
             .stButton > button[kind="primary"] p,
@@ -778,6 +779,16 @@ def apply_theme():
             button[data-testid="stBaseButton-primaryFormSubmit"] *,
             button[data-testid="stBaseButton-secondaryFormSubmit"] * {
                 color: #ffffff !important;
+            }
+
+            .stButton > button[kind="primary"]:hover,
+            button[kind="primary"]:hover,
+            button[data-testid="stBaseButton-primary"]:hover,
+            button[data-testid="stBaseButton-primaryFormSubmit"]:hover,
+            button[data-testid="stBaseButton-secondaryFormSubmit"]:hover {
+                background: #115e59 !important;
+                border-color: #115e59 !important;
+                box-shadow: 0 14px 30px rgba(15, 118, 110, 0.22) !important;
             }
 
             .stTextInput,
@@ -1270,15 +1281,15 @@ def apply_theme():
             }
 
             .progress-panel {
-                border-radius: 24px;
-                padding: 1.15rem;
+                border-radius: 20px;
+                padding: 1rem;
                 background: rgba(255, 255, 255, 0.94);
                 border: 1px solid rgba(220, 231, 247, 0.95);
-                box-shadow: var(--sm-soft-shadow);
+                box-shadow: 0 10px 26px rgba(57, 76, 119, 0.08);
             }
 
             .progress-row {
-                margin: 0.75rem 0;
+                margin: 0.7rem 0;
             }
 
             .progress-label {
@@ -1292,7 +1303,7 @@ def apply_theme():
             }
 
             .progress-track {
-                height: 12px;
+                height: 9px;
                 overflow: hidden;
                 border-radius: 999px;
                 background: #edf3fb;
@@ -1305,6 +1316,48 @@ def apply_theme():
                 border-radius: 999px;
                 background: linear-gradient(90deg, var(--accent), var(--accent-2));
                 animation: smGrow 700ms ease-out both;
+            }
+
+            .subject-mini-row {
+                display: flex;
+                align-items: center;
+                gap: 0.85rem;
+                min-height: 74px;
+                padding: 0.15rem 0;
+            }
+
+            .subject-mini-icon {
+                width: 46px;
+                height: 46px;
+                display: grid;
+                place-items: center;
+                flex: 0 0 auto;
+                border-radius: 15px;
+                background: var(--soft);
+                color: var(--accent);
+                font-size: 1.25rem;
+            }
+
+            .subject-mini-title {
+                color: var(--sm-ink);
+                font-size: 1.02rem;
+                line-height: 1.2;
+                font-weight: 880;
+                margin-bottom: 0.2rem;
+            }
+
+            .subject-mini-desc {
+                color: var(--sm-muted);
+                font-size: 0.86rem;
+                line-height: 1.35;
+                font-weight: 620;
+                margin-bottom: 0.45rem;
+            }
+
+            .subject-mini-meta {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.35rem;
             }
 
             .ai-loading-card {
@@ -1488,7 +1541,8 @@ def apply_theme():
             button[data-testid="stBaseButton-primary"],
             button[data-testid="stBaseButton-primaryFormSubmit"],
             button[data-testid="stBaseButton-secondaryFormSubmit"] {{
-                background: linear-gradient(135deg, {preset["accent"]}, {preset["accent_2"]}) !important;
+                background: #0f766e !important;
+                border-color: #0f766e !important;
             }}
         </style>
         """,
@@ -1709,20 +1763,14 @@ def render_progress_panel(title, rows):
         accent = row.get("accent", "#14b8b4")
         accent_2 = row.get("accent_2", "#2f7df6")
         row_html.append(
-            f"""
-            <div class="progress-row" style="--value:{value}%; --accent:{accent}; --accent-2:{accent_2};">
-                <div class="progress-label"><span>{label}</span><span>{count}</span></div>
-                <div class="progress-track"><div class="progress-fill"></div></div>
-            </div>
-            """
+            f'<div class="progress-row" style="--value:{value}%; --accent:{accent}; --accent-2:{accent_2};">'
+            f'<div class="progress-label"><span>{label}</span><span>{count}</span></div>'
+            '<div class="progress-track"><div class="progress-fill"></div></div>'
+            '</div>'
         )
+    rows_markup = "".join(row_html) if row_html else '<p class="muted">No progress data yet.</p>'
     st.markdown(
-        f"""
-        <div class="progress-panel">
-            <div class="filter-card-title">{html.escape(title)}</div>
-            {''.join(row_html) if row_html else '<p class="muted">No progress data yet.</p>'}
-        </div>
-        """,
+        f'<div class="progress-panel"><div class="filter-card-title">{html.escape(title)}</div>{rows_markup}</div>',
         unsafe_allow_html=True,
     )
 
