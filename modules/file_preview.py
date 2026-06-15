@@ -18,6 +18,10 @@ def get_file_bytes(file_path):
 def get_file_download_button(file_path, label="Download Original File"):
     """Render a Streamlit download button for any stored file."""
     path = Path(file_path)
+    if not path.is_file():
+        st.error("Original file not found. Please re-upload this document.")
+        return
+
     st.download_button(
         label=label,
         data=get_file_bytes(path),
@@ -28,11 +32,20 @@ def get_file_download_button(file_path, label="Download Original File"):
 
 
 def preview_pdf(file_path, height=720):
-    """Embed a PDF inside the Streamlit app using a base64 iframe."""
+    """Show a PDF inside the Streamlit app with safe fallbacks."""
     pdf_bytes = get_file_bytes(file_path)
-    if len(pdf_bytes) > 15 * 1024 * 1024:
+
+    try:
+        st.pdf(pdf_bytes, height=height)
+        return
+    except Exception:
+        # Older deployments may not have Streamlit's PDF extra installed.
+        # The base64 iframe below keeps preview working without crashing.
+        pass
+
+    if len(pdf_bytes) > 25 * 1024 * 1024:
         st.warning(
-            "This PDF is large, so embedded preview is disabled to keep the app responsive. "
+            "This PDF is large, so embedded preview is unavailable in this environment. "
             "Use the download button below to open the original file."
         )
         return

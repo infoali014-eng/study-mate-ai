@@ -814,7 +814,11 @@ def _delete_file_if_inside_user_data(file_path, user_id):
         user_text_root, resolved_path
     )
     if allowed and resolved_path.is_file():
-        resolved_path.unlink(missing_ok=True)
+        try:
+            resolved_path.unlink(missing_ok=True)
+        except OSError:
+            # File cleanup should not block deleting the database record.
+            return
 
 
 def delete_subject(subject_id, user_id=None):

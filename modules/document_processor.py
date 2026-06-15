@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 import fitz
 
@@ -6,6 +7,8 @@ import fitz
 IMAGE_TYPES = {"PNG", "JPG", "JPEG", "WEBP"}
 TEXT_TYPES = {"TXT", "MD"}
 SUPPORTED_FILE_TYPES = {"PDF", *IMAGE_TYPES, "DOCX", "PPTX", *TEXT_TYPES}
+MAX_PDF_OCR_PAGES = int(os.getenv("STUDYMATE_MAX_PDF_OCR_PAGES", "3"))
+PDF_OCR_ZOOM = float(os.getenv("STUDYMATE_PDF_OCR_ZOOM", "1.4"))
 OCR_UNAVAILABLE_MESSAGE = (
     "OCR support is not available yet on this deployment. Image-based text may not be extracted."
 )
@@ -34,12 +37,19 @@ def _ocr_image(image):
 
 
 def _extract_pdf(file_path):
-    """Extract selectable PDF text and optionally OCR pages with little text."""
+    """Extract selectable PDF text and OCR a small sample of scanned pages.
+
+    Long scanned PDFs can take many minutes if every page is rendered and sent to
+    OCR. The app keeps uploads responsive by extracting selectable text from all
+    pages, then OCRing only a few low-text pages as a helpful sample.
+    """
     text_parts = []
     warnings = []
     page_count = 0
     ocr_used = False
     scanned_pages = 0
+    ocr_attempts = 0
+    ocr_warning_added = False
 
     with fitz.open(file_path) as document:
         page_count = document.page_count
@@ -50,27 +60,42 @@ def _extract_pdf(file_path):
 
             if len(page_text) < 40:
                 scanned_pages += 1
+                if ocr_attempts >= MAX_PDF_OCR_PAGES:
+                    continue
+
+                ocr_attempts += 1
                 try:
                     from PIL import Image
 
-                    pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                    pixmap = page.get_pixmap(
+                        matrix=fitz.Matrix(PDF_OCR_ZOOM, PDF_OCR_ZOOM),
+                        alpha=False,
+                    )
                     image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
                     ocr_text, warning = _ocr_image(image)
                     if ocr_text:
                         text_parts.append(f"\n--- Page {page_number} OCR ---\n{ocr_text}")
                         ocr_used = True
-                    elif warning:
+                    elif warning and not ocr_warning_added:
                         warnings.append(
                             "This PDF appears to be scanned/image-based. "
                             f"{warning}"
                         )
+                        ocr_warning_added = True
                 except Exception:
-                    warnings.append(
-                        "This PDF appears to be scanned/image-based. "
-                        f"{OCR_UNAVAILABLE_MESSAGE}"
-                    )
+                    if not ocr_warning_added:
+                        warnings.append(
+                            "This PDF appears to be scanned/image-based. "
+                            f"{OCR_UNAVAILABLE_MESSAGE}"
+                        )
+                        ocr_warning_added = True
 
     method = "pdf_ocr" if ocr_used else "pdf_text"
+    if scanned_pages > MAX_PDF_OCR_PAGES:
+        warnings.append(
+            "Long or scanned PDF detected. To keep upload fast, OCR was limited to "
+            f"{MAX_PDF_OCR_PAGES} page(s). Selectable text was still extracted from all pages."
+        )
     if scanned_pages and not ocr_used and not warnings:
         warnings.append(
             "Some PDF pages appear scanned/image-based, but no OCR text was extracted."

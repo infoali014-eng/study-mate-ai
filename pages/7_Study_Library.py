@@ -22,7 +22,7 @@ from modules.file_preview import (
 )
 from modules.security import is_path_inside
 from modules.ui import apply_theme, render_empty_state, section_title, sidebar_nav
-from modules.vector_store import VectorStoreError, delete_document_vectors
+from modules.vector_store import delete_document_vectors
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -86,7 +86,32 @@ def set_summary_document(document):
 def request_delete(document):
     """Start the safe delete flow for one document."""
     st.session_state.library_pending_delete = document["id"]
-    st.session_state.library_selected_document = document["id"]
+    st.session_state.library_auto_summary = None
+    st.rerun()
+
+
+def confirm_delete_document(document):
+    """Delete one document after ownership has already been checked."""
+    vector_cleanup_failed = False
+    try:
+        delete_document_vectors(document["id"], user_id=st.session_state.get("user_id"))
+    except Exception:
+        vector_cleanup_failed = True
+
+    deleted = delete_document(document["id"], user_id=st.session_state.get("user_id"))
+    if not deleted:
+        st.error("Document was not found or was already deleted.")
+        return
+
+    st.session_state.library_pending_delete = None
+    if st.session_state.library_selected_document == document["id"]:
+        st.session_state.library_selected_document = None
+    if st.session_state.library_auto_summary == document["id"]:
+        st.session_state.library_auto_summary = None
+    st.session_state.library_summary.pop(document["id"], None)
+    st.session_state.library_success = "Document deleted successfully."
+    if vector_cleanup_failed:
+        st.session_state.library_success += " Some old search chunks may remain, but this document is removed."
     st.rerun()
 
 
@@ -165,6 +190,29 @@ def material_row(document):
 
                     if st.button("Delete", key=f"delete_{document['id']}", use_container_width=True):
                         request_delete(document)
+
+        if st.session_state.library_pending_delete == document["id"]:
+            st.warning(
+                "Are you sure you want to delete this document? Only this document, "
+                "its extracted text, and related search chunks will be removed."
+            )
+            confirm_col, cancel_col = st.columns(2)
+            with confirm_col:
+                if st.button(
+                    "Yes, delete document",
+                    key=f"confirm_delete_{document['id']}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    confirm_delete_document(document)
+            with cancel_col:
+                if st.button(
+                    "Cancel",
+                    key=f"cancel_delete_{document['id']}",
+                    use_container_width=True,
+                ):
+                    st.session_state.library_pending_delete = None
+                    st.rerun()
 
 
 def render_document_details(document):
@@ -413,7 +461,10 @@ if selected_document_id:
         st.error("Access denied. This document does not belong to your account.")
         st.session_state.library_selected_document = None
 
-if st.session_state.library_pending_delete:
+if st.session_state.library_pending_delete and not any(
+    document["id"] == st.session_state.library_pending_delete
+    for document in filtered_documents
+):
     pending_doc = get_document_by_id(st.session_state.library_pending_delete, user_id=user_id)
     if pending_doc:
         st.warning(
@@ -424,20 +475,7 @@ if st.session_state.library_pending_delete:
         with confirm_col:
             if st.button("Yes, delete document", type="primary", use_container_width=True):
                 try:
-                    try:
-                        delete_document_vectors(pending_doc["id"], user_id=user_id)
-                    except VectorStoreError as exc:
-                        st.warning("Could not clean search chunks right now.")
-
-                    deleted = delete_document(pending_doc["id"], user_id=user_id)
-                    if deleted:
-                        st.session_state.library_pending_delete = None
-                        st.session_state.library_selected_document = None
-                        st.session_state.library_auto_summary = None
-                        st.session_state.library_success = "Document deleted successfully."
-                        st.rerun()
-                    else:
-                        st.error("Document was not found or was already deleted.")
+                    confirm_delete_document(pending_doc)
                 except Exception:
                     st.error("Could not delete this document. Please try again.")
         with cancel_col:

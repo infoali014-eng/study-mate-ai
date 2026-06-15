@@ -11,6 +11,7 @@ FALLBACK_DIR = BASE_DIR / "data" / "vector_fallback"
 FALLBACK_FILE = FALLBACK_DIR / "study_notes.json"
 COLLECTION_NAME = "study_notes"
 VECTOR_SIZE = 384
+VECTOR_BATCH_SIZE = int(os.getenv("STUDYMATE_VECTOR_BATCH_SIZE", "96"))
 
 
 class VectorStoreError(Exception):
@@ -140,13 +141,15 @@ def add_text_chunks(
 
     try:
         collection = _collection()
-        collection.upsert(
-            ids=ids,
-            documents=chunks,
-            metadatas=metadatas,
-            embeddings=embeddings,
-        )
-    except VectorStoreError:
+        for start in range(0, len(ids), VECTOR_BATCH_SIZE):
+            end = start + VECTOR_BATCH_SIZE
+            collection.upsert(
+                ids=ids[start:end],
+                documents=chunks[start:end],
+                metadatas=metadatas[start:end],
+                embeddings=embeddings[start:end],
+            )
+    except Exception:
         records = _read_fallback_records()
         existing_ids = set(ids)
         records = [record for record in records if record.get("id") not in existing_ids]
@@ -271,21 +274,25 @@ def delete_subject_vectors(subject_id, user_id=None):
     try:
         collection = _collection()
         collection.delete(where=where)
-    except VectorStoreError:
+    except Exception:
         pass
 
-    records = [
-        record
-        for record in _read_fallback_records()
-        if not (
-            int(record.get("metadata", {}).get("subject_id", -1)) == int(subject_id)
-            and (
-                user_id is None
-                or int(record.get("metadata", {}).get("user_id", -1)) == int(user_id)
+    try:
+        records = [
+            record
+            for record in _read_fallback_records()
+            if not (
+                int(record.get("metadata", {}).get("subject_id", -1)) == int(subject_id)
+                and (
+                    user_id is None
+                    or int(record.get("metadata", {}).get("user_id", -1)) == int(user_id)
+                )
             )
-        )
-    ]
-    _write_fallback_records(records)
+        ]
+        _write_fallback_records(records)
+    except Exception:
+        pass
+
     return True
 
 
@@ -298,19 +305,23 @@ def delete_document_vectors(document_id, user_id=None):
     try:
         collection = _collection()
         collection.delete(where=where)
-    except VectorStoreError:
+    except Exception:
         pass
 
-    records = [
-        record
-        for record in _read_fallback_records()
-        if not (
-            int(record.get("metadata", {}).get("document_id", -1)) == int(document_id)
-            and (
-                user_id is None
-                or int(record.get("metadata", {}).get("user_id", -1)) == int(user_id)
+    try:
+        records = [
+            record
+            for record in _read_fallback_records()
+            if not (
+                int(record.get("metadata", {}).get("document_id", -1)) == int(document_id)
+                and (
+                    user_id is None
+                    or int(record.get("metadata", {}).get("user_id", -1)) == int(user_id)
+                )
             )
-        )
-    ]
-    _write_fallback_records(records)
+        ]
+        _write_fallback_records(records)
+    except Exception:
+        pass
+
     return True

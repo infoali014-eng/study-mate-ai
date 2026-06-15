@@ -7,7 +7,7 @@ from modules.auth import require_login
 from modules.database import get_subjects, init_db, save_uploaded_document_metadata
 from modules.document_processor import ocr_status, process_uploaded_file
 from modules.security import validate_description, validate_upload
-from modules.text_splitter import split_text
+from modules.text_splitter import MAX_CHUNKS_PER_DOCUMENT, split_text
 from modules.ui import (
     apply_theme,
     page_header,
@@ -77,6 +77,12 @@ with st.container(border=True):
 
 if uploaded_file:
     st.write(f"Selected file: `{uploaded_file.name}`")
+    file_size_mb = uploaded_file.size / (1024 * 1024)
+    if file_size_mb > 25:
+        st.info(
+            "Large document detected. StudyMate will save the original file, limit slow OCR, "
+            "and index a capped set of chunks so the upload can finish reliably."
+        )
 
     if st.button("Process Document", type="primary", use_container_width=True):
         safe_name, validation_error = validate_upload(uploaded_file)
@@ -106,6 +112,14 @@ if uploaded_file:
 
         progress.progress(50, text="Splitting text into chunks...")
         chunks = split_text(extracted_text)
+        warnings = list(process_result.get("warnings", []))
+        if len(chunks) >= MAX_CHUNKS_PER_DOCUMENT:
+            warnings.append(
+                "This is a long document. To keep upload fast, StudyMate indexed the first "
+                f"{MAX_CHUNKS_PER_DOCUMENT} searchable chunks. The original file and extracted "
+                "text preview are still saved."
+            )
+        warning_message = " ".join(warnings)
 
         progress.progress(70, text="Saving document metadata in SQLite...")
         document_id = save_uploaded_document_metadata(
@@ -159,7 +173,7 @@ if uploaded_file:
                 "File uploaded, but no readable text was extracted. You can still preview it, "
                 "but AI chat may not use its content."
             )
-        for warning in process_result.get("warnings", []):
+        for warning in warnings:
             st.warning(warning)
 
         with st.expander("Preview extracted text"):
