@@ -5,8 +5,8 @@ import fitz
 
 
 IMAGE_TYPES = {"PNG", "JPG", "JPEG", "WEBP"}
-TEXT_TYPES = {"TXT", "MD"}
-SUPPORTED_FILE_TYPES = {"PDF", *IMAGE_TYPES, "DOCX", "PPTX", *TEXT_TYPES}
+TEXT_TYPES = {"TXT", "MD", "CSV", "JSON"}
+SUPPORTED_FILE_TYPES = {"PDF", *IMAGE_TYPES, "DOCX", "PPTX", "XLSX", *TEXT_TYPES}
 MAX_PDF_OCR_PAGES = int(os.getenv("STUDYMATE_MAX_PDF_OCR_PAGES", "3"))
 PDF_OCR_ZOOM = float(os.getenv("STUDYMATE_PDF_OCR_ZOOM", "1.4"))
 OCR_UNAVAILABLE_MESSAGE = (
@@ -207,6 +207,35 @@ def _extract_pptx(file_path):
     return "\n\n".join(parts).strip(), len(presentation.slides), "pptx_text", warnings
 
 
+def _extract_xlsx(file_path):
+    """Extract readable cell text from an XLSX workbook."""
+    try:
+        from openpyxl import load_workbook
+    except Exception:
+        return "", 0, "xlsx_unavailable", ["XLSX support is not available on this deployment."]
+
+    workbook = load_workbook(file_path, read_only=True, data_only=True)
+    parts = []
+    sheet_count = 0
+
+    for sheet in workbook.worksheets:
+        sheet_count += 1
+        rows = []
+        for row in sheet.iter_rows(values_only=True):
+            values = [str(value).strip() for value in row if value is not None and str(value).strip()]
+            if values:
+                rows.append(" | ".join(values))
+            if len(rows) >= 400:
+                rows.append("... additional rows skipped for fast upload ...")
+                break
+
+        if rows:
+            parts.append(f"Sheet: {sheet.title}\n" + "\n".join(rows))
+
+    workbook.close()
+    return "\n\n".join(parts).strip(), sheet_count, "xlsx_text", []
+
+
 def _extract_text_file(file_path):
     """Read TXT or Markdown files safely."""
     path = Path(file_path)
@@ -239,6 +268,8 @@ def process_uploaded_file(file_path, file_type):
         text, count, method, warnings = _extract_docx(path)
     elif clean_type == "PPTX":
         text, count, method, warnings = _extract_pptx(path)
+    elif clean_type == "XLSX":
+        text, count, method, warnings = _extract_xlsx(path)
     else:
         text = _extract_text_file(path)
         count = 1

@@ -261,9 +261,9 @@ def render_document_details(document):
                 preview_image(original_path)
                 st.markdown("**Extracted OCR text**")
                 preview_extracted_text(extracted_text)
-            elif file_type in {"TXT", "MD"}:
+            elif file_type in {"TXT", "MD", "CSV", "JSON"}:
                 preview_text_file(original_path)
-            elif file_type in {"DOCX", "PPTX"}:
+            elif file_type in {"DOCX", "PPTX", "XLSX"}:
                 st.info("Preview uses extracted text. Download the original file for full formatting.")
                 preview_extracted_text(extracted_text)
             else:

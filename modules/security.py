@@ -12,6 +12,9 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     ".pptx",
     ".txt",
     ".md",
+    ".csv",
+    ".json",
+    ".xlsx",
 }
 MAX_UPLOAD_MB = 100
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
@@ -94,7 +97,7 @@ def sanitize_filename(file_name):
     path = Path(original)
     suffix = path.suffix.lower()
     if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
-        return "", "Only PDF, image, DOCX, PPTX, TXT, and Markdown files are allowed."
+        return "", "Only PDF, images, DOCX, PPTX, XLSX, TXT, Markdown, CSV, and JSON files are allowed."
 
     safe_stem = re.sub(r"[^A-Za-z0-9._ -]+", "_", path.stem).strip(" ._")
     if not safe_stem:

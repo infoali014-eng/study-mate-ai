@@ -46,7 +46,7 @@ page_header(
 
 feature1, feature2, feature3 = st.columns(3)
 with feature1:
-    render_feature_card("Many file types", "Upload PDFs, images, Word, PowerPoint, TXT, and Markdown.", "\U0001f4c4", "#14b8b4", "#d8fff6")
+    render_feature_card("Many file types", "Upload PDFs, images, Word, PowerPoint, Excel, TXT, Markdown, CSV, and JSON.", "\U0001f4c4", "#14b8b4", "#d8fff6")
 with feature2:
     render_feature_card("Smart extraction", "Extract selectable text, Office text, and OCR when available.", "\U0001f9e9", "#ff637d", "#ffe3e9")
 with feature3:
@@ -74,7 +74,7 @@ with st.container(border=True):
     st.info(f"OCR status: {ocr_status()}. Image/scanned notes may be limited if OCR is unavailable.")
     uploaded_file = st.file_uploader(
         "Upload study material",
-        type=["pdf", "png", "jpg", "jpeg", "webp", "docx", "pptx", "txt", "md"],
+        type=["pdf", "png", "jpg", "jpeg", "webp", "docx", "pptx", "xlsx", "txt", "md", "csv", "json"],
     )
 
 if uploaded_file:
@@ -178,7 +178,7 @@ if uploaded_file:
         progress.progress(100, text="Upload complete.")
         render_success_state(
             "Upload complete",
-            f"{safe_name} is saved under {selected_subject['name']} and ready for StudyMate.",
+            f"{safe_name} is stored under {selected_subject['name']} with its original file and extracted text.",
         )
         if chunks:
             st.success(f"Saved {saved_count} searchable chunks into ChromaDB.")
