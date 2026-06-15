@@ -10,6 +10,7 @@ from modules.security import validate_chat_question
 from modules.ui import (
     apply_theme,
     page_header,
+    render_ai_loading,
     render_empty_state,
     render_feature_card,
     section_title,
@@ -872,13 +873,18 @@ if chat_mode == "Teach Me Mode":
                 "chat_mode": chat_mode,
                 "context": request_context,
             }
-            with st.spinner("StudyMate Tutor is preparing your lesson..."):
+            loading_slot = st.empty()
+            with loading_slot:
+                render_ai_loading("StudyMate Tutor is preparing your lesson")
+            try:
                 answer_data = generate_chat_answer(
                     question=start_prompt,
                     answer_style=language_style,
                     chat_mode=chat_mode,
                     context=request_context,
                 )
+            finally:
+                loading_slot.empty()
             add_chat_pair(start_prompt, answer_data, active_context)
             st.rerun()
 
@@ -894,13 +900,18 @@ if prefill_question:
             "chat_mode": chat_mode,
             "context": context,
         }
-        with st.spinner("StudyMate is thinking..."):
+        loading_slot = st.empty()
+        with loading_slot:
+            render_ai_loading("StudyMate is reading your selected material")
+        try:
             answer_data = generate_chat_answer(
                 question=prefill_question,
                 answer_style=answer_style,
                 chat_mode=chat_mode,
                 context=context,
             )
+        finally:
+            loading_slot.empty()
         add_chat_pair(prefill_question, answer_data, context)
         st.rerun()
 
@@ -946,13 +957,18 @@ if st.session_state.get("study_chat_regenerate"):
 
     last_request = st.session_state.study_chat_last_request
     if last_request:
-        with st.spinner("Regenerating answer..."):
+        loading_slot = st.empty()
+        with loading_slot:
+            render_ai_loading("Regenerating a sharper answer")
+        try:
             answer_data = generate_chat_answer(
                 question=last_request["question"],
                 answer_style=last_request["answer_style"],
                 chat_mode=last_request["chat_mode"],
                 context=last_request["context"],
             )
+        finally:
+            loading_slot.empty()
         add_assistant_message(answer_data, last_request["context"])
     st.rerun()
 
@@ -991,13 +1007,18 @@ if prompt:
         "chat_mode": chat_mode,
         "context": context,
     }
-    with st.spinner("StudyMate is thinking..."):
+    loading_slot = st.empty()
+    with loading_slot:
+        render_ai_loading("StudyMate is thinking with your study context")
+    try:
         answer_data = generate_chat_answer(
             question=clean_prompt,
             answer_style=answer_style,
             chat_mode=chat_mode,
             context=context,
         )
+    finally:
+        loading_slot.empty()
 
     add_chat_pair(clean_prompt, answer_data, context)
     st.rerun()

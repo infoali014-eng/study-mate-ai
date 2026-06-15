@@ -12,7 +12,9 @@ from modules.ui import (
     apply_theme,
     page_header,
     render_empty_state,
+    render_file_badge,
     render_feature_card,
+    render_success_state,
     section_title,
     sidebar_nav,
 )
@@ -76,8 +78,17 @@ with st.container(border=True):
     )
 
 if uploaded_file:
-    st.write(f"Selected file: `{uploaded_file.name}`")
     file_size_mb = uploaded_file.size / (1024 * 1024)
+    selected_type = Path(uploaded_file.name).suffix.replace(".", "").upper()
+    with st.container(border=True):
+        st.markdown("**Selected material**")
+        badge_col, info_col = st.columns([1, 4])
+        with badge_col:
+            render_file_badge(selected_type or "FILE")
+        with info_col:
+            st.markdown(f"**{uploaded_file.name}**")
+            st.caption(f"{file_size_mb:.2f} MB ready for processing")
+
     if file_size_mb > 25:
         st.info(
             "Large document detected. StudyMate will save the original file, limit slow OCR, "
@@ -165,7 +176,10 @@ if uploaded_file:
                 )
 
         progress.progress(100, text="Upload complete.")
-        st.success(f"Uploaded `{safe_name}` for {selected_subject['name']}.")
+        render_success_state(
+            "Upload complete",
+            f"{safe_name} is saved under {selected_subject['name']} and ready for StudyMate.",
+        )
         if chunks:
             st.success(f"Saved {saved_count} searchable chunks into ChromaDB.")
         else:

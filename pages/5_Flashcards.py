@@ -16,6 +16,7 @@ from modules.security import clean_text
 from modules.ui import (
     apply_theme,
     page_header,
+    render_ai_loading,
     render_empty_state,
     render_feature_card,
     section_title,
@@ -106,13 +107,18 @@ if generate_button:
     if not clean_topic:
         st.warning("Please enter a topic.")
     else:
-        with st.spinner("Searching uploaded notes and generating flashcards with the selected AI provider..."):
+        loading_slot = st.empty()
+        with loading_slot:
+            render_ai_loading("Turning your notes into flashcards")
+        try:
             generated = generate_flashcards(
                 subject_id=selected_subject["id"],
                 topic=clean_topic,
                 card_count=int(card_count),
                 user_id=user_id,
             )
+        finally:
+            loading_slot.empty()
 
         if generated["error"]:
             st.error(generated["error"])

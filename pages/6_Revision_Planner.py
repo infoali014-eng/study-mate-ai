@@ -16,6 +16,7 @@ from modules.security import clean_text
 from modules.ui import (
     apply_theme,
     page_header,
+    render_ai_loading,
     render_empty_state,
     render_feature_card,
     section_title,
@@ -122,7 +123,10 @@ if "latest_revision_plan" not in st.session_state:
     st.session_state.latest_revision_plan = None
 
 if generate_button:
-    with st.spinner("Generating day-wise study plan with the selected AI provider..."):
+    loading_slot = st.empty()
+    with loading_slot:
+        render_ai_loading("Building your revision roadmap")
+    try:
         plan_text = generate_revision_plan(
             subject_name=selected_subject["name"],
             exam_date=exam_date,
@@ -130,6 +134,8 @@ if generate_button:
             confidence_level=confidence_level,
             weak_topics=all_weak_topics,
         )
+    finally:
+        loading_slot.empty()
 
     plan_id = save_revision_plan(
         subject_id=selected_subject["id"],

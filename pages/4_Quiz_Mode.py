@@ -13,6 +13,7 @@ from modules.security import clean_text
 from modules.ui import (
     apply_theme,
     page_header,
+    render_ai_loading,
     render_empty_state,
     render_feature_card,
     section_title,
@@ -103,7 +104,10 @@ if generate_button:
     if not clean_topic:
         st.warning("Please enter a topic.")
     else:
-        with st.spinner("Searching uploaded notes and generating quiz with the selected AI provider..."):
+        loading_slot = st.empty()
+        with loading_slot:
+            render_ai_loading("Searching notes and building your quiz")
+        try:
             quiz_data = generate_quiz(
                 subject_id=selected_subject["id"],
                 topic=clean_topic,
@@ -112,6 +116,8 @@ if generate_button:
                 question_count=int(question_count),
                 user_id=user_id,
             )
+        finally:
+            loading_slot.empty()
 
         if quiz_data["error"]:
             st.error(quiz_data["error"])
@@ -174,11 +180,16 @@ if quiz_data:
         submitted = st.form_submit_button("Submit Answers", use_container_width=True)
 
     if submitted:
-        with st.spinner("Checking answers with the selected AI provider..."):
+        loading_slot = st.empty()
+        with loading_slot:
+            render_ai_loading("Checking answers and preparing feedback")
+        try:
             checked = check_quiz_answers(
                 questions=quiz_data["questions"],
                 user_answers=user_answers,
             )
+        finally:
+            loading_slot.empty()
 
         if checked["error"]:
             st.error(checked["error"])

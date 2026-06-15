@@ -21,25 +21,20 @@ from modules.file_preview import (
     preview_text_file,
 )
 from modules.security import is_path_inside
-from modules.ui import apply_theme, render_empty_state, section_title, sidebar_nav
+from modules.ui import (
+    apply_theme,
+    file_type_visual,
+    render_ai_loading,
+    render_empty_state,
+    render_subject_card,
+    section_title,
+    sidebar_nav,
+)
 from modules.vector_store import delete_document_vectors
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
-FILE_ICONS = {
-    "PDF": "\U0001f4c4",
-    "PNG": "\U0001f5bc\ufe0f",
-    "JPG": "\U0001f5bc\ufe0f",
-    "JPEG": "\U0001f5bc\ufe0f",
-    "WEBP": "\U0001f5bc\ufe0f",
-    "DOCX": "\U0001f4dd",
-    "PPTX": "\U0001f4ca",
-    "TXT": "\U0001f4c3",
-    "MD": "\U0001f4c3",
-}
-
-
 def ask_selected_ai(prompt):
     """Use the selected AI provider, with a fallback for older loaded modules."""
     if hasattr(ai_engine, "ask_ai"):
@@ -130,7 +125,8 @@ def set_subject_filter(subject_name):
 def material_row(document):
     """Render one clean material list row."""
     file_type = (document["file_type"] or "PDF").upper()
-    file_icon = FILE_ICONS.get(file_type, "\U0001f4c1")
+    file_visual = file_type_visual(file_type)
+    file_icon = file_visual["icon"]
     description = document["description"] or "No description added."
     extraction_status = document["extraction_status"] or (
         "Text extracted" if int(document["chunk_count"] or 0) else "Text not found"
@@ -145,7 +141,7 @@ def material_row(document):
                 f"""
                 <div class="material-row-info">
                     <div class="material-file-line">
-                        <span class="material-file-icon">{file_icon}</span>
+                        <span class="material-file-icon" style="background:{file_visual['soft']}; color:{file_visual['accent']};">{file_icon}</span>
                         <span class="material-file-name" title="{html.escape(document['file_name'])}">
                             {html.escape(document['file_name'])}
                         </span>
@@ -294,17 +290,21 @@ def render_document_details(document):
             if not extracted_text:
                 st.warning("No extracted text is available for summary generation.")
             elif document["id"] not in st.session_state.library_summary:
-                with st.spinner("Generating summary with the selected AI provider..."):
-                    prompt = (
-                        f"{ai_engine.build_study_assistant_system_prompt()}\n\n"
-                        "Summarize these study notes for the signed-in student. Keep it clear, "
-                        "organized, and exam-focused.\n\n"
-                        f"NOTES:\n{extracted_text[:6000]}"
-                    )
-                    try:
-                        st.session_state.library_summary[document["id"]] = ask_selected_ai(prompt)
-                    except Exception:
-                        st.error("Could not generate summary with the selected AI provider.")
+                loading_slot = st.empty()
+                with loading_slot:
+                    render_ai_loading("Summarizing this document")
+                prompt = (
+                    f"{ai_engine.build_study_assistant_system_prompt()}\n\n"
+                    "Summarize these study notes for the signed-in student. Keep it clear, "
+                    "organized, and exam-focused.\n\n"
+                    f"NOTES:\n{extracted_text[:6000]}"
+                )
+                try:
+                    st.session_state.library_summary[document["id"]] = ask_selected_ai(prompt)
+                except Exception:
+                    st.error("Could not generate summary with the selected AI provider.")
+                finally:
+                    loading_slot.empty()
 
         if document["id"] in st.session_state.library_summary:
             st.markdown("**Generated Summary**")
@@ -376,6 +376,16 @@ documents = get_all_documents(user_id=user_id)
 
 subject_names = ["All"] + [subject["name"] for subject in subjects]
 file_types = ["All types"] + sorted({(document["file_type"] or "PDF").upper() for document in documents})
+
+if subjects:
+    section_title("Subject Overview", "\U0001f4da")
+    overview_cols = st.columns(min(3, len(subjects)))
+    for index, subject in enumerate(subjects[:6]):
+        document_count = sum(
+            1 for document in documents if int(document["subject_id"]) == int(subject["id"])
+        )
+        with overview_cols[index % len(overview_cols)]:
+            render_subject_card(subject, document_count=document_count)
 
 if st.session_state.library_subject_filter not in subject_names:
     st.session_state.library_subject_filter = "All"

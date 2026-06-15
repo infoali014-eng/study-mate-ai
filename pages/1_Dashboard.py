@@ -5,6 +5,7 @@ from modules.database import (
     create_subject,
     delete_subject,
     get_dashboard_counts,
+    get_subject_document_counts,
     get_subjects,
     init_db,
 )
@@ -12,10 +13,13 @@ from modules.ui import (
     apply_theme,
     page_header,
     render_empty_state,
+    render_progress_panel,
     render_stat_card,
+    render_subject_card,
     render_tip,
     section_title,
     sidebar_nav,
+    subject_visual,
 )
 from modules.security import validate_description, validate_subject_name
 from modules.vector_store import VectorStoreError, delete_subject_vectors
@@ -43,6 +47,7 @@ if st.session_state.dashboard_success:
     st.session_state.dashboard_success = ""
 
 counts = get_dashboard_counts(user_id=user_id)
+subject_document_counts = get_subject_document_counts(user_id=user_id)
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     render_stat_card("Subjects", counts["subjects"], "Start your first subject", "\U0001f4da", "#14b8b4", "#d8fff6")
@@ -52,6 +57,24 @@ with col3:
     render_stat_card("Flashcards", counts["flashcards"], "Create memory cards", "\U0001f0cf", "#ffb703", "#fff3c4")
 with col4:
     render_stat_card("Quiz Attempts", counts["quizzes"], "Test your knowledge", "\u2754", "#8b5cf6", "#efe7ff")
+
+if subject_document_counts:
+    section_title("Study Progress", "\U0001f4c8")
+    max_documents = max(int(row["document_count"] or 0) for row in subject_document_counts) or 1
+    progress_rows = []
+    for row in subject_document_counts[:6]:
+        visual = subject_visual(row["name"])
+        document_count = int(row["document_count"] or 0)
+        progress_rows.append(
+            {
+                "label": row["name"],
+                "count": f"{document_count} material(s)",
+                "value": max(7, int((document_count / max_documents) * 100)) if document_count else 4,
+                "accent": visual["accent"],
+                "accent_2": "#2f7df6",
+            }
+        )
+    render_progress_panel("Documents per subject", progress_rows)
 
 left, right = st.columns([1, 2])
 
@@ -92,10 +115,15 @@ with right:
                 subject_header, subject_action = st.columns([4, 1])
 
                 with subject_header:
-                    st.markdown(f"### {subject['name']}")
-                    if subject["description"]:
-                        st.write(subject["description"])
-                    st.caption(f"Created: {subject['created_at']}")
+                    document_count = next(
+                        (
+                            int(row["document_count"] or 0)
+                            for row in subject_document_counts
+                            if row["id"] == subject["id"]
+                        ),
+                        0,
+                    )
+                    render_subject_card(subject, document_count=document_count)
 
                 with subject_action:
                     if st.button(
