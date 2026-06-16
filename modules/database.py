@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 import os
 import secrets
 import sqlite3
@@ -201,10 +202,14 @@ def create_tables():
                 user_id INTEGER NOT NULL,
                 title TEXT DEFAULT 'Study Chat',
                 chat_mode TEXT DEFAULT 'General Chat',
+                subject_id INTEGER,
+                document_ids_json TEXT DEFAULT '[]',
                 context_label TEXT DEFAULT '',
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                is_archived INTEGER DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE SET NULL
             )
             """
         )
@@ -217,6 +222,7 @@ def create_tables():
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
                 context_json TEXT DEFAULT '{}',
+                metadata_json TEXT DEFAULT '{}',
                 sources_json TEXT DEFAULT '[]',
                 warning TEXT DEFAULT '',
                 source_count INTEGER DEFAULT 0,
@@ -362,6 +368,10 @@ def _run_migrations(conn):
     _add_missing_column(conn, "document_summaries", "model", "TEXT DEFAULT ''")
     _add_missing_column(conn, "chat_sessions", "chat_mode", "TEXT DEFAULT 'General Chat'")
     _add_missing_column(conn, "chat_sessions", "context_label", "TEXT DEFAULT ''")
+    _add_missing_column(conn, "chat_sessions", "subject_id", "INTEGER")
+    _add_missing_column(conn, "chat_sessions", "document_ids_json", "TEXT DEFAULT '[]'")
+    _add_missing_column(conn, "chat_sessions", "is_archived", "INTEGER DEFAULT 0")
+    _add_missing_column(conn, "chat_messages", "metadata_json", "TEXT DEFAULT '{}'")
     _add_missing_column(conn, "study_sessions", "notes", "TEXT DEFAULT ''")
 
     for table in ["uploaded_documents", "quiz_results", "flashcards", "weak_topics", "revision_plans"]:
@@ -401,6 +411,7 @@ def _run_migrations(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_remember_sessions_hash ON remember_sessions(token_hash)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_document_summaries_user ON document_summaries(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_archived ON chat_sessions(user_id, is_archived)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_user_memories_user ON user_memories(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_user_memories_active ON user_memories(user_id, is_active)")
@@ -1710,40 +1721,164 @@ def get_document_summary(document_id, user_id=None):
         ).fetchone()
 
 
-def create_chat_session(user_id, title="Study Chat", chat_mode="General Chat", context_label=""):
-    """Create a saved AI chat session."""
+def create_chat_session(
+    user_id,
+    title=None,
+    mode="General Chat",
+    subject_id=None,
+    document_ids=None,
+    chat_mode=None,
+    context_label="",
+):
+    """Create a saved AI chat session for one user."""
     if not user_id:
         return None
+    clean_title = (title or "New Chat").strip()[:80] or "New Chat"
+    clean_mode = chat_mode or mode or "General Chat"
+    document_ids_json = json.dumps(document_ids or [])
     with closing(get_connection()) as conn:
         cursor = conn.execute(
             """
-            INSERT INTO chat_sessions (user_id, title, chat_mode, context_label)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO chat_sessions
+                (user_id, title, chat_mode, subject_id, document_ids_json, context_label)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (user_id, title.strip() or "Study Chat", chat_mode, context_label),
+            (user_id, clean_title, clean_mode, subject_id, document_ids_json, context_label),
         )
         conn.commit()
         return cursor.lastrowid
 
 
-def get_chat_sessions(user_id, limit=20):
+def get_chat_sessions(user_id, limit=30, include_archived=False, search=""):
     """Return saved chat sessions for a user."""
     if not user_id:
         return []
+    clauses = ["user_id = ?"]
+    params = [user_id]
+    if not include_archived:
+        clauses.append("is_archived = 0")
+    if search:
+        clauses.append("LOWER(title) LIKE ?")
+        params.append(f"%{str(search).strip().lower()}%")
+    params.append(int(limit))
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            f"""
+            SELECT *
+            FROM chat_sessions
+            WHERE {" AND ".join(clauses)}
+            ORDER BY updated_at DESC, id DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+
+def get_chat_session(user_id, session_id):
+    """Return one owned chat session."""
+    if not user_id or not session_id:
+        return None
     with closing(get_connection()) as conn:
         return conn.execute(
             """
             SELECT *
             FROM chat_sessions
-            WHERE user_id = ?
-            ORDER BY updated_at DESC, id DESC
-            LIMIT ?
+            WHERE id = ? AND user_id = ? AND is_archived = 0
             """,
-            (user_id, int(limit)),
-        ).fetchall()
+            (session_id, user_id),
+        ).fetchone()
 
 
-def get_chat_messages(session_id, user_id, limit=None):
+def update_chat_session_title(user_id, session_id, new_title):
+    """Rename one owned chat session."""
+    if not user_id or not session_id:
+        return False
+    clean_title = str(new_title or "").strip()[:80]
+    if not clean_title:
+        return False
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE chat_sessions
+            SET title = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ? AND is_archived = 0
+            """,
+            (clean_title, session_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def update_chat_session_context(user_id, session_id, mode=None, subject_id="__keep__", document_ids=None, context_label=None):
+    """Update mode/context metadata for one owned chat session."""
+    if not user_id or not session_id:
+        return False
+    updates = []
+    params = []
+    if mode is not None:
+        updates.append("chat_mode = ?")
+        params.append(mode)
+    if subject_id != "__keep__":
+        updates.append("subject_id = ?")
+        params.append(subject_id)
+    if document_ids is not None:
+        updates.append("document_ids_json = ?")
+        params.append(json.dumps(document_ids or []))
+    if context_label is not None:
+        updates.append("context_label = ?")
+        params.append(context_label)
+    if not updates:
+        return False
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    params.extend([session_id, user_id])
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            f"""
+            UPDATE chat_sessions
+            SET {", ".join(updates)}
+            WHERE id = ? AND user_id = ? AND is_archived = 0
+            """,
+            params,
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def update_chat_session_timestamp(user_id, session_id):
+    """Touch one owned chat session timestamp."""
+    if not user_id or not session_id:
+        return False
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE chat_sessions
+            SET updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ? AND is_archived = 0
+            """,
+            (session_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def archive_chat_session(user_id, session_id):
+    """Archive one owned chat session so it disappears from the normal list."""
+    if not user_id or not session_id:
+        return False
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE chat_sessions
+            SET is_archived = 1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ?
+            """,
+            (session_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_chat_messages(user_id, session_id, limit=None):
     """Return saved messages for one owned chat session."""
     if not user_id or not session_id:
         return []
@@ -1755,6 +1890,7 @@ def get_chat_messages(session_id, user_id, limit=None):
             WHERE chat_messages.session_id = ?
               AND chat_messages.user_id = ?
               AND chat_sessions.user_id = ?
+              AND chat_sessions.is_archived = 0
             ORDER BY chat_messages.id ASC
             """
         params = [session_id, user_id, user_id]
@@ -1765,10 +1901,11 @@ def get_chat_messages(session_id, user_id, limit=None):
 
 
 def save_chat_message(
-    session_id,
     user_id,
+    session_id,
     role,
     content,
+    metadata=None,
     context_json="{}",
     sources_json="[]",
     warning="",
@@ -1780,7 +1917,7 @@ def save_chat_message(
         return None
     with closing(get_connection()) as conn:
         owner = conn.execute(
-            "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
+            "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ? AND is_archived = 0",
             (session_id, user_id),
         ).fetchone()
         if not owner:
@@ -1788,8 +1925,8 @@ def save_chat_message(
         cursor = conn.execute(
             """
             INSERT INTO chat_messages
-                (session_id, user_id, role, content, context_json, sources_json, warning, source_count, suggestions_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (session_id, user_id, role, content, context_json, metadata_json, sources_json, warning, source_count, suggestions_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_id,
@@ -1797,6 +1934,7 @@ def save_chat_message(
                 role,
                 content,
                 context_json,
+                json.dumps(metadata or {}),
                 sources_json,
                 warning,
                 int(source_count or 0),
@@ -1811,13 +1949,13 @@ def save_chat_message(
         return cursor.lastrowid
 
 
-def clear_chat_session(user_id, session_id):
+def clear_chat_messages(user_id, session_id):
     """Delete messages from one owned chat session without deleting the session."""
     if not user_id or not session_id:
         return False
     with closing(get_connection()) as conn:
         owner = conn.execute(
-            "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
+            "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ? AND is_archived = 0",
             (session_id, user_id),
         ).fetchone()
         if not owner:
@@ -1832,6 +1970,11 @@ def clear_chat_session(user_id, session_id):
         )
         conn.commit()
     return True
+
+
+def clear_chat_session(user_id, session_id):
+    """Compatibility wrapper for clearing messages in one owned chat session."""
+    return clear_chat_messages(user_id, session_id)
 
 
 def delete_chat_session(user_id, session_id):

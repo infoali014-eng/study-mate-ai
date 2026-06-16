@@ -1,6 +1,6 @@
 import html
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import streamlit as st
 
@@ -8,12 +8,16 @@ from modules import ai_engine
 from modules.auth import get_current_user_display_name, require_login
 from modules.database import (
     create_chat_session,
+    delete_chat_session,
+    get_chat_session,
     get_chat_messages,
     get_chat_sessions,
     get_documents_by_subject,
     get_subjects,
     init_db,
     save_chat_message,
+    update_chat_session_context,
+    update_chat_session_title,
 )
 from modules.security import validate_chat_question
 from modules.ui import (
@@ -159,16 +163,45 @@ def _decode_json(value, fallback):
         return fallback
 
 
+def _active_chat_session_key():
+    """Return the session-state key for this user's selected chat."""
+    return f"active_chat_session_user_{st.session_state.get('user_id')}"
+
+
+def _active_chat_session_id():
+    """Return the selected chat id for the current user."""
+    return st.session_state.get(_active_chat_session_key())
+
+
+def _set_active_chat_session(session_id):
+    """Set the selected chat id for the current user."""
+    st.session_state[_active_chat_session_key()] = session_id
+
+
+def _generate_chat_title(message):
+    """Create a short ChatGPT-style title from the first user message."""
+    words = str(message or "").replace("\n", " ").split()
+    title = " ".join(words[:7]).strip()
+    if len(title) > 50:
+        title = title[:47].rstrip() + "..."
+    return title or "New Chat"
+
+
 def _load_saved_chat_messages(session_id):
     """Load one saved chat session into Streamlit session state."""
-    rows = get_chat_messages(session_id, st.session_state.get("user_id"))
+    rows = get_chat_messages(st.session_state.get("user_id"), session_id)
     messages = []
     for row in rows:
+        context = _decode_json(row["context_json"], {})
+        metadata = _decode_json(row["metadata_json"], {})
         messages.append(
             {
                 "role": row["role"],
                 "content": row["content"],
-                "context": _decode_json(row["context_json"], {}),
+                "context": context,
+                "mode": metadata.get("mode", context.get("badge", context.get("label", "General Chat"))),
+                "subject_id": metadata.get("subject_id", context.get("subject_id")),
+                "document_id": metadata.get("document_id"),
                 "sources": _decode_json(row["sources_json"], []),
                 "warning": row["warning"],
                 "source_count": row["source_count"],
@@ -180,53 +213,104 @@ def _load_saved_chat_messages(session_id):
     _set_chat_messages(messages)
 
 
+def _load_chat_session(session_id):
+    """Select and load one owned chat session."""
+    session = get_chat_session(st.session_state.get("user_id"), session_id)
+    if not session:
+        st.error("Chat not found or you do not have access to it.")
+        return False
+    _set_active_chat_session(session_id)
+    st.session_state.study_chat_mode_selector = session["chat_mode"] or "General Chat"
+    if session["subject_id"]:
+        st.session_state.chat_prefill_subject_id = session["subject_id"]
+    document_ids = _decode_json(session["document_ids_json"], [])
+    if document_ids:
+        st.session_state.chat_prefill_document_id = document_ids[0]
+        st.session_state.chat_prefill_document_ids = document_ids
+    _load_saved_chat_messages(session_id)
+    loaded_messages = _chat_messages()
+    if (session["chat_mode"] or "") == "Teach Me Mode" and loaded_messages:
+        for message in reversed(loaded_messages):
+            message_context = message.get("context", {})
+            if message_context.get("badge") == "Teach Me Mode":
+                st.session_state.study_chat_teach_context = message_context
+                break
+    st.session_state.study_chat_last_question = ""
+    st.session_state.study_chat_last_request = None
+    return True
+
+
 def _ensure_chat_session(chat_mode="General Chat", context_label=""):
     """Ensure the logged-in user has a saved chat session selected."""
-    session_key = f"active_chat_session_user_{st.session_state.get('user_id')}"
-    if st.session_state.get(session_key):
-        return st.session_state[session_key]
+    if _active_chat_session_id():
+        existing = get_chat_session(st.session_state.get("user_id"), _active_chat_session_id())
+        if existing:
+            return _active_chat_session_id()
+        st.session_state.pop(_active_chat_session_key(), None)
 
     sessions = get_chat_sessions(st.session_state.get("user_id"), limit=1)
     if sessions:
-        st.session_state[session_key] = sessions[0]["id"]
+        _set_active_chat_session(sessions[0]["id"])
         _load_saved_chat_messages(sessions[0]["id"])
         return sessions[0]["id"]
 
     session_id = create_chat_session(
         st.session_state.get("user_id"),
-        title="Study Chat",
-        chat_mode=chat_mode,
+        title="New Chat",
+        mode=chat_mode,
         context_label=context_label,
     )
-    st.session_state[session_key] = session_id
+    _set_active_chat_session(session_id)
     return session_id
 
 
-def _start_new_chat_session(chat_mode="General Chat", context_label=""):
+def _start_new_chat_session(chat_mode="General Chat", context_label="", context=None):
     """Create and select a fresh saved chat session."""
+    context = context or {}
     session_id = create_chat_session(
         st.session_state.get("user_id"),
-        title=f"Study Chat - {datetime.now().strftime('%b %d, %H:%M')}",
-        chat_mode=chat_mode,
+        title="New Chat",
+        mode=chat_mode,
+        subject_id=context.get("subject_id"),
+        document_ids=context.get("document_ids", []),
         context_label=context_label,
     )
-    session_key = f"active_chat_session_user_{st.session_state.get('user_id')}"
-    st.session_state[session_key] = session_id
+    _set_active_chat_session(session_id)
     _set_chat_messages([])
+    return session_id
+
+
+def _sync_active_chat_context(chat_mode, context):
+    """Persist selected mode/context on the active chat."""
+    session_id = _ensure_chat_session(chat_mode, context.get("label", ""))
+    update_chat_session_context(
+        st.session_state.get("user_id"),
+        session_id,
+        mode=chat_mode,
+        subject_id=context.get("subject_id"),
+        document_ids=context.get("document_ids", []),
+        context_label=context.get("label", ""),
+    )
     return session_id
 
 
 def _persist_chat_message(message):
     """Save a chat message to SQLite for this user."""
-    session_id = _ensure_chat_session(
-        message.get("context", {}).get("badge", "General Chat"),
-        message.get("context", {}).get("label", ""),
+    context = message.get("context", {})
+    session_id = _sync_active_chat_context(
+        context.get("chat_mode") or message.get("mode") or context.get("badge", "General Chat"),
+        context,
     )
     save_chat_message(
-        session_id=session_id,
         user_id=st.session_state.get("user_id"),
+        session_id=session_id,
         role=message.get("role"),
         content=message.get("content", ""),
+        metadata={
+            "mode": message.get("mode"),
+            "subject_id": message.get("subject_id"),
+            "document_id": message.get("document_id"),
+        },
         context_json=json.dumps(message.get("context", {}), default=str),
         sources_json=json.dumps(message.get("sources", []), default=str),
         warning=message.get("warning", ""),
@@ -243,6 +327,14 @@ def _message_timestamp():
 def add_chat_pair(question, answer_data, context):
     """Append one user message and one assistant response to session history."""
     messages = _chat_messages()
+    session_id = _ensure_chat_session(context.get("chat_mode", "General Chat"), context.get("label", ""))
+    session = get_chat_session(st.session_state.get("user_id"), session_id)
+    if session and (session["title"] or "New Chat") == "New Chat" and not messages:
+        update_chat_session_title(
+            st.session_state.get("user_id"),
+            session_id,
+            _generate_chat_title(question),
+        )
     timestamp = _message_timestamp()
     user_message = {
             "role": "user",
@@ -336,6 +428,110 @@ def _extract_memories_from_prompt(prompt):
         st.session_state.get("user_id"),
         prompt,
     )
+
+
+def _chat_group_label(updated_at):
+    """Group chat sessions into friendly date buckets."""
+    try:
+        updated = datetime.fromisoformat(str(updated_at).replace("Z", "").split(".")[0])
+    except Exception:
+        return "Older"
+    today = datetime.now().date()
+    if updated.date() == today:
+        return "Today"
+    if updated.date() == today - timedelta(days=1):
+        return "Yesterday"
+    if updated.date() >= today - timedelta(days=7):
+        return "Previous 7 Days"
+    return "Older"
+
+
+def render_chat_history_panel():
+    """Render a compact ChatGPT-style history manager."""
+    section_title("Chat History", "\U0001f5c2\ufe0f")
+    with st.container(border=True):
+        if st.button("New Chat", type="primary", use_container_width=True, key="history_new_chat"):
+            _start_new_chat_session(
+                st.session_state.get("study_chat_mode_selector", "General Chat"),
+                "New Chat",
+            )
+            st.session_state.study_chat_last_question = ""
+            st.session_state.study_chat_last_request = None
+            st.session_state.study_chat_teach_context = {}
+            st.session_state.study_chat_pending_prompt = ""
+            st.rerun()
+
+        search = st.text_input(
+            "Search chats",
+            placeholder="Search by title",
+            key="chat_history_search",
+        )
+        sessions = get_chat_sessions(user_id, limit=40, search=search)
+        active_id = _active_chat_session_id()
+
+        if not sessions:
+            st.info("No saved chats yet.")
+            return
+
+        current_group = None
+        for session in sessions:
+            group = _chat_group_label(session["updated_at"])
+            if group != current_group:
+                current_group = group
+                st.caption(group)
+
+            is_active = session["id"] == active_id
+            title = session["title"] or "New Chat"
+            mode = session["chat_mode"] or "General Chat"
+            label = f"{'✓ ' if is_active else ''}{title}"
+
+            with st.container(border=True):
+                st.markdown(
+                    f"<span class='status-pill'>{html.escape(mode)}</span>",
+                    unsafe_allow_html=True,
+                )
+                if st.button(label, key=f"open_chat_{session['id']}", use_container_width=True):
+                    if _load_chat_session(session["id"]):
+                        st.rerun()
+                st.caption(f"Updated: {session['updated_at']}")
+
+                with st.expander("Manage", expanded=False):
+                    new_title = st.text_input(
+                        "Rename chat",
+                        value=title,
+                        key=f"rename_chat_{session['id']}",
+                    )
+                    if st.button("Save Name", key=f"save_chat_name_{session['id']}", use_container_width=True):
+                        if update_chat_session_title(user_id, session["id"], new_title):
+                            st.success("Chat renamed.")
+                            st.rerun()
+                        else:
+                            st.error("Could not rename this chat.")
+
+                    pending_key = f"confirm_delete_chat_{session['id']}"
+                    if st.session_state.get(pending_key):
+                        st.warning("Are you sure you want to delete this chat? This action cannot be undone.")
+                        confirm_col, cancel_col = st.columns(2)
+                        with confirm_col:
+                            if st.button("Delete", key=f"delete_chat_yes_{session['id']}", use_container_width=True):
+                                deleted_active = session["id"] == active_id
+                                if delete_chat_session(user_id, session["id"]):
+                                    st.session_state.pop(pending_key, None)
+                                    if deleted_active:
+                                        st.session_state.pop(_active_chat_session_key(), None)
+                                        _set_chat_messages([])
+                                    st.success("Chat deleted.")
+                                    st.rerun()
+                                else:
+                                    st.error("Could not delete this chat.")
+                        with cancel_col:
+                            if st.button("Cancel", key=f"delete_chat_no_{session['id']}", use_container_width=True):
+                                st.session_state.pop(pending_key, None)
+                                st.rerun()
+                    else:
+                        if st.button("Delete Chat", key=f"delete_chat_{session['id']}", use_container_width=True):
+                            st.session_state[pending_key] = True
+                            st.rerun()
 
 
 def _demo_teach_response(
@@ -790,6 +986,7 @@ if "study_chat_pending_prompt" not in st.session_state:
 subjects = get_subjects(user_id=user_id)
 prefill_subject_id = st.session_state.pop("chat_prefill_subject_id", None)
 prefill_document_id = st.session_state.pop("chat_prefill_document_id", None)
+prefill_document_ids = st.session_state.pop("chat_prefill_document_ids", [])
 prefill_question = st.session_state.pop("chat_prefill_question", "")
 
 section_title("Chat Settings", "\u2699\ufe0f")
@@ -870,10 +1067,15 @@ with st.container(border=True):
                         )
                         selected_documents = [document_options[selected_label]]
                     else:
+                        default_labels = [
+                            label
+                            for label, document in document_options.items()
+                            if document["id"] in prefill_document_ids
+                        ] or list(document_options.keys())[:2]
                         selected_labels = st.multiselect(
                             "Selected notes",
                             list(document_options.keys()),
-                            default=list(document_options.keys())[:2],
+                            default=default_labels,
                         )
                         selected_documents = [
                             document_options[label] for label in selected_labels
@@ -1007,6 +1209,7 @@ if chat_mode == "Teach Me Mode":
                 "document_ids": [document["id"] for document in teach_selected_documents],
                 "label": f"Teach Me: {clean_topic}",
                 "badge": "Teach Me Mode",
+                "chat_mode": "Teach Me Mode",
                 "topic": clean_topic,
                 "material_source": teach_material,
                 "learning_level": learning_level,
@@ -1043,6 +1246,7 @@ if chat_mode == "Teach Me Mode":
             st.rerun()
 
 context = build_context(chat_mode, selected_subject, selected_documents)
+context["chat_mode"] = chat_mode
 
 with st.container(border=True):
     recent_count = min(len(_chat_messages()), 10)
@@ -1081,6 +1285,8 @@ if prefill_question:
             loading_slot.empty()
         add_chat_pair(prefill_question, answer_data, context)
         st.rerun()
+
+render_chat_history_panel()
 
 section_title("Conversation", "\U0001f4ac")
 messages = _chat_messages()
