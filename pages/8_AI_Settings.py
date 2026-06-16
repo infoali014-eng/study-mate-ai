@@ -6,7 +6,10 @@ from modules import ai_engine
 from modules.auth import require_login
 from modules.database import (
     api_key_saving_configured,
+    clear_user_memories,
+    delete_user_memory,
     delete_user_api_key,
+    get_user_memories,
     get_user_api_key_status,
     init_db,
     save_user_api_key,
@@ -258,6 +261,41 @@ with st.container(border=True):
         st.session_state.pop("groq_api_key", None)
         st.success("Groq key removed from this browser session.")
         st.rerun()
+
+section_title("Memory Settings", "\U0001f9e0")
+with st.container(border=True):
+    st.session_state.memory_enabled = st.toggle(
+        "Memory enabled",
+        value=bool(st.session_state.get("memory_enabled", True)),
+        help="When enabled, StudyMate can use saved study preferences and recent chat context.",
+    )
+    st.caption(
+        "Memory is private to your account. It is not shown to other users and does not store passwords or API keys."
+    )
+
+    memories = get_user_memories(user_id, active_only=True)
+    if not memories:
+        st.info("No saved memories yet. Try telling the chatbot: My name is Ahmed and I prefer Roman Urdu.")
+    else:
+        st.markdown("**Saved memories**")
+        for memory in memories:
+            with st.container(border=True):
+                info_col, action_col = st.columns([4, 1])
+                with info_col:
+                    st.markdown(f"**{memory['memory_key']}**")
+                    st.caption(str(memory["category"]).replace("_", " ").title())
+                    st.write(memory["memory_value"])
+                with action_col:
+                    if st.button("Delete", key=f"delete_memory_{memory['id']}", use_container_width=True):
+                        delete_user_memory(user_id, memory["id"])
+                        st.success("Memory deleted.")
+                        st.rerun()
+
+    if memories:
+        if st.button("Clear All Memories", use_container_width=True):
+            clear_user_memories(user_id)
+            st.success("All memories cleared for this account.")
+            st.rerun()
 
 st.info(
     "Privacy note: Online AI providers may receive selected note chunks needed to answer "

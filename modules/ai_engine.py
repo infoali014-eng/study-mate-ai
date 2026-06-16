@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from pathlib import Path
 
@@ -70,6 +71,17 @@ RELEVANCE_STOPWORDS = {
     "which",
     "why",
     "with",
+}
+
+SENSITIVE_MEMORY_WORDS = {
+    "api key",
+    "apikey",
+    "password",
+    "secret",
+    "token",
+    "client secret",
+    "cookie secret",
+    "private key",
 }
 
 class AIProviderError(Exception):
@@ -189,6 +201,187 @@ For academic questions, prefer this structure when useful:
 - Common mistakes
 - Quick revision tip
 """
+
+
+def memory_enabled():
+    """Return whether user memory is enabled for this browser session."""
+    try:
+        import streamlit as st
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        if get_script_run_ctx() is None:
+            return True
+        return bool(st.session_state.get("memory_enabled", True))
+    except Exception:
+        return True
+
+
+def _safe_memory_text(text):
+    """Reject secrets and overly long/private-looking memory candidates."""
+    clean = str(text or "").strip()
+    lowered = clean.lower()
+    if not clean or len(clean) > 300:
+        return ""
+    if any(word in lowered for word in SENSITIVE_MEMORY_WORDS):
+        return ""
+    return clean
+
+
+def _save_memory_candidate(user_id, key, value, category):
+    """Save one memory candidate if it is safe and useful."""
+    value = _safe_memory_text(value)
+    if not user_id or not value:
+        return None
+    try:
+        from modules.database import save_user_memory
+
+        save_user_memory(user_id, key, value, category)
+        return {"key": key, "value": value, "category": category}
+    except Exception:
+        return None
+
+
+def extract_user_memories_from_message(user_id, message):
+    """
+    Extract a small set of useful study memories from a student message.
+
+    This is intentionally rule-based and conservative. It avoids secrets,
+    passwords, API keys, and raw note content.
+    """
+    if not memory_enabled() or not user_id:
+        return []
+
+    text = str(message or "").strip()
+    lowered = text.lower()
+    if not text or any(word in lowered for word in SENSITIVE_MEMORY_WORDS):
+        return []
+
+    saved = []
+
+    name_match = re.search(
+        r"\b(?:my name is|call me|i am|i'm)\s+([A-Za-z][A-Za-z .'-]{1,40}?)(?:[,.]| and | but |$)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if name_match and "weak" not in name_match.group(1).lower():
+        candidate = name_match.group(1).strip()
+        if len(candidate.split()) <= 4:
+            saved_item = _save_memory_candidate(user_id, "preferred_name", candidate, "profile")
+            if saved_item:
+                saved.append(saved_item)
+
+    language_patterns = [
+        (r"\b(?:prefer|use|explain (?:me )?in|answer in)\s+(roman urdu)\b", "Roman Urdu"),
+        (r"\b(?:prefer|use|explain (?:me )?in|answer in)\s+(mixed english\s*\+?\s*roman urdu)\b", "Mixed English + Roman Urdu"),
+        (r"\b(?:prefer|use|explain (?:me )?in|answer in)\s+(simple english)\b", "Simple English"),
+    ]
+    for pattern, value in language_patterns:
+        if re.search(pattern, lowered, flags=re.IGNORECASE):
+            saved_item = _save_memory_candidate(user_id, "language_preference", value, "language_preference")
+            if saved_item:
+                saved.append(saved_item)
+            break
+
+    if re.search(r"\b(?:prefer|give|explain).{0,30}\bshort\b", lowered):
+        saved_item = _save_memory_candidate(user_id, "answer_style", "short exam-style answers", "study_preference")
+        if saved_item:
+            saved.append(saved_item)
+    elif re.search(r"\b(?:prefer|give|answer).{0,30}\b(?:exam style|exam-style)\b", lowered):
+        saved_item = _save_memory_candidate(user_id, "answer_style", "exam-style answers", "study_preference")
+        if saved_item:
+            saved.append(saved_item)
+
+    weak_match = re.search(
+        r"\b(?:i am weak in|i'm weak in|weak in|i do not understand|i don't understand)\s+([A-Za-z0-9 +#_.-]{2,60})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if weak_match:
+        topic = weak_match.group(1).strip(" .,!?:;")
+        key_topic = re.sub(r"[^a-z0-9]+", "_", topic.lower()).strip("_")[:50]
+        if key_topic:
+            saved_item = _save_memory_candidate(user_id, f"weak_topic_{key_topic}", topic, "weak_topic")
+            if saved_item:
+                saved.append(saved_item)
+
+    exam_match = re.search(
+        r"\b(?:my exam is|exam is|i have exam|i have an exam)\s+([A-Za-z0-9 ,./-]{2,80})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if exam_match:
+        saved_item = _save_memory_candidate(user_id, "exam_info", exam_match.group(1).strip(" .,!?:;"), "exam_info")
+        if saved_item:
+            saved.append(saved_item)
+
+    subject_match = re.search(
+        r"\b(?:i am preparing|i'm preparing|preparing for|studying)\s+([A-Za-z0-9 +#_.-]{2,60})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if subject_match:
+        subject = subject_match.group(1).strip(" .,!?:;")
+        saved_item = _save_memory_candidate(user_id, "current_subject_focus", subject, "subject_preference")
+        if saved_item:
+            saved.append(saved_item)
+
+    return saved
+
+
+def get_user_memory_profile(user_id):
+    """Return active memories as safe prompt lines."""
+    if not memory_enabled() or not user_id:
+        return []
+    try:
+        from modules.database import get_user_memories
+
+        memories = get_user_memories(user_id, active_only=True)
+    except Exception:
+        return []
+
+    labels = {
+        "preferred_name": "Preferred name",
+        "language_preference": "Preferred language",
+        "answer_style": "Preferred answer style",
+        "exam_info": "Exam info",
+        "current_subject_focus": "Current subject focus",
+    }
+    lines = []
+    for memory in memories[:12]:
+        key = memory["memory_key"]
+        value = _safe_memory_text(memory["memory_value"])
+        if not value:
+            continue
+        label = labels.get(key)
+        if not label and str(memory["category"]) == "weak_topic":
+            label = "Weak topic"
+        elif not label:
+            label = str(memory["category"]).replace("_", " ").title()
+        lines.append(f"- {label}: {value}")
+    return lines
+
+
+def format_user_memory_profile(user_id):
+    """Return a prompt-ready memory profile."""
+    lines = get_user_memory_profile(user_id)
+    if not lines:
+        return "No saved user memories."
+    return "\n".join(lines)
+
+
+def get_memory_display_name(user_id, fallback_name=None):
+    """Prefer a saved preferred_name memory, otherwise use the session name."""
+    if not memory_enabled() or not user_id:
+        return fallback_name or get_current_user_display_name()
+    try:
+        from modules.database import get_user_memories
+
+        for memory in get_user_memories(user_id, active_only=True):
+            if memory["memory_key"] == "preferred_name":
+                return _safe_memory_text(memory["memory_value"]) or fallback_name or "Student"
+    except Exception:
+        pass
+    return fallback_name or get_current_user_display_name()
 
 
 def get_session_ai_settings():
@@ -585,6 +778,9 @@ def build_study_chat_prompt(
     notes_context="",
     context_label="General Chat",
     general_chat=False,
+    chat_history="",
+    user_memory="",
+    user_id=None,
 ):
     """Build a detailed study-chat prompt for notes or general AI chat."""
     style_instruction = ANSWER_STYLE_INSTRUCTIONS.get(
@@ -611,11 +807,19 @@ Clearly say: "I could not find this directly in your uploaded notes, so I'm answ
 Then answer helpfully using general academic knowledge.
 """
 
+    display_name = get_memory_display_name(user_id, get_current_user_display_name())
+
     return f"""
-{build_study_assistant_system_prompt()}
+{build_study_assistant_system_prompt(display_name)}
 
 Answer style: {answer_style}
 Style instruction: {style_instruction}
+
+User profile and saved study preferences:
+{user_memory or "No saved user memories."}
+
+Recent conversation:
+{chat_history or "No previous messages in this chat."}
 
 {context_block}
 
@@ -674,6 +878,8 @@ def generate_study_chat_response(
     context_label="General Chat",
     limit=5,
     user_id=None,
+    chat_history="",
+    user_memory="",
 ):
     """Generate a chatbot answer with optional RAG context and sources."""
     sources = []
@@ -710,6 +916,9 @@ def generate_study_chat_response(
         notes_context=notes_context,
         context_label=context_label,
         general_chat=chat_mode == "General Chat",
+        chat_history=chat_history,
+        user_memory=user_memory or format_user_memory_profile(user_id),
+        user_id=user_id,
     )
 
     try:

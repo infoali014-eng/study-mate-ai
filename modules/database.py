@@ -229,6 +229,22 @@ def create_tables():
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS user_memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                memory_key TEXT NOT NULL,
+                memory_value TEXT NOT NULL,
+                category TEXT DEFAULT 'custom',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_active INTEGER DEFAULT 1,
+                UNIQUE (user_id, memory_key),
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS study_sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -386,6 +402,8 @@ def _run_migrations(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_document_summaries_user ON document_summaries(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_memories_user ON user_memories(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_user_memories_active ON user_memories(user_id, is_active)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_study_sessions_user ON study_sessions(user_id)")
     conn.commit()
 
@@ -1725,13 +1743,12 @@ def get_chat_sessions(user_id, limit=20):
         ).fetchall()
 
 
-def get_chat_messages(session_id, user_id):
+def get_chat_messages(session_id, user_id, limit=None):
     """Return saved messages for one owned chat session."""
     if not user_id or not session_id:
         return []
     with closing(get_connection()) as conn:
-        return conn.execute(
-            """
+        sql = """
             SELECT chat_messages.*
             FROM chat_messages
             JOIN chat_sessions ON chat_sessions.id = chat_messages.session_id
@@ -1739,9 +1756,12 @@ def get_chat_messages(session_id, user_id):
               AND chat_messages.user_id = ?
               AND chat_sessions.user_id = ?
             ORDER BY chat_messages.id ASC
-            """,
-            (session_id, user_id, user_id),
-        ).fetchall()
+            """
+        params = [session_id, user_id, user_id]
+        if limit:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        return conn.execute(sql, params).fetchall()
 
 
 def save_chat_message(
@@ -1789,6 +1809,149 @@ def save_chat_message(
         )
         conn.commit()
         return cursor.lastrowid
+
+
+def clear_chat_session(user_id, session_id):
+    """Delete messages from one owned chat session without deleting the session."""
+    if not user_id or not session_id:
+        return False
+    with closing(get_connection()) as conn:
+        owner = conn.execute(
+            "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        ).fetchone()
+        if not owner:
+            return False
+        conn.execute(
+            "DELETE FROM chat_messages WHERE session_id = ? AND user_id = ?",
+            (session_id, user_id),
+        )
+        conn.execute(
+            "UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        )
+        conn.commit()
+    return True
+
+
+def delete_chat_session(user_id, session_id):
+    """Delete one owned chat session and its messages."""
+    if not user_id or not session_id:
+        return False
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            "DELETE FROM chat_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def save_user_memory(user_id, key, value, category="custom"):
+    """Save or update one active user memory."""
+    if not user_id or not key or not value:
+        return None
+    clean_key = str(key).strip()[:80]
+    clean_value = str(value).strip()[:300]
+    clean_category = str(category or "custom").strip()[:60]
+    if not clean_key or not clean_value:
+        return None
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO user_memories (user_id, memory_key, memory_value, category, is_active)
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT(user_id, memory_key)
+            DO UPDATE SET
+                memory_value = excluded.memory_value,
+                category = excluded.category,
+                is_active = 1,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, clean_key, clean_value, clean_category),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_user_memories(user_id, active_only=True):
+    """Return memories for one user only."""
+    if not user_id:
+        return []
+    with closing(get_connection()) as conn:
+        if active_only:
+            return conn.execute(
+                """
+                SELECT *
+                FROM user_memories
+                WHERE user_id = ? AND is_active = 1
+                ORDER BY updated_at DESC, id DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        return conn.execute(
+            """
+            SELECT *
+            FROM user_memories
+            WHERE user_id = ?
+            ORDER BY updated_at DESC, id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+
+
+def update_user_memory(user_id, memory_id, value):
+    """Update one owned user memory value."""
+    if not user_id or not memory_id:
+        return False
+    clean_value = str(value or "").strip()[:300]
+    if not clean_value:
+        return False
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE user_memories
+            SET memory_value = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ?
+            """,
+            (clean_value, memory_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def delete_user_memory(user_id, memory_id):
+    """Soft-delete one owned user memory."""
+    if not user_id or not memory_id:
+        return False
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE user_memories
+            SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ?
+            """,
+            (memory_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def clear_user_memories(user_id):
+    """Soft-delete all memories for the current user only."""
+    if not user_id:
+        return False
+    with closing(get_connection()) as conn:
+        conn.execute(
+            """
+            UPDATE user_memories
+            SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        )
+        conn.commit()
+    return True
 
 
 def save_study_session(user_id, subject_id=None, duration_minutes=25, session_type="Focus", notes=""):

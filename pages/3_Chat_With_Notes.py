@@ -132,7 +132,7 @@ def render_follow_up_suggestions(message_index, suggestions):
 
 def _chat_messages_key():
     """Return the active chat history key for the logged-in user."""
-    return f"study_chat_messages_user_{st.session_state.get('user_id', 'guest')}"
+    return f"chat_history_{st.session_state.get('user_id', 'guest')}"
 
 
 def _chat_messages():
@@ -174,6 +174,7 @@ def _load_saved_chat_messages(session_id):
                 "source_count": row["source_count"],
                 "suggestions": _decode_json(row["suggestions_json"], []),
                 "created_at": row["created_at"],
+                "timestamp": row["created_at"],
             }
         )
     _set_chat_messages(messages)
@@ -246,12 +247,20 @@ def add_chat_pair(question, answer_data, context):
     user_message = {
             "role": "user",
             "content": question,
+            "timestamp": timestamp,
+            "mode": context.get("badge", context.get("label", "General Chat")),
+            "subject_id": context.get("subject_id"),
+            "document_id": context.get("document_ids", [None])[0] if context.get("document_ids") else None,
             "context": context,
             "created_at": timestamp,
         }
     assistant_message = {
             "role": "assistant",
             "content": answer_data["answer"],
+            "timestamp": _message_timestamp(),
+            "mode": context.get("badge", context.get("label", "General Chat")),
+            "subject_id": context.get("subject_id"),
+            "document_id": context.get("document_ids", [None])[0] if context.get("document_ids") else None,
             "sources": answer_data["sources"],
             "warning": answer_data["warning"],
             "source_count": answer_data["source_count"],
@@ -270,6 +279,10 @@ def add_assistant_message(answer_data, context):
     assistant_message = {
             "role": "assistant",
             "content": answer_data["answer"],
+            "timestamp": _message_timestamp(),
+            "mode": context.get("badge", context.get("label", "General Chat")),
+            "subject_id": context.get("subject_id"),
+            "document_id": context.get("document_ids", [None])[0] if context.get("document_ids") else None,
             "sources": answer_data["sources"],
             "warning": answer_data["warning"],
             "source_count": answer_data["source_count"],
@@ -281,7 +294,7 @@ def add_assistant_message(answer_data, context):
     _persist_chat_message(assistant_message)
 
 
-def _compact_chat_history(limit=6):
+def _compact_chat_history(limit=8):
     """Return a compact recent chat history for tutor continuity."""
     recent_messages = st.session_state.get(_chat_messages_key(), [])[-limit:]
     lines = []
@@ -291,6 +304,38 @@ def _compact_chat_history(limit=6):
         if content:
             lines.append(f"{role}: {content[:900]}")
     return "\n".join(lines)
+
+
+def _memory_enabled():
+    """Return whether memory is active for this browser session."""
+    return bool(st.session_state.get("memory_enabled", True))
+
+
+def _memory_profile_text():
+    """Return prompt-ready memory lines for this user."""
+    if hasattr(ai_engine, "format_user_memory_profile"):
+        return ai_engine.format_user_memory_profile(st.session_state.get("user_id"))
+    return "No saved user memories."
+
+
+def _memory_display_name():
+    """Return preferred memory name or the account display name."""
+    if hasattr(ai_engine, "get_memory_display_name"):
+        return ai_engine.get_memory_display_name(
+            st.session_state.get("user_id"),
+            get_current_user_display_name(),
+        )
+    return get_current_user_display_name()
+
+
+def _extract_memories_from_prompt(prompt):
+    """Save useful user preferences from a prompt, never secrets or raw notes."""
+    if not _memory_enabled() or not hasattr(ai_engine, "extract_user_memories_from_message"):
+        return []
+    return ai_engine.extract_user_memories_from_message(
+        st.session_state.get("user_id"),
+        prompt,
+    )
 
 
 def _demo_teach_response(
@@ -420,6 +465,7 @@ def build_teach_me_prompt(
     teaching_depth,
     notes_context,
     chat_history,
+    user_memory,
     user_message,
     context_label,
     first_lesson=False,
@@ -480,6 +526,9 @@ Language style: {language_style}
 Teaching depth: {teaching_depth}
 Depth instruction: {depth_instruction}
 Notes instruction: {notes_instruction}
+
+Saved student memory and preferences:
+{user_memory or "No saved user memories."}
 
 Recent lesson history:
 {chat_history or "No previous lesson messages yet."}
@@ -548,13 +597,14 @@ def generate_teach_me_answer(question, context, first_lesson=False):
         )
     else:
         prompt = build_teach_me_prompt(
-            user_name=get_current_user_display_name(),
+            user_name=_memory_display_name(),
             topic=context.get("topic", "this topic"),
             learning_level=context.get("learning_level", "Normal"),
             language_style=context.get("language_style", "Simple English"),
             teaching_depth=context.get("teaching_depth", "Balanced"),
             notes_context=notes_context,
-            chat_history=_compact_chat_history(),
+            chat_history=_compact_chat_history(10),
+            user_memory=_memory_profile_text(),
             user_message=question,
             context_label=context.get("source_label", context.get("label", "Teach Me Mode")),
             first_lesson=first_lesson,
@@ -599,6 +649,8 @@ def generate_chat_answer(question, answer_style, chat_mode, context):
             document_ids=context["document_ids"],
             context_label=context["label"],
             user_id=st.session_state.get("user_id"),
+            chat_history=_compact_chat_history(10),
+            user_memory=_memory_profile_text(),
         )
 
     if chat_mode != "General Chat" and context["subject_id"] is not None:
@@ -610,9 +662,15 @@ def generate_chat_answer(question, answer_style, chat_mode, context):
         )
 
     prompt = f"""
-You are {get_current_user_display_name()}'s AI Study Assistant.
+You are {_memory_display_name()}'s AI Study Assistant.
 Answer this student question clearly and in a study-friendly way.
 Answer style: {answer_style}
+
+Saved student memory and preferences:
+{_memory_profile_text()}
+
+Recent conversation:
+{_compact_chat_history(10) or "No previous messages in this chat."}
 
 Question:
 {question}
@@ -762,6 +820,8 @@ with st.container(border=True):
             unsafe_allow_html=True,
         )
         st.caption(f"AI provider: {get_provider_label()}")
+        memory_label = "On" if _memory_enabled() else "Off"
+        st.caption(f"Memory: {memory_label}")
 
     selected_subject = None
     selected_documents = []
@@ -984,9 +1044,22 @@ if chat_mode == "Teach Me Mode":
 
 context = build_context(chat_mode, selected_subject, selected_documents)
 
+with st.container(border=True):
+    recent_count = min(len(_chat_messages()), 10)
+    st.markdown(
+        f"""
+        <span class='status-pill'>Memory: {'On' if _memory_enabled() else 'Off'}</span>
+        <span class='status-pill'>Mode: {html.escape(chat_mode)}</span>
+        <span class='status-pill'>Context: {html.escape(context.get('label', 'General Chat'))}</span>
+        <span class='status-pill'>Recent messages used: {recent_count}</span>
+        """,
+        unsafe_allow_html=True,
+    )
+
 if prefill_question:
     st.info(f"Suggested question from Study Library: {prefill_question}")
     if st.button("Ask Suggested Question", type="primary", use_container_width=True):
+        _extract_memories_from_prompt(prefill_question)
         st.session_state.study_chat_last_question = prefill_question
         st.session_state.study_chat_last_request = {
             "question": prefill_question,
@@ -1075,6 +1148,10 @@ if prompt:
     if prompt_error:
         st.warning(prompt_error)
         st.stop()
+
+    saved_memories = _extract_memories_from_prompt(clean_prompt)
+    if saved_memories:
+        st.toast(f"Saved {len(saved_memories)} useful memory item(s).")
 
     if chat_mode == "Teach Me Mode":
         context = dict(st.session_state.get("study_chat_teach_context", {}))
