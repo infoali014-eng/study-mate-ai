@@ -31,11 +31,9 @@ from modules.security import validate_chat_question
 from modules.security import sanitize_filename, is_path_inside
 from modules.ui import (
     apply_theme,
-    page_header,
     render_ai_loading,
     render_ai_markdown,
     render_empty_state,
-    render_feature_card,
     section_title,
     sidebar_nav,
 )
@@ -750,9 +748,17 @@ def _chat_group_label(updated_at):
 
 
 def render_chat_history_panel():
-    """Render a compact ChatGPT-style history manager."""
-    section_title("Chat History", "\U0001f5c2\ufe0f")
-    with st.container(border=True):
+    """Render a compact left-side ChatGPT-style history manager."""
+    st.markdown(
+        """
+        <div class="chat-history-heading">
+            <span>Chat History</span>
+            <small>Saved sessions</small>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container(height=760, border=True):
         if st.button("New Chat", type="primary", use_container_width=True, key="history_new_chat"):
             _start_new_chat_session(
                 st.session_state.get("study_chat_mode_selector", "General Chat"),
@@ -786,19 +792,39 @@ def render_chat_history_panel():
             is_active = session["id"] == active_id
             title = session["title"] or "New Chat"
             mode = session["chat_mode"] or "General Chat"
-            label = f"{'[Active] ' if is_active else ''}{title}"
+            mode_short = {
+                "General Chat": "General",
+                "Chat with Subject": "Subject",
+                "Chat with Specific Notes": "Note",
+                "Chat with Multiple Notes": "Notes",
+                "Teach Me Mode": "Teach Me",
+            }.get(mode, "Chat")
+            active_class = " active-chat-card" if is_active else ""
 
             with st.container(border=True):
                 st.markdown(
-                    f"<span class='status-pill'>{html.escape(mode)}</span>",
+                    f"""
+                    <div class="history-item{active_class}">
+                        <div class="history-title">{html.escape(title)}</div>
+                        <div class="history-meta">
+                            <span>{html.escape(mode_short)}</span>
+                            <span>{html.escape(str(session['updated_at']).split('.')[0])}</span>
+                        </div>
+                    </div>
+                    """,
                     unsafe_allow_html=True,
                 )
-                if st.button(label, key=f"open_chat_{session['id']}", use_container_width=True):
+                if st.button(
+                    "Open",
+                    key=f"open_chat_{session['id']}",
+                    use_container_width=True,
+                    type="primary" if is_active else "secondary",
+                ):
                     _request_chat_session_load(session["id"])
                     st.rerun()
-                st.caption(f"Updated: {session['updated_at']}")
 
-                with st.expander("Manage", expanded=False):
+                action_container = st.popover("More") if hasattr(st, "popover") else st.expander("More", expanded=False)
+                with action_container:
                     new_title = st.text_input(
                         "Rename chat",
                         value=title,
@@ -813,7 +839,7 @@ def render_chat_history_panel():
 
                     pending_key = f"confirm_delete_chat_{session['id']}"
                     if st.session_state.get(pending_key):
-                        st.warning("Are you sure you want to delete this chat? This action cannot be undone.")
+                        st.warning("Delete this chat? This action cannot be undone.")
                         confirm_col, cancel_col = st.columns(2)
                         with confirm_col:
                             if st.button("Delete", key=f"delete_chat_yes_{session['id']}", use_container_width=True):
@@ -1314,19 +1340,84 @@ init_db()
 apply_theme()
 sidebar_nav()
 
-page_header(
-    "Chat With Notes",
-    "Ask from your notes, selected documents, or general AI knowledge.",
-    f"{get_current_user_display_name()}'s Study Chatbot",
+st.markdown(
+    """
+    <style>
+        .chat-shell-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 4px 0 16px 0;
+        }
+        .chat-shell-icon {
+            width: 42px;
+            height: 42px;
+            display: grid;
+            place-items: center;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #e9f7ff, #f0e8ff);
+            box-shadow: 0 10px 28px rgba(47, 125, 246, 0.12);
+            font-size: 1.2rem;
+        }
+        .chat-shell-title h1 {
+            margin: 0;
+            font-size: clamp(1.65rem, 2.6vw, 2.35rem);
+            line-height: 1.1;
+            color: var(--sm-ink);
+            letter-spacing: 0;
+        }
+        .chat-shell-title p {
+            margin: 4px 0 0 0;
+            color: var(--sm-muted);
+            font-weight: 600;
+        }
+        .chat-history-heading {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+            margin: 4px 0 10px 0;
+            color: var(--sm-ink);
+            font-weight: 900;
+            font-size: 1.05rem;
+        }
+        .chat-history-heading small {
+            color: var(--sm-muted);
+            font-size: 0.76rem;
+            font-weight: 700;
+        }
+        .history-item {
+            padding: 4px 2px 2px;
+        }
+        .history-title {
+            color: var(--sm-ink);
+            font-weight: 850;
+            line-height: 1.25;
+            font-size: 0.92rem;
+            overflow-wrap: anywhere;
+        }
+        .history-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            color: var(--sm-muted);
+            font-size: 0.72rem;
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        .active-chat-card .history-title {
+            color: #155e75;
+        }
+        div[data-testid="stChatMessage"] {
+            border-radius: 18px;
+        }
+        @media (max-width: 900px) {
+            .chat-shell-title { align-items: flex-start; }
+            .chat-shell-title h1 { font-size: 1.55rem; }
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
-
-feature1, feature2, feature3 = st.columns(3)
-with feature1:
-    render_feature_card("Flexible context", "Ask generally, by subject, or from selected notes.", "\U0001f50d", "#14b8b4", "#d8fff6")
-with feature2:
-    render_feature_card("Real chat flow", "Messages stay in a clean session conversation.", "\U0001f4ac", "#2f7df6", "#e3efff")
-with feature3:
-    render_feature_card("Exam-ready answers", "Get explanations, examples, key points, and revision tips.", "\U0001f4dd", "#ffb703", "#fff3c4")
 
 _chat_messages()
 _ensure_chat_session()
@@ -1358,552 +1449,567 @@ prefill_document_id = st.session_state.pop("chat_prefill_document_id", None)
 prefill_document_ids = st.session_state.pop("chat_prefill_document_ids", [])
 prefill_question = st.session_state.pop("chat_prefill_question", "")
 
-section_title("Chat Settings", "\u2699\ufe0f")
-with st.container(border=True):
-    top_col1, top_col2, top_col3 = st.columns([1.2, 1.2, 1])
+history_col, chat_col = st.columns([0.30, 0.70], gap="large")
+with history_col:
+    render_chat_history_panel()
 
-    with top_col1:
-        default_mode_index = 0
-        if not loaded_session_from_history and prefill_document_id:
-            st.session_state.study_chat_mode_selector = "Chat with Specific Notes"
-        elif not loaded_session_from_history and prefill_subject_id:
-            st.session_state.study_chat_mode_selector = "Chat with Subject"
-        elif st.session_state.get("study_chat_mode_selector") not in CHAT_MODES:
-            st.session_state.study_chat_mode_selector = CHAT_MODES[default_mode_index]
-        chat_mode = st.selectbox(
-            "Chat mode",
-            CHAT_MODES,
-            index=default_mode_index,
-            key="study_chat_mode_selector",
-        )
+with chat_col:
+    st.markdown(
+        """
+        <div class="chat-shell-title">
+            <div class="chat-shell-icon">AI</div>
+            <div>
+                <h1>Chat With Notes</h1>
+                <p>Ask from your notes, attachments, voice, or general study knowledge.</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    section_title("Chat Settings", "\u2699\ufe0f")
+    with st.container(border=True):
+        top_col1, top_col2, top_col3 = st.columns([1.2, 1.2, 1])
 
-    with top_col2:
-        answer_style = st.selectbox("Answer style", ANSWER_STYLES)
-
-    with top_col3:
-        st.markdown(
-            f"<span class='status-pill'>{MODE_BADGES[chat_mode]}</span>",
-            unsafe_allow_html=True,
-        )
-        st.caption(f"AI provider: {get_provider_label()}")
-        memory_label = "On" if _memory_enabled() else "Off"
-        st.caption(f"Memory: {memory_label}")
-
-    selected_subject = None
-    selected_documents = []
-    subject_documents = []
-
-    if chat_mode not in {"General Chat", "Teach Me Mode"}:
-        if not subjects:
-            st.warning("Create a subject or switch to General Chat.")
-        else:
-            subject_names = [subject["name"] for subject in subjects]
-            subject_index = get_subject_index(subjects, prefill_subject_id)
-            selected_subject_name = st.selectbox(
-                "Subject",
-                subject_names,
-                index=subject_index,
-            )
-            selected_subject = next(
-                subject for subject in subjects if subject["name"] == selected_subject_name
-            )
-            subject_documents = list(
-                get_documents_by_subject(selected_subject["id"], user_id=user_id)
+        with top_col1:
+            default_mode_index = 0
+            if not loaded_session_from_history and prefill_document_id:
+                st.session_state.study_chat_mode_selector = "Chat with Specific Notes"
+            elif not loaded_session_from_history and prefill_subject_id:
+                st.session_state.study_chat_mode_selector = "Chat with Subject"
+            elif st.session_state.get("study_chat_mode_selector") not in CHAT_MODES:
+                st.session_state.study_chat_mode_selector = CHAT_MODES[default_mode_index]
+            chat_mode = st.selectbox(
+                "Chat mode",
+                CHAT_MODES,
+                index=default_mode_index,
+                key="study_chat_mode_selector",
             )
 
-            if chat_mode in {"Chat with Specific Notes", "Chat with Multiple Notes"}:
-                if not subject_documents:
+        with top_col2:
+            answer_style = st.selectbox("Answer style", ANSWER_STYLES)
+
+        with top_col3:
+            st.markdown(
+                f"<span class='status-pill'>{MODE_BADGES[chat_mode]}</span>",
+                unsafe_allow_html=True,
+            )
+            st.caption(f"AI provider: {get_provider_label()}")
+            memory_label = "On" if _memory_enabled() else "Off"
+            st.caption(f"Memory: {memory_label}")
+
+        selected_subject = None
+        selected_documents = []
+        subject_documents = []
+
+        if chat_mode not in {"General Chat", "Teach Me Mode"}:
+            if not subjects:
+                st.warning("Create a subject or switch to General Chat.")
+            else:
+                subject_names = [subject["name"] for subject in subjects]
+                subject_index = get_subject_index(subjects, prefill_subject_id)
+                selected_subject_name = st.selectbox(
+                    "Subject",
+                    subject_names,
+                    index=subject_index,
+                )
+                selected_subject = next(
+                    subject for subject in subjects if subject["name"] == selected_subject_name
+                )
+                subject_documents = list(
+                    get_documents_by_subject(selected_subject["id"], user_id=user_id)
+                )
+
+                if chat_mode in {"Chat with Specific Notes", "Chat with Multiple Notes"}:
+                    if not subject_documents:
+                        st.warning("No uploaded documents found for this subject yet.")
+                    else:
+                        document_options = {
+                            f"{document['file_name']} ({document['chunk_count']} chunks)": document
+                            for document in subject_documents
+                        }
+
+                        if chat_mode == "Chat with Specific Notes":
+                            labels = list(document_options.keys())
+                            default_doc_index = 0
+                            if prefill_document_id:
+                                for index, label in enumerate(labels):
+                                    if document_options[label]["id"] == prefill_document_id:
+                                        default_doc_index = index
+                                        break
+
+                            selected_label = st.selectbox(
+                                "Selected note",
+                                labels,
+                                index=default_doc_index,
+                            )
+                            selected_documents = [document_options[selected_label]]
+                        else:
+                            default_labels = [
+                                label
+                                for label, document in document_options.items()
+                                if document["id"] in prefill_document_ids
+                            ] or list(document_options.keys())[:2]
+                            selected_labels = st.multiselect(
+                                "Selected notes",
+                                list(document_options.keys()),
+                                default=default_labels,
+                            )
+                            selected_documents = [
+                                document_options[label] for label in selected_labels
+                            ]
+
+        action_col1, action_col2 = st.columns([1, 1])
+        with action_col1:
+            if st.button("New Chat", use_container_width=True):
+                _start_new_chat_session(chat_mode, "New Chat")
+                st.session_state.study_chat_last_question = ""
+                st.session_state.study_chat_last_request = None
+                st.session_state.study_chat_teach_context = {}
+                st.session_state.study_chat_pending_prompt = ""
+                st.rerun()
+        with action_col2:
+            if st.button("Regenerate Last Answer", use_container_width=True):
+                if st.session_state.study_chat_last_question:
+                    st.session_state.study_chat_regenerate = True
+                    st.rerun()
+                else:
+                    st.info("Ask a question first, then regenerate.")
+
+    if chat_mode == "Teach Me Mode":
+        section_title("Tutor Setup", "\U0001f9d1\u200d\U0001f3eb")
+        with st.container(border=True):
+            tutor_col1, tutor_col2 = st.columns(2)
+            with tutor_col1:
+                teach_material = st.selectbox("Material selector", TEACH_MATERIAL_OPTIONS)
+            with tutor_col2:
+                teach_subject = None
+                teach_subject_documents = []
+                if teach_material == "General Knowledge":
+                    st.selectbox("Subject (optional)", ["No subject selected"], disabled=True)
+                elif not subjects:
+                    st.selectbox("Subject", ["Create a subject first"], disabled=True)
+                    st.warning("Create a subject or choose General Knowledge.")
+                else:
+                    teach_subject_name = st.selectbox(
+                        "Subject",
+                        [subject["name"] for subject in subjects],
+                        key="teach_subject_selector",
+                    )
+                    teach_subject = next(
+                        subject for subject in subjects if subject["name"] == teach_subject_name
+                    )
+                    teach_subject_documents = list(
+                        get_documents_by_subject(teach_subject["id"], user_id=user_id)
+                    )
+
+            teach_selected_documents = []
+            if teach_material in {"Specific Note", "Multiple Notes"} and teach_subject:
+                if not teach_subject_documents:
                     st.warning("No uploaded documents found for this subject yet.")
                 else:
-                    document_options = {
+                    teach_document_options = {
                         f"{document['file_name']} ({document['chunk_count']} chunks)": document
-                        for document in subject_documents
+                        for document in teach_subject_documents
                     }
-
-                    if chat_mode == "Chat with Specific Notes":
-                        labels = list(document_options.keys())
-                        default_doc_index = 0
-                        if prefill_document_id:
-                            for index, label in enumerate(labels):
-                                if document_options[label]["id"] == prefill_document_id:
-                                    default_doc_index = index
-                                    break
-
-                        selected_label = st.selectbox(
-                            "Selected note",
-                            labels,
-                            index=default_doc_index,
+                    if teach_material == "Specific Note":
+                        teach_label = st.selectbox(
+                            "Specific note",
+                            list(teach_document_options.keys()),
+                            key="teach_specific_note",
                         )
-                        selected_documents = [document_options[selected_label]]
+                        teach_selected_documents = [teach_document_options[teach_label]]
                     else:
-                        default_labels = [
-                            label
-                            for label, document in document_options.items()
-                            if document["id"] in prefill_document_ids
-                        ] or list(document_options.keys())[:2]
-                        selected_labels = st.multiselect(
-                            "Selected notes",
-                            list(document_options.keys()),
-                            default=default_labels,
+                        teach_labels = st.multiselect(
+                            "Multiple notes",
+                            list(teach_document_options.keys()),
+                            default=list(teach_document_options.keys())[:2],
+                            key="teach_multiple_notes",
                         )
-                        selected_documents = [
-                            document_options[label] for label in selected_labels
+                        teach_selected_documents = [
+                            teach_document_options[label] for label in teach_labels
                         ]
 
-    action_col1, action_col2 = st.columns([1, 1])
-    with action_col1:
-        if st.button("New Chat", use_container_width=True):
-            _start_new_chat_session(chat_mode, "New Chat")
-            st.session_state.study_chat_last_question = ""
-            st.session_state.study_chat_last_request = None
-            st.session_state.study_chat_teach_context = {}
-            st.session_state.study_chat_pending_prompt = ""
-            st.rerun()
-    with action_col2:
-        if st.button("Regenerate Last Answer", use_container_width=True):
-            if st.session_state.study_chat_last_question:
-                st.session_state.study_chat_regenerate = True
-                st.rerun()
-            else:
-                st.info("Ask a question first, then regenerate.")
+            topic = st.text_input(
+                "Topic",
+                placeholder="Example: Database Normalization, K-map, Polymorphism, Probability",
+                key="teach_topic",
+            )
+            level_col, language_col, depth_col = st.columns(3)
+            with level_col:
+                learning_level = st.selectbox("Learning level", LEARNING_LEVELS)
+            with language_col:
+                language_style = st.selectbox("Language style", LANGUAGE_STYLES)
+            with depth_col:
+                teaching_depth = st.selectbox("Teaching depth", TEACHING_DEPTHS, index=1)
 
-if chat_mode == "Teach Me Mode":
-    section_title("Tutor Setup", "\U0001f9d1\u200d\U0001f3eb")
-    with st.container(border=True):
-        tutor_col1, tutor_col2 = st.columns(2)
-        with tutor_col1:
-            teach_material = st.selectbox("Material selector", TEACH_MATERIAL_OPTIONS)
-        with tutor_col2:
-            teach_subject = None
-            teach_subject_documents = []
-            if teach_material == "General Knowledge":
-                st.selectbox("Subject (optional)", ["No subject selected"], disabled=True)
-            elif not subjects:
-                st.selectbox("Subject", ["Create a subject first"], disabled=True)
-                st.warning("Create a subject or choose General Knowledge.")
-            else:
-                teach_subject_name = st.selectbox(
-                    "Subject",
-                    [subject["name"] for subject in subjects],
-                    key="teach_subject_selector",
-                )
-                teach_subject = next(
-                    subject for subject in subjects if subject["name"] == teach_subject_name
-                )
-                teach_subject_documents = list(
-                    get_documents_by_subject(teach_subject["id"], user_id=user_id)
-                )
+            source_label = teach_material
+            if teach_material == "Whole Subject Notes" and teach_subject:
+                source_label = f"Whole Subject Notes: {teach_subject['name']}"
+            elif teach_material == "Specific Note" and teach_selected_documents:
+                source_label = f"Specific Note: {teach_selected_documents[0]['file_name']}"
+            elif teach_material == "Multiple Notes" and teach_selected_documents:
+                source_label = f"Multiple Notes: {len(teach_selected_documents)} selected"
 
-        teach_selected_documents = []
-        if teach_material in {"Specific Note", "Multiple Notes"} and teach_subject:
-            if not teach_subject_documents:
-                st.warning("No uploaded documents found for this subject yet.")
-            else:
-                teach_document_options = {
-                    f"{document['file_name']} ({document['chunk_count']} chunks)": document
-                    for document in teach_subject_documents
+            st.markdown(
+                f"""
+                <span class='status-pill'>Teach Me Mode</span>
+                <span class='status-pill'>Topic: {html.escape(topic.strip() or 'Not started')}</span>
+                <span class='status-pill'>Level: {html.escape(learning_level)}</span>
+                <span class='status-pill'>Language: {html.escape(language_style)}</span>
+                <span class='status-pill'>Source: {html.escape(source_label)}</span>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            if st.button(
+                "Start Lesson",
+                type="primary",
+                key="start_teach_lesson",
+                use_container_width=True,
+            ):
+                clean_topic = topic.strip()
+                if not clean_topic:
+                    st.warning("Enter a topic first.")
+                    st.stop()
+                if teach_material != "General Knowledge" and not teach_subject:
+                    st.warning("Select a subject or choose General Knowledge.")
+                    st.stop()
+                if teach_material == "Specific Note" and not teach_selected_documents:
+                    st.warning("Select one uploaded note first.")
+                    st.stop()
+                if teach_material == "Multiple Notes" and not teach_selected_documents:
+                    st.warning("Select at least one uploaded note first.")
+                    st.stop()
+
+                teach_context = {
+                    "subject_id": teach_subject["id"] if teach_subject else None,
+                    "document_ids": [document["id"] for document in teach_selected_documents],
+                    "label": f"Teach Me: {clean_topic}",
+                    "badge": "Teach Me Mode",
+                    "chat_mode": "Teach Me Mode",
+                    "topic": clean_topic,
+                    "material_source": teach_material,
+                    "learning_level": learning_level,
+                    "language_style": language_style,
+                    "teaching_depth": teaching_depth,
+                    "source_label": source_label,
+                    "first_lesson": True,
                 }
-                if teach_material == "Specific Note":
-                    teach_label = st.selectbox(
-                        "Specific note",
-                        list(teach_document_options.keys()),
-                        key="teach_specific_note",
+                request_context = dict(teach_context)
+                active_context = dict(teach_context)
+                active_context["first_lesson"] = False
+                st.session_state.study_chat_teach_context = active_context
+                start_prompt = f"Start teaching me {clean_topic}."
+                st.session_state.study_chat_last_question = start_prompt
+                st.session_state.study_chat_last_request = {
+                    "question": start_prompt,
+                    "answer_style": language_style,
+                    "chat_mode": chat_mode,
+                    "context": request_context,
+                }
+                loading_slot = st.empty()
+                with loading_slot:
+                    render_ai_loading("StudyMate Tutor is preparing your lesson")
+                try:
+                    answer_data = generate_chat_answer(
+                        question=start_prompt,
+                        answer_style=language_style,
+                        chat_mode=chat_mode,
+                        context=request_context,
                     )
-                    teach_selected_documents = [teach_document_options[teach_label]]
-                else:
-                    teach_labels = st.multiselect(
-                        "Multiple notes",
-                        list(teach_document_options.keys()),
-                        default=list(teach_document_options.keys())[:2],
-                        key="teach_multiple_notes",
-                    )
-                    teach_selected_documents = [
-                        teach_document_options[label] for label in teach_labels
-                    ]
+                finally:
+                    loading_slot.empty()
+                add_chat_pair(start_prompt, answer_data, active_context)
+                st.rerun()
 
-        topic = st.text_input(
-            "Topic",
-            placeholder="Example: Database Normalization, K-map, Polymorphism, Probability",
-            key="teach_topic",
-        )
-        level_col, language_col, depth_col = st.columns(3)
-        with level_col:
-            learning_level = st.selectbox("Learning level", LEARNING_LEVELS)
-        with language_col:
-            language_style = st.selectbox("Language style", LANGUAGE_STYLES)
-        with depth_col:
-            teaching_depth = st.selectbox("Teaching depth", TEACHING_DEPTHS, index=1)
+    context = build_context(chat_mode, selected_subject, selected_documents)
+    context["chat_mode"] = chat_mode
 
-        source_label = teach_material
-        if teach_material == "Whole Subject Notes" and teach_subject:
-            source_label = f"Whole Subject Notes: {teach_subject['name']}"
-        elif teach_material == "Specific Note" and teach_selected_documents:
-            source_label = f"Specific Note: {teach_selected_documents[0]['file_name']}"
-        elif teach_material == "Multiple Notes" and teach_selected_documents:
-            source_label = f"Multiple Notes: {len(teach_selected_documents)} selected"
-
+    with st.container(border=True):
+        recent_count = min(len(_chat_messages()), 10)
         st.markdown(
             f"""
-            <span class='status-pill'>Teach Me Mode</span>
-            <span class='status-pill'>Topic: {html.escape(topic.strip() or 'Not started')}</span>
-            <span class='status-pill'>Level: {html.escape(learning_level)}</span>
-            <span class='status-pill'>Language: {html.escape(language_style)}</span>
-            <span class='status-pill'>Source: {html.escape(source_label)}</span>
+            <span class='status-pill'>Memory: {'On' if _memory_enabled() else 'Off'}</span>
+            <span class='status-pill'>Mode: {html.escape(chat_mode)}</span>
+            <span class='status-pill'>Context: {html.escape(context.get('label', 'General Chat'))}</span>
+            <span class='status-pill'>Recent messages used: {recent_count}</span>
             """,
             unsafe_allow_html=True,
         )
 
-        if st.button(
-            "Start Lesson",
-            type="primary",
-            key="start_teach_lesson",
-            use_container_width=True,
-        ):
-            clean_topic = topic.strip()
-            if not clean_topic:
-                st.warning("Enter a topic first.")
-                st.stop()
-            if teach_material != "General Knowledge" and not teach_subject:
-                st.warning("Select a subject or choose General Knowledge.")
-                st.stop()
-            if teach_material == "Specific Note" and not teach_selected_documents:
-                st.warning("Select one uploaded note first.")
-                st.stop()
-            if teach_material == "Multiple Notes" and not teach_selected_documents:
-                st.warning("Select at least one uploaded note first.")
-                st.stop()
-
-            teach_context = {
-                "subject_id": teach_subject["id"] if teach_subject else None,
-                "document_ids": [document["id"] for document in teach_selected_documents],
-                "label": f"Teach Me: {clean_topic}",
-                "badge": "Teach Me Mode",
-                "chat_mode": "Teach Me Mode",
-                "topic": clean_topic,
-                "material_source": teach_material,
-                "learning_level": learning_level,
-                "language_style": language_style,
-                "teaching_depth": teaching_depth,
-                "source_label": source_label,
-                "first_lesson": True,
-            }
-            request_context = dict(teach_context)
-            active_context = dict(teach_context)
-            active_context["first_lesson"] = False
-            st.session_state.study_chat_teach_context = active_context
-            start_prompt = f"Start teaching me {clean_topic}."
-            st.session_state.study_chat_last_question = start_prompt
+    if prefill_question:
+        st.info(f"Suggested question from Study Library: {prefill_question}")
+        if st.button("Ask Suggested Question", type="primary", use_container_width=True):
+            _extract_memories_from_prompt(prefill_question)
+            st.session_state.study_chat_last_question = prefill_question
             st.session_state.study_chat_last_request = {
-                "question": start_prompt,
-                "answer_style": language_style,
+                "question": prefill_question,
+                "answer_style": answer_style,
                 "chat_mode": chat_mode,
-                "context": request_context,
+                "context": context,
             }
             loading_slot = st.empty()
             with loading_slot:
-                render_ai_loading("StudyMate Tutor is preparing your lesson")
+                render_ai_loading("StudyMate is reading your selected material")
             try:
                 answer_data = generate_chat_answer(
-                    question=start_prompt,
-                    answer_style=language_style,
+                    question=prefill_question,
+                    answer_style=answer_style,
                     chat_mode=chat_mode,
-                    context=request_context,
+                    context=context,
                 )
             finally:
                 loading_slot.empty()
-            add_chat_pair(start_prompt, answer_data, active_context)
+            add_chat_pair(prefill_question, answer_data, context)
             st.rerun()
 
-context = build_context(chat_mode, selected_subject, selected_documents)
-context["chat_mode"] = chat_mode
+    section_title("Conversation", "\U0001f4ac")
+    messages = _chat_messages()
+    if not messages:
+        render_empty_state(
+            "Ask anything about your notes, subjects, or studies.",
+            "Use General Chat or choose a subject/note above, then type at the bottom.",
+            "\U0001f4ad",
+        )
 
-with st.container(border=True):
-    recent_count = min(len(_chat_messages()), 10)
-    st.markdown(
-        f"""
-        <span class='status-pill'>Memory: {'On' if _memory_enabled() else 'Off'}</span>
-        <span class='status-pill'>Mode: {html.escape(chat_mode)}</span>
-        <span class='status-pill'>Context: {html.escape(context.get('label', 'General Chat'))}</span>
-        <span class='status-pill'>Recent messages used: {recent_count}</span>
-        """,
-        unsafe_allow_html=True,
-    )
+    for message_index, message in enumerate(messages):
+        avatar = "\U0001f468\u200d\U0001f393" if message["role"] == "user" else "\U0001f916"
+        with st.chat_message(message["role"], avatar=avatar):
+            message_context = message.get("context", {})
+            if message_context:
+                st.caption(f"{message_context.get('badge', 'Chat')} | {message_context.get('label', '')}")
+            if message.get("created_at"):
+                st.caption(message["created_at"])
 
-if prefill_question:
-    st.info(f"Suggested question from Study Library: {prefill_question}")
-    if st.button("Ask Suggested Question", type="primary", use_container_width=True):
-        _extract_memories_from_prompt(prefill_question)
-        st.session_state.study_chat_last_question = prefill_question
+            if message.get("warning"):
+                st.warning(message["warning"])
+
+            render_ai_markdown(message["content"])
+            render_message_attachments(message.get("attachments", []))
+
+            if message["role"] == "assistant":
+                source_count = message.get("source_count", 0)
+                if source_count:
+                    st.caption(f"Using {source_count} relevant note chunks")
+                render_sources(message.get("sources", []))
+                if message_context.get("badge") == "Teach Me Mode":
+                    render_follow_up_suggestions(
+                        message_index,
+                        message.get("suggestions", []),
+                    )
+
+    if st.session_state.get("study_chat_regenerate"):
+        st.session_state.study_chat_regenerate = False
+        messages = _chat_messages()
+        if messages and messages[-1]["role"] == "assistant":
+            messages.pop()
+
+        last_request = st.session_state.study_chat_last_request
+        if last_request:
+            loading_slot = st.empty()
+            with loading_slot:
+                render_ai_loading("Regenerating a sharper answer")
+            try:
+                answer_data = generate_chat_answer(
+                    question=last_request["question"],
+                    answer_style=last_request["answer_style"],
+                    chat_mode=last_request["chat_mode"],
+                    context=last_request["context"],
+                    attachment_context=last_request.get("attachment_context", ""),
+                    image_paths=last_request.get("image_paths", []),
+                )
+            finally:
+                loading_slot.empty()
+            add_assistant_message(answer_data, last_request["context"])
+        st.rerun()
+
+    with st.expander("Voice Input", expanded=False):
+        st.caption(
+            "Record a short voice note or upload audio. Voice/audio may be sent to the selected AI provider "
+            "for transcription if online transcription is used."
+        )
+        recorded_audio = None
+        if hasattr(st, "audio_input"):
+            recorded_audio = st.audio_input(
+                "Record voice",
+                key=f"voice_recording_{st.session_state.voice_audio_uploader_key}",
+                help="Keep recordings short for the first version. Two to five minutes works best.",
+            )
+        else:
+            st.info("Browser voice recording is not available in this Streamlit version. Upload an audio file instead.")
+
+        uploaded_audio = st.file_uploader(
+            "Upload audio file",
+            type=["mp3", "wav", "m4a", "ogg", "webm"],
+            key=f"voice_audio_upload_{st.session_state.voice_audio_uploader_key}",
+            help="Supported: MP3, WAV, M4A, OGG, WEBM. Max 10 MB.",
+        )
+
+        selected_audio = recorded_audio or uploaded_audio
+        if selected_audio:
+            selected_audio_name = getattr(selected_audio, "name", "voice_recording.wav")
+            st.caption(
+                f"Ready: {_attachment_icon(Path(selected_audio_name).suffix.replace('.', '').upper())} "
+                f"{html.escape(selected_audio_name)} - {_format_size(getattr(selected_audio, 'size', 0))}"
+            )
+
+        voice_col1, voice_col2 = st.columns(2)
+        with voice_col1:
+            if st.button("Transcribe Audio", use_container_width=True):
+                if not selected_audio:
+                    st.warning("Record voice or upload an audio file first.")
+                else:
+                    active_session_id = _sync_active_chat_context(chat_mode, context)
+                    attachment, warning = _audio_upload_to_attachment(selected_audio, active_session_id)
+                    if attachment:
+                        st.session_state.voice_pending_audio = {
+                            "id": attachment["id"],
+                            "file_name": attachment["file_name"],
+                            "file_type": attachment["file_type"],
+                            "file_size": attachment["file_size"],
+                            "extracted_text": attachment.get("extracted_text", ""),
+                            "extraction_method": attachment.get("extraction_method", ""),
+                            "warning": attachment.get("warning", ""),
+                        }
+                        st.session_state.voice_transcript_text = attachment.get("extracted_text", "")
+                        if st.session_state.voice_transcript_text:
+                            st.success("Transcription ready.")
+                        else:
+                            st.warning("Could not transcribe this audio. Please try a clearer recording.")
+                    if warning:
+                        st.warning(warning)
+
+        with voice_col2:
+            if st.button("Clear Transcription", use_container_width=True):
+                st.session_state.voice_pending_audio = None
+                st.session_state.voice_transcript_text = ""
+                st.session_state.voice_audio_uploader_key += 1
+                st.rerun()
+
+        if st.session_state.voice_pending_audio:
+            transcript = st.text_area(
+                "Edit transcribed text before sending",
+                key="voice_transcript_text",
+                height=120,
+                placeholder="Your transcribed voice message will appear here.",
+            )
+            if st.button("Send Transcribed Message", type="primary", use_container_width=True):
+                clean_transcript, transcript_error = validate_chat_question(transcript, max_length=1200)
+                if transcript_error:
+                    st.warning(transcript_error)
+                else:
+                    st.session_state.study_chat_pending_prompt = clean_transcript
+                    st.rerun()
+
+    with st.expander("Attach files to next message", expanded=False):
+        chat_uploaded_files = st.file_uploader(
+            "Attach images, PDFs, DOCX, PPTX, TXT, or Markdown files",
+            type=["png", "jpg", "jpeg", "webp", "pdf", "docx", "pptx", "txt", "md"],
+            accept_multiple_files=True,
+            key=f"chat_attachments_{st.session_state.chat_attachment_uploader_key}",
+            help=(
+                f"Up to {CHAT_MAX_ATTACHMENTS} files. Images up to 5 MB each; "
+                "documents/PDF/PPTX up to 20 MB each."
+            ),
+        )
+        if chat_uploaded_files:
+            st.caption("Files ready for your next message:")
+            for uploaded in chat_uploaded_files[:CHAT_MAX_ATTACHMENTS]:
+                file_type = Path(uploaded.name).suffix.replace(".", "").upper()
+                st.markdown(
+                    f"{_attachment_icon(file_type)} **{html.escape(uploaded.name)}** "
+                    f"`{html.escape(file_type)}` - {_format_size(getattr(uploaded, 'size', 0))}"
+                )
+            if len(chat_uploaded_files) > CHAT_MAX_ATTACHMENTS:
+                st.warning(f"Only the first {CHAT_MAX_ATTACHMENTS} files will be sent.")
+        else:
+            st.caption("Upload Notes is for permanent Study Library files. Chat attachments are saved only with this chat.")
+
+    pending_prompt = st.session_state.pop("study_chat_pending_prompt", "")
+    typed_prompt = st.chat_input("Ask StudyMate anything... Follow-up questions are welcome.")
+    prompt = pending_prompt or typed_prompt
+
+    if prompt:
+        clean_prompt, prompt_error = validate_chat_question(prompt)
+        if prompt_error:
+            st.warning(prompt_error)
+            st.stop()
+
+        saved_memories = _extract_memories_from_prompt(clean_prompt)
+        if saved_memories:
+            st.toast(f"Saved {len(saved_memories)} useful memory item(s).")
+
+        if chat_mode == "Teach Me Mode":
+            context = dict(st.session_state.get("study_chat_teach_context", {}))
+            if not context:
+                context = {
+                    "subject_id": None,
+                    "document_ids": [],
+                    "label": f"Teach Me: {clean_prompt[:60]}",
+                    "badge": "Teach Me Mode",
+                    "chat_mode": "Teach Me Mode",
+                    "topic": clean_prompt[:80],
+                    "material_source": "General Knowledge",
+                    "learning_level": "Normal",
+                    "language_style": "Simple English",
+                    "teaching_depth": "Balanced",
+                    "source_label": "Voice/Text Prompt",
+                    "first_lesson": False,
+                }
+                st.session_state.study_chat_teach_context = context
+            context["first_lesson"] = False
+        elif chat_mode != "General Chat" and not selected_subject:
+            st.warning("Select a subject first, or switch to General Chat.")
+            st.stop()
+
+        if chat_mode == "Chat with Specific Notes" and not selected_documents:
+            st.warning("Select one uploaded note first, or switch to General Chat.")
+            st.stop()
+
+        if chat_mode == "Chat with Multiple Notes" and not selected_documents:
+            st.warning("Select at least one uploaded note first, or switch to General Chat.")
+            st.stop()
+
+        active_session_id = _sync_active_chat_context(chat_mode, context)
+        processed_attachments, attachment_warnings = _save_and_process_chat_attachments(
+            chat_uploaded_files,
+            active_session_id,
+        )
+        pending_audio_attachment = st.session_state.get("voice_pending_audio")
+        if pending_audio_attachment:
+            processed_attachments.append(pending_audio_attachment)
+        for attachment_warning in attachment_warnings:
+            st.warning(attachment_warning)
+        attachment_context, image_paths = _chat_attachment_context(processed_attachments)
+
+        st.session_state.study_chat_last_question = clean_prompt
         st.session_state.study_chat_last_request = {
-            "question": prefill_question,
+            "question": clean_prompt,
             "answer_style": answer_style,
             "chat_mode": chat_mode,
             "context": context,
+            "attachment_context": attachment_context,
+            "image_paths": image_paths,
         }
         loading_slot = st.empty()
         with loading_slot:
-            render_ai_loading("StudyMate is reading your selected material")
+            render_ai_loading("StudyMate is thinking with your study context")
         try:
             answer_data = generate_chat_answer(
-                question=prefill_question,
+                question=clean_prompt,
                 answer_style=answer_style,
                 chat_mode=chat_mode,
                 context=context,
+                attachment_context=attachment_context,
+                image_paths=image_paths,
             )
         finally:
             loading_slot.empty()
-        add_chat_pair(prefill_question, answer_data, context)
-        st.rerun()
 
-render_chat_history_panel()
-
-section_title("Conversation", "\U0001f4ac")
-messages = _chat_messages()
-if not messages:
-    render_empty_state(
-        "Ask anything about your notes, subjects, or studies.",
-        "Use General Chat or choose a subject/note above, then type at the bottom.",
-        "\U0001f4ad",
-    )
-
-for message_index, message in enumerate(messages):
-    avatar = "\U0001f468\u200d\U0001f393" if message["role"] == "user" else "\U0001f916"
-    with st.chat_message(message["role"], avatar=avatar):
-        message_context = message.get("context", {})
-        if message_context:
-            st.caption(f"{message_context.get('badge', 'Chat')} | {message_context.get('label', '')}")
-        if message.get("created_at"):
-            st.caption(message["created_at"])
-
-        if message.get("warning"):
-            st.warning(message["warning"])
-
-        render_ai_markdown(message["content"])
-        render_message_attachments(message.get("attachments", []))
-
-        if message["role"] == "assistant":
-            source_count = message.get("source_count", 0)
-            if source_count:
-                st.caption(f"Using {source_count} relevant note chunks")
-            render_sources(message.get("sources", []))
-            if message_context.get("badge") == "Teach Me Mode":
-                render_follow_up_suggestions(
-                    message_index,
-                    message.get("suggestions", []),
-                )
-
-if st.session_state.get("study_chat_regenerate"):
-    st.session_state.study_chat_regenerate = False
-    messages = _chat_messages()
-    if messages and messages[-1]["role"] == "assistant":
-        messages.pop()
-
-    last_request = st.session_state.study_chat_last_request
-    if last_request:
-        loading_slot = st.empty()
-        with loading_slot:
-            render_ai_loading("Regenerating a sharper answer")
-        try:
-            answer_data = generate_chat_answer(
-                question=last_request["question"],
-                answer_style=last_request["answer_style"],
-                chat_mode=last_request["chat_mode"],
-                context=last_request["context"],
-                attachment_context=last_request.get("attachment_context", ""),
-                image_paths=last_request.get("image_paths", []),
-            )
-        finally:
-            loading_slot.empty()
-        add_assistant_message(answer_data, last_request["context"])
-    st.rerun()
-
-with st.expander("Voice Input", expanded=False):
-    st.caption(
-        "Record a short voice note or upload audio. Voice/audio may be sent to the selected AI provider "
-        "for transcription if online transcription is used."
-    )
-    recorded_audio = None
-    if hasattr(st, "audio_input"):
-        recorded_audio = st.audio_input(
-            "Record voice",
-            key=f"voice_recording_{st.session_state.voice_audio_uploader_key}",
-            help="Keep recordings short for the first version. Two to five minutes works best.",
-        )
-    else:
-        st.info("Browser voice recording is not available in this Streamlit version. Upload an audio file instead.")
-
-    uploaded_audio = st.file_uploader(
-        "Upload audio file",
-        type=["mp3", "wav", "m4a", "ogg", "webm"],
-        key=f"voice_audio_upload_{st.session_state.voice_audio_uploader_key}",
-        help="Supported: MP3, WAV, M4A, OGG, WEBM. Max 10 MB.",
-    )
-
-    selected_audio = recorded_audio or uploaded_audio
-    if selected_audio:
-        selected_audio_name = getattr(selected_audio, "name", "voice_recording.wav")
-        st.caption(
-            f"Ready: {_attachment_icon(Path(selected_audio_name).suffix.replace('.', '').upper())} "
-            f"{html.escape(selected_audio_name)} - {_format_size(getattr(selected_audio, 'size', 0))}"
-        )
-
-    voice_col1, voice_col2 = st.columns(2)
-    with voice_col1:
-        if st.button("Transcribe Audio", use_container_width=True):
-            if not selected_audio:
-                st.warning("Record voice or upload an audio file first.")
-            else:
-                active_session_id = _sync_active_chat_context(chat_mode, context)
-                attachment, warning = _audio_upload_to_attachment(selected_audio, active_session_id)
-                if attachment:
-                    st.session_state.voice_pending_audio = {
-                        "id": attachment["id"],
-                        "file_name": attachment["file_name"],
-                        "file_type": attachment["file_type"],
-                        "file_size": attachment["file_size"],
-                        "extracted_text": attachment.get("extracted_text", ""),
-                        "extraction_method": attachment.get("extraction_method", ""),
-                        "warning": attachment.get("warning", ""),
-                    }
-                    st.session_state.voice_transcript_text = attachment.get("extracted_text", "")
-                    if st.session_state.voice_transcript_text:
-                        st.success("Transcription ready.")
-                    else:
-                        st.warning("Could not transcribe this audio. Please try a clearer recording.")
-                if warning:
-                    st.warning(warning)
-
-    with voice_col2:
-        if st.button("Clear Transcription", use_container_width=True):
+        add_chat_pair(clean_prompt, answer_data, context, attachments=processed_attachments)
+        st.session_state.chat_attachment_uploader_key += 1
+        if pending_audio_attachment:
             st.session_state.voice_pending_audio = None
             st.session_state.voice_transcript_text = ""
             st.session_state.voice_audio_uploader_key += 1
-            st.rerun()
-
-    if st.session_state.voice_pending_audio:
-        transcript = st.text_area(
-            "Edit transcribed text before sending",
-            key="voice_transcript_text",
-            height=120,
-            placeholder="Your transcribed voice message will appear here.",
-        )
-        if st.button("Send Transcribed Message", type="primary", use_container_width=True):
-            clean_transcript, transcript_error = validate_chat_question(transcript, max_length=1200)
-            if transcript_error:
-                st.warning(transcript_error)
-            else:
-                st.session_state.study_chat_pending_prompt = clean_transcript
-                st.rerun()
-
-with st.expander("Attach files to next message", expanded=False):
-    chat_uploaded_files = st.file_uploader(
-        "Attach images, PDFs, DOCX, PPTX, TXT, or Markdown files",
-        type=["png", "jpg", "jpeg", "webp", "pdf", "docx", "pptx", "txt", "md"],
-        accept_multiple_files=True,
-        key=f"chat_attachments_{st.session_state.chat_attachment_uploader_key}",
-        help=(
-            f"Up to {CHAT_MAX_ATTACHMENTS} files. Images up to 5 MB each; "
-            "documents/PDF/PPTX up to 20 MB each."
-        ),
-    )
-    if chat_uploaded_files:
-        st.caption("Files ready for your next message:")
-        for uploaded in chat_uploaded_files[:CHAT_MAX_ATTACHMENTS]:
-            file_type = Path(uploaded.name).suffix.replace(".", "").upper()
-            st.markdown(
-                f"{_attachment_icon(file_type)} **{html.escape(uploaded.name)}** "
-                f"`{html.escape(file_type)}` - {_format_size(getattr(uploaded, 'size', 0))}"
-            )
-        if len(chat_uploaded_files) > CHAT_MAX_ATTACHMENTS:
-            st.warning(f"Only the first {CHAT_MAX_ATTACHMENTS} files will be sent.")
-    else:
-        st.caption("Upload Notes is for permanent Study Library files. Chat attachments are saved only with this chat.")
-
-pending_prompt = st.session_state.pop("study_chat_pending_prompt", "")
-typed_prompt = st.chat_input("Ask StudyMate anything... Follow-up questions are welcome.")
-prompt = pending_prompt or typed_prompt
-
-if prompt:
-    clean_prompt, prompt_error = validate_chat_question(prompt)
-    if prompt_error:
-        st.warning(prompt_error)
-        st.stop()
-
-    saved_memories = _extract_memories_from_prompt(clean_prompt)
-    if saved_memories:
-        st.toast(f"Saved {len(saved_memories)} useful memory item(s).")
-
-    if chat_mode == "Teach Me Mode":
-        context = dict(st.session_state.get("study_chat_teach_context", {}))
-        if not context:
-            context = {
-                "subject_id": None,
-                "document_ids": [],
-                "label": f"Teach Me: {clean_prompt[:60]}",
-                "badge": "Teach Me Mode",
-                "chat_mode": "Teach Me Mode",
-                "topic": clean_prompt[:80],
-                "material_source": "General Knowledge",
-                "learning_level": "Normal",
-                "language_style": "Simple English",
-                "teaching_depth": "Balanced",
-                "source_label": "Voice/Text Prompt",
-                "first_lesson": False,
-            }
-            st.session_state.study_chat_teach_context = context
-        context["first_lesson"] = False
-    elif chat_mode != "General Chat" and not selected_subject:
-        st.warning("Select a subject first, or switch to General Chat.")
-        st.stop()
-
-    if chat_mode == "Chat with Specific Notes" and not selected_documents:
-        st.warning("Select one uploaded note first, or switch to General Chat.")
-        st.stop()
-
-    if chat_mode == "Chat with Multiple Notes" and not selected_documents:
-        st.warning("Select at least one uploaded note first, or switch to General Chat.")
-        st.stop()
-
-    active_session_id = _sync_active_chat_context(chat_mode, context)
-    processed_attachments, attachment_warnings = _save_and_process_chat_attachments(
-        chat_uploaded_files,
-        active_session_id,
-    )
-    pending_audio_attachment = st.session_state.get("voice_pending_audio")
-    if pending_audio_attachment:
-        processed_attachments.append(pending_audio_attachment)
-    for attachment_warning in attachment_warnings:
-        st.warning(attachment_warning)
-    attachment_context, image_paths = _chat_attachment_context(processed_attachments)
-
-    st.session_state.study_chat_last_question = clean_prompt
-    st.session_state.study_chat_last_request = {
-        "question": clean_prompt,
-        "answer_style": answer_style,
-        "chat_mode": chat_mode,
-        "context": context,
-        "attachment_context": attachment_context,
-        "image_paths": image_paths,
-    }
-    loading_slot = st.empty()
-    with loading_slot:
-        render_ai_loading("StudyMate is thinking with your study context")
-    try:
-        answer_data = generate_chat_answer(
-            question=clean_prompt,
-            answer_style=answer_style,
-            chat_mode=chat_mode,
-            context=context,
-            attachment_context=attachment_context,
-            image_paths=image_paths,
-        )
-    finally:
-        loading_slot.empty()
-
-    add_chat_pair(clean_prompt, answer_data, context, attachments=processed_attachments)
-    st.session_state.chat_attachment_uploader_key += 1
-    if pending_audio_attachment:
-        st.session_state.voice_pending_audio = None
-        st.session_state.voice_transcript_text = ""
-        st.session_state.voice_audio_uploader_key += 1
-    st.rerun()
+        st.rerun()
