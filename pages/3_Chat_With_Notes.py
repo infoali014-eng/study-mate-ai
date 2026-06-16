@@ -497,7 +497,10 @@ def _load_chat_session(session_id):
         st.error("Chat not found or you do not have access to it.")
         return False
     _set_active_chat_session(session_id)
-    st.session_state.study_chat_mode_selector = session["chat_mode"] or "General Chat"
+    saved_mode = session["chat_mode"] or "General Chat"
+    if saved_mode not in CHAT_MODES:
+        saved_mode = "General Chat"
+    st.session_state.study_chat_mode_selector = saved_mode
     if session["subject_id"]:
         st.session_state.chat_prefill_subject_id = session["subject_id"]
     document_ids = _decode_json(session["document_ids_json"], [])
@@ -515,6 +518,11 @@ def _load_chat_session(session_id):
     st.session_state.study_chat_last_question = ""
     st.session_state.study_chat_last_request = None
     return True
+
+
+def _request_chat_session_load(session_id):
+    """Queue a chat session load for the next rerun before widgets are created."""
+    st.session_state.study_chat_pending_session_load = session_id
 
 
 def _ensure_chat_session(chat_mode="General Chat", context_label=""):
@@ -786,8 +794,8 @@ def render_chat_history_panel():
                     unsafe_allow_html=True,
                 )
                 if st.button(label, key=f"open_chat_{session['id']}", use_container_width=True):
-                    if _load_chat_session(session["id"]):
-                        st.rerun()
+                    _request_chat_session_load(session["id"])
+                    st.rerun()
                 st.caption(f"Updated: {session['updated_at']}")
 
                 with st.expander("Manage", expanded=False):
@@ -1339,6 +1347,11 @@ if "voice_transcript_text" not in st.session_state:
 if "voice_pending_audio" not in st.session_state:
     st.session_state.voice_pending_audio = None
 
+pending_session_load = st.session_state.pop("study_chat_pending_session_load", None)
+loaded_session_from_history = False
+if pending_session_load:
+    loaded_session_from_history = _load_chat_session(pending_session_load)
+
 subjects = get_subjects(user_id=user_id)
 prefill_subject_id = st.session_state.pop("chat_prefill_subject_id", None)
 prefill_document_id = st.session_state.pop("chat_prefill_document_id", None)
@@ -1351,9 +1364,9 @@ with st.container(border=True):
 
     with top_col1:
         default_mode_index = 0
-        if prefill_document_id:
+        if not loaded_session_from_history and prefill_document_id:
             st.session_state.study_chat_mode_selector = "Chat with Specific Notes"
-        elif prefill_subject_id:
+        elif not loaded_session_from_history and prefill_subject_id:
             st.session_state.study_chat_mode_selector = "Chat with Subject"
         elif st.session_state.get("study_chat_mode_selector") not in CHAT_MODES:
             st.session_state.study_chat_mode_selector = CHAT_MODES[default_mode_index]
