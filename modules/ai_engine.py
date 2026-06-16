@@ -979,6 +979,33 @@ def _filter_relevant_sources(question, sources):
     return relevant_sources
 
 
+def _attachment_context_has_text(attachment_context):
+    """Return True when an attachment prompt block contains readable extracted text."""
+    return bool(attachment_context and "Extracted text/context:" in attachment_context)
+
+
+def _demo_attachment_response(attachment_context):
+    """Return a safe offline placeholder for attachment-based prompts."""
+    preview = (attachment_context or "").strip()[:1600] or "No readable attachment text was extracted."
+    return f"""
+Demo Mode response: I received your attachment(s).
+
+## What I found in the attachment
+{preview}
+
+## Placeholder answer
+Connect Gemini for image understanding, or use Ollama/Groq when readable text was extracted from the file.
+"""
+
+
+def _provider_cannot_read_attachment_response():
+    """Explain why a non-vision provider cannot answer from an unreadable attachment."""
+    return (
+        "This provider cannot directly read this attachment, and no readable text was extracted. "
+        "Try Gemini vision or upload clearer text."
+    )
+
+
 def generate_study_chat_response(
     question,
     answer_style="Simple English",
@@ -1034,12 +1061,19 @@ def generate_study_chat_response(
         user_id=user_id,
     )
 
+    selected_provider = get_selected_provider()
+    attachment_has_text = _attachment_context_has_text(attachment_context)
+
     try:
-        if image_paths and get_selected_provider() == "Gemini":
+        if attachment_context and selected_provider == "Demo Mode":
+            answer = _demo_attachment_response(attachment_context)
+        elif image_paths and selected_provider != "Gemini" and not attachment_has_text:
+            answer = _provider_cannot_read_attachment_response()
+        elif image_paths and selected_provider == "Gemini":
             try:
                 answer = ask_gemini_multimodal(prompt, image_paths=image_paths)
             except Exception:
-                if attachment_context and "Extracted text/context:" in attachment_context:
+                if attachment_has_text:
                     answer = ask_ai(prompt)
                 else:
                     raise

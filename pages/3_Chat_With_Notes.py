@@ -226,6 +226,19 @@ def _chat_attachment_context(attachments):
     return "\n\n".join(blocks), image_paths
 
 
+def _attachment_context_has_text(attachment_context):
+    """Return True when an attachment contains extracted text that a text model can use."""
+    return bool(attachment_context and "Extracted text/context:" in attachment_context)
+
+
+def _provider_cannot_read_attachment_response():
+    """Friendly message for providers that cannot inspect unreadable images directly."""
+    return (
+        "This provider cannot directly read this attachment, and no readable text was extracted. "
+        "Try Gemini vision or upload clearer text."
+    )
+
+
 def _save_and_process_chat_attachments(uploaded_files, session_id):
     """Validate, save, extract, and record chat attachments for the active user."""
     if not uploaded_files:
@@ -1026,11 +1039,15 @@ Connect Gemini or Ollama to get a full multimodal tutor response.
             first_lesson=first_lesson,
         )
         try:
-            if image_paths and get_provider_label() == "Gemini":
+            attachment_has_text = _attachment_context_has_text(attachment_context)
+            provider_label = get_provider_label()
+            if image_paths and provider_label != "Gemini" and not attachment_has_text:
+                answer = _provider_cannot_read_attachment_response()
+            elif image_paths and provider_label == "Gemini":
                 try:
                     answer = ai_engine.ask_gemini_multimodal(prompt, image_paths=image_paths)
                 except Exception:
-                    if attachment_context and "Extracted text/context:" in attachment_context:
+                    if attachment_has_text:
                         answer = ai_engine.ask_ai(prompt)
                     else:
                         raise
@@ -1108,11 +1125,15 @@ Question:
 {question}
 """
     try:
-        if image_paths and get_provider_label() == "Gemini":
+        attachment_has_text = _attachment_context_has_text(attachment_context)
+        provider_label = get_provider_label()
+        if image_paths and provider_label != "Gemini" and not attachment_has_text:
+            answer = _provider_cannot_read_attachment_response()
+        elif image_paths and provider_label == "Gemini":
             try:
                 answer = ai_engine.ask_gemini_multimodal(prompt, image_paths=image_paths)
             except Exception:
-                if attachment_context and "Extracted text/context:" in attachment_context:
+                if attachment_has_text:
                     answer = ai_engine.ask_ai(prompt)
                 else:
                     raise
