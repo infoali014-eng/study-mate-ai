@@ -917,7 +917,17 @@ def _get_streamlit_secret(name):
     try:
         import streamlit as st
 
-        return st.secrets.get(name, "")
+        value = st.secrets.get(name, "")
+        if value:
+            return str(value)
+
+        # Streamlit secrets use TOML sections. If ADMIN_* keys are pasted after
+        # [auth], they become auth.ADMIN_* instead of top-level ADMIN_*.
+        # Support that common setup mistake without exposing or logging secrets.
+        auth_section = st.secrets.get("auth", {})
+        if hasattr(auth_section, "get"):
+            return str(auth_section.get(name, ""))
+        return ""
     except Exception:
         return ""
 
