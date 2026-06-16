@@ -1883,6 +1883,26 @@ def get_chat_messages(user_id, session_id, limit=None):
     if not user_id or not session_id:
         return []
     with closing(get_connection()) as conn:
+        if limit:
+            return conn.execute(
+                """
+                SELECT *
+                FROM (
+                    SELECT chat_messages.*
+                    FROM chat_messages
+                    JOIN chat_sessions ON chat_sessions.id = chat_messages.session_id
+                    WHERE chat_messages.session_id = ?
+                      AND chat_messages.user_id = ?
+                      AND chat_sessions.user_id = ?
+                      AND chat_sessions.is_archived = 0
+                    ORDER BY chat_messages.id DESC
+                    LIMIT ?
+                )
+                ORDER BY id ASC
+                """,
+                (session_id, user_id, user_id, int(limit)),
+            ).fetchall()
+
         sql = """
             SELECT chat_messages.*
             FROM chat_messages
@@ -1894,9 +1914,6 @@ def get_chat_messages(user_id, session_id, limit=None):
             ORDER BY chat_messages.id ASC
             """
         params = [session_id, user_id, user_id]
-        if limit:
-            sql += " LIMIT ?"
-            params.append(int(limit))
         return conn.execute(sql, params).fetchall()
 
 
