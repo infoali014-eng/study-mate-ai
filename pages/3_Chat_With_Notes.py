@@ -758,7 +758,11 @@ def render_chat_history_panel():
         """,
         unsafe_allow_html=True,
     )
-    with st.container(height=760, border=True):
+    with st.container(height=620, border=True):
+        if st.button("Hide History", use_container_width=True, key="hide_chat_history"):
+            st.session_state.show_chat_history_panel = False
+            st.rerun()
+
         if st.button("New Chat", type="primary", use_container_width=True, key="history_new_chat"):
             _start_new_chat_session(
                 st.session_state.get("study_chat_mode_selector", "General Chat"),
@@ -801,29 +805,21 @@ def render_chat_history_panel():
             }.get(mode, "Chat")
             active_class = " active-chat-card" if is_active else ""
 
-            with st.container(border=True):
-                st.markdown(
-                    f"""
-                    <div class="history-item{active_class}">
-                        <div class="history-title">{html.escape(title)}</div>
-                        <div class="history-meta">
-                            <span>{html.escape(mode_short)}</span>
-                            <span>{html.escape(str(session['updated_at']).split('.')[0])}</span>
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+            st.markdown(f"<div class='history-item{active_class}'>", unsafe_allow_html=True)
+            item_col, more_col = st.columns([0.78, 0.22], gap="small")
+            with item_col:
                 if st.button(
-                    "Open",
+                    title[:42],
                     key=f"open_chat_{session['id']}",
                     use_container_width=True,
                     type="primary" if is_active else "secondary",
                 ):
                     _request_chat_session_load(session["id"])
                     st.rerun()
+                st.caption(f"{mode_short} - {str(session['updated_at']).split('.')[0]}")
 
-                action_container = st.popover("More") if hasattr(st, "popover") else st.expander("More", expanded=False)
+            with more_col:
+                action_container = st.popover("...") if hasattr(st, "popover") else st.expander("...", expanded=False)
                 with action_container:
                     new_title = st.text_input(
                         "Rename chat",
@@ -861,6 +857,7 @@ def render_chat_history_panel():
                         if st.button("Delete Chat", key=f"delete_chat_{session['id']}", use_container_width=True):
                             st.session_state[pending_key] = True
                             st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _demo_teach_response(
@@ -1437,6 +1434,8 @@ if "voice_transcript_text" not in st.session_state:
     st.session_state.voice_transcript_text = ""
 if "voice_pending_audio" not in st.session_state:
     st.session_state.voice_pending_audio = None
+if "show_chat_history_panel" not in st.session_state:
+    st.session_state.show_chat_history_panel = True
 
 pending_session_load = st.session_state.pop("study_chat_pending_session_load", None)
 loaded_session_from_history = False
@@ -1449,11 +1448,19 @@ prefill_document_id = st.session_state.pop("chat_prefill_document_id", None)
 prefill_document_ids = st.session_state.pop("chat_prefill_document_ids", [])
 prefill_question = st.session_state.pop("chat_prefill_question", "")
 
-history_col, chat_col = st.columns([0.30, 0.70], gap="large")
-with history_col:
-    render_chat_history_panel()
+if st.session_state.show_chat_history_panel:
+    history_col, chat_col = st.columns([0.20, 0.80], gap="medium")
+    with history_col:
+        render_chat_history_panel()
+else:
+    chat_col = st.container()
 
 with chat_col:
+    if not st.session_state.show_chat_history_panel:
+        if st.button("Show Chat History", use_container_width=False):
+            st.session_state.show_chat_history_panel = True
+            st.rerun()
+
     st.markdown(
         """
         <div class="chat-shell-title">
@@ -1764,39 +1771,40 @@ with chat_col:
             st.rerun()
 
     section_title("Conversation", "\U0001f4ac")
-    messages = _chat_messages()
-    if not messages:
-        render_empty_state(
-            "Ask anything about your notes, subjects, or studies.",
-            "Use General Chat or choose a subject/note above, then type at the bottom.",
-            "\U0001f4ad",
-        )
+    with st.container(height=540, border=True):
+        messages = _chat_messages()
+        if not messages:
+            render_empty_state(
+                "Ask anything about your notes, subjects, or studies.",
+                "Use General Chat or choose a subject/note above, then type at the bottom.",
+                "\U0001f4ad",
+            )
 
-    for message_index, message in enumerate(messages):
-        avatar = "\U0001f468\u200d\U0001f393" if message["role"] == "user" else "\U0001f916"
-        with st.chat_message(message["role"], avatar=avatar):
-            message_context = message.get("context", {})
-            if message_context:
-                st.caption(f"{message_context.get('badge', 'Chat')} | {message_context.get('label', '')}")
-            if message.get("created_at"):
-                st.caption(message["created_at"])
+        for message_index, message in enumerate(messages):
+            avatar = "\U0001f468\u200d\U0001f393" if message["role"] == "user" else "\U0001f916"
+            with st.chat_message(message["role"], avatar=avatar):
+                message_context = message.get("context", {})
+                if message_context:
+                    st.caption(f"{message_context.get('badge', 'Chat')} | {message_context.get('label', '')}")
+                if message.get("created_at"):
+                    st.caption(message["created_at"])
 
-            if message.get("warning"):
-                st.warning(message["warning"])
+                if message.get("warning"):
+                    st.warning(message["warning"])
 
-            render_ai_markdown(message["content"])
-            render_message_attachments(message.get("attachments", []))
+                render_ai_markdown(message["content"])
+                render_message_attachments(message.get("attachments", []))
 
-            if message["role"] == "assistant":
-                source_count = message.get("source_count", 0)
-                if source_count:
-                    st.caption(f"Using {source_count} relevant note chunks")
-                render_sources(message.get("sources", []))
-                if message_context.get("badge") == "Teach Me Mode":
-                    render_follow_up_suggestions(
-                        message_index,
-                        message.get("suggestions", []),
-                    )
+                if message["role"] == "assistant":
+                    source_count = message.get("source_count", 0)
+                    if source_count:
+                        st.caption(f"Using {source_count} relevant note chunks")
+                    render_sources(message.get("sources", []))
+                    if message_context.get("badge") == "Teach Me Mode":
+                        render_follow_up_suggestions(
+                            message_index,
+                            message.get("suggestions", []),
+                        )
 
     if st.session_state.get("study_chat_regenerate"):
         st.session_state.study_chat_regenerate = False
