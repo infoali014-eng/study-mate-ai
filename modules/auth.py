@@ -1,3 +1,4 @@
+import html
 import time
 
 import streamlit as st
@@ -7,6 +8,8 @@ from modules.database import (
     create_remember_session,
     create_user,
     delete_remember_session,
+    ensure_admin_user,
+    get_app_setting,
     get_user_by_email,
     get_user_by_id,
     get_user_by_remember_token,
@@ -32,6 +35,7 @@ USER_SESSION_KEYS = {
     "user_id",
     "user_name",
     "user_email",
+    "user_role",
     "gemini_api_key",
     "groq_api_key",
     "ai_provider",
@@ -177,8 +181,24 @@ def get_current_user():
         "id": st.session_state.get("user_id"),
         "name": st.session_state.get("user_name", ""),
         "email": st.session_state.get("user_email", ""),
+        "role": st.session_state.get("user_role", "student"),
         "auth_provider": st.session_state.get("auth_provider", "email"),
     }
+
+
+def is_admin():
+    """Return True when the current signed-in user is an admin."""
+    return is_authenticated() and st.session_state.get("user_role") == "admin"
+
+
+def require_admin():
+    """Block a page unless the current user is an admin."""
+    require_login()
+    if not is_admin():
+        apply_theme()
+        st.error("Access denied.")
+        st.stop()
+    return st.session_state.get("user_id")
 
 
 def get_current_user_display_name():
@@ -216,6 +236,7 @@ def login_user(user, message=None, remember=True):
     st.session_state.user_id = user["id"]
     st.session_state.user_name = user["name"]
     st.session_state.user_email = user["email"]
+    st.session_state.user_role = user["role"] if "role" in user.keys() else "student"
     st.session_state.failed_login_attempts = []
     if remember:
         token = create_remember_session(user["id"], days=REMEMBER_COOKIE_DAYS)
@@ -312,6 +333,10 @@ def _login_form():
 
 def _signup_form():
     """Render and process manual email/password signup."""
+    if str(get_app_setting("enable_public_signup", "true")).lower() != "true":
+        st.info("Public signup is currently disabled.")
+        return
+
     _disabled_google_note()
     st.divider()
 
@@ -373,13 +398,24 @@ def _signup_form():
 def render_auth_screen():
     """Render login/signup when no user is logged in."""
     apply_theme()
+    try:
+        from modules.database import get_branding_settings
+
+        branding = get_branding_settings()
+    except Exception:
+        branding = {
+            "app_name": "StudyMate AI",
+            "app_subtitle": "AI Study Assistant",
+            "product_tagline": "Learn smarter. Revise faster. Prepare better.",
+        }
+
     st.markdown(
-        """
+        f"""
         <div class="auth-shell">
             <div class="auth-card">
                 <div class="hero-kicker">SECURE STUDY WORKSPACE</div>
-                <h1>StudyMate AI</h1>
-                <p>Log in to keep your notes, quizzes, flashcards, and plans separate from other users.</p>
+                <h1>{html.escape(branding["app_name"])}</h1>
+                <p>{html.escape(branding["product_tagline"])}</p>
                 <div class="auth-note">Manual email/password login is active.</div>
             </div>
         </div>
@@ -400,6 +436,7 @@ def render_auth_screen():
 def require_login():
     """Block a page until the visitor logs in."""
     init_db()
+    ensure_admin_user(hash_password)
 
     _restore_login_from_cookie()
 

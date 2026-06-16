@@ -15,6 +15,13 @@ NAV_ITEMS = [
     ("Revision Planner", "pages/6_Revision_Planner.py", "\U0001f5d3\ufe0f"),
     ("Pomodoro Timer", "pages/9_Pomodoro_Timer.py", "\u23f1\ufe0f"),
     ("AI Settings", "pages/8_AI_Settings.py", "\u2699\ufe0f"),
+    ("About", "pages/10_About.py", "\u2139\ufe0f"),
+]
+
+ADMIN_NAV_ITEMS = [
+    ("Admin Dashboard", "pages/11_Admin_Dashboard.py", "\U0001f6e1\ufe0f"),
+    ("Branding Settings", "pages/12_Admin_Branding_Settings.py", "\U0001f3a8"),
+    ("User Management", "pages/13_Admin_User_Management.py", "\U0001f465"),
 ]
 
 THEME_PRESETS = {
@@ -1558,19 +1565,25 @@ def apply_theme():
 
 def sidebar_nav():
     """Render shared sidebar navigation."""
+    from modules.database import get_branding_settings
+
+    branding = get_branding_settings()
     user_name = st.session_state.get("user_name", "Student")
     user_email = st.session_state.get("user_email", "")
+    user_role = st.session_state.get("user_role", "student")
     initials = "".join(part[0] for part in user_name.split()[:2]).upper() or "ST"
     escaped_name = html.escape(user_name)
     escaped_email = html.escape(user_email)
+    escaped_app_name = html.escape(branding.get("app_name", "StudyMate AI"))
+    escaped_subtitle = html.escape(branding.get("app_subtitle", "AI Study Assistant"))
 
     st.sidebar.markdown(
         f"""
         <div class="study-brand">
             <div class="study-logo">&#127891;</div>
             <div>
-                <div class="study-brand-title">{escaped_name}'s <span>AI</span> Study Assistant</div>
-                <div class="study-brand-subtitle">Your personal exam preparation workspace</div>
+                <div class="study-brand-title">{escaped_app_name}</div>
+                <div class="study-brand-subtitle">{escaped_subtitle}</div>
             </div>
         </div>
         """,
@@ -1586,6 +1599,18 @@ def sidebar_nav():
                 f"<a class='fallback-nav-link' href='{fallback_url}'>{icon}  {html.escape(label)}</a>",
                 unsafe_allow_html=True,
             )
+
+    if user_role == "admin":
+        st.sidebar.markdown("<hr><strong>Admin</strong>", unsafe_allow_html=True)
+        for label, page, icon in ADMIN_NAV_ITEMS:
+            try:
+                st.sidebar.page_link(page, label=f"{icon}  {label}")
+            except Exception:
+                fallback_url = _page_url_from_path(page)
+                st.sidebar.markdown(
+                    f"<a class='fallback-nav-link' href='{fallback_url}'>{icon}  {html.escape(label)}</a>",
+                    unsafe_allow_html=True,
+                )
 
     st.sidebar.selectbox(
         "Theme",
@@ -1604,12 +1629,12 @@ def sidebar_nav():
                     <div class="profile-role">{escaped_email or "CS Student"}</div>
                 </div>
             </div>
-            <div class="profile-mode">Offline AI Workspace</div>
+            <div class="profile-mode">{'Admin' if user_role == 'admin' else 'Offline AI Workspace'}</div>
         </div>
         <div class="sidebar-helper">
             <div class="sidebar-helper-icon">&#129302;</div>
-            <strong>StudyMate AI</strong>
-            <p>Your personal exam preparation workspace.</p>
+            <strong>{escaped_app_name}</strong>
+            <p>{html.escape(branding.get("product_tagline", "Your personal exam preparation workspace."))}</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1623,6 +1648,7 @@ def sidebar_nav():
 
 def page_header(title, subtitle, kicker="StudyMate AI"):
     """Render a consistent colorful page hero."""
+    render_announcement()
     st.markdown(
         f"""
         <div class="hero">
@@ -1635,6 +1661,27 @@ def page_header(title, subtitle, kicker="StudyMate AI"):
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_announcement():
+    """Render an optional app-wide announcement banner."""
+    try:
+        from modules.database import get_branding_settings
+
+        settings = get_branding_settings()
+    except Exception:
+        return
+    active = str(settings.get("announcement_active", "false")).lower() == "true"
+    message = (settings.get("announcement_message") or "").strip()
+    if not active or not message:
+        return
+    kind = settings.get("announcement_type", "info")
+    if kind == "success":
+        st.success(message)
+    elif kind == "warning":
+        st.warning(message)
+    else:
+        st.info(message)
 
 
 def render_stat_card(label, value, hint, icon, accent, soft):

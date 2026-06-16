@@ -483,6 +483,15 @@ def ask_groq(prompt, model=None):
 
 def ask_demo(prompt):
     """Return a simple demo response when no AI provider is available."""
+    try:
+        from modules.database import get_app_setting
+
+        if str(get_app_setting("enable_demo_mode", "true")).lower() != "true":
+            raise AIProviderError("Demo Mode is disabled by the admin.")
+    except AIProviderError:
+        raise
+    except Exception:
+        pass
     return (
         "Demo Mode response: AI provider is not connected yet. "
         "Add a Gemini API key in AI Settings or switch to Ollama local mode."

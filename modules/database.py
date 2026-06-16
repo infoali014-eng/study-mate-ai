@@ -39,6 +39,8 @@ def create_tables():
                 email TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL DEFAULT '',
                 auth_provider TEXT DEFAULT 'email',
+                role TEXT DEFAULT 'student',
+                is_active INTEGER DEFAULT 1,
                 study_goal TEXT DEFAULT '',
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -240,6 +242,15 @@ def create_tables():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT DEFAULT '',
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         conn.commit()
 
         _add_missing_column(conn, "subjects", "user_id", "INTEGER")
@@ -312,6 +323,8 @@ def _run_migrations(conn):
     """Add user scoping and indexes to older databases without losing records."""
     _add_missing_column(conn, "users", "password_hash", "TEXT NOT NULL DEFAULT ''")
     _add_missing_column(conn, "users", "auth_provider", "TEXT DEFAULT 'email'")
+    _add_missing_column(conn, "users", "role", "TEXT DEFAULT 'student'")
+    _add_missing_column(conn, "users", "is_active", "INTEGER DEFAULT 1")
     _add_missing_column(conn, "users", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
     _add_missing_column(conn, "subjects", "user_id", "INTEGER")
     _add_missing_column(conn, "subjects", "is_deleted", "INTEGER DEFAULT 0")
@@ -367,6 +380,8 @@ def _run_migrations(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_weak_topics_user ON weak_topics(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_user ON revision_plans(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_user_api_keys_user ON user_api_keys(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_remember_sessions_hash ON remember_sessions(token_hash)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_document_summaries_user ON document_summaries(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id)")
@@ -573,16 +588,16 @@ def init_db():
     create_tables()
 
 
-def create_user(name, email, password_hash, auth_provider="email"):
+def create_user(name, email, password_hash, auth_provider="email", role="student", is_active=1):
     """Create a user account. Returns the id or None if the email is taken."""
     try:
         with closing(get_connection()) as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO users (name, email, password_hash, auth_provider)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO users (name, email, password_hash, auth_provider, role, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (name, email, password_hash, auth_provider),
+                (name, email, password_hash, auth_provider, role, int(is_active)),
             )
             conn.commit()
             return cursor.lastrowid
@@ -609,6 +624,9 @@ def verify_user_login(email, password, verify_password_callback):
     if not user:
         return None
 
+    if int(user["is_active"] if "is_active" in user.keys() else 1) != 1:
+        return None
+
     if verify_password_callback(password, user["password_hash"]):
         return user
     return None
@@ -624,15 +642,17 @@ def get_or_create_oauth_user(email, full_name, provider="google"):
 
     existing_user = get_user_by_email(clean_email)
     if existing_user:
+        if int(existing_user["is_active"] if "is_active" in existing_user.keys() else 1) != 1:
+            return None
         return existing_user
 
     with closing(get_connection()) as conn:
         cursor = conn.execute(
             """
-            INSERT INTO users (name, email, password_hash, auth_provider)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO users (name, email, password_hash, auth_provider, role, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (clean_name[:80], clean_email, "", clean_provider),
+            (clean_name[:80], clean_email, "", clean_provider, "student", 1),
         )
         conn.commit()
         return conn.execute(
@@ -650,6 +670,246 @@ def get_user_by_id(user_id):
             "SELECT * FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
+
+
+BRANDING_DEFAULTS = {
+    "app_name": "StudyMate AI",
+    "app_subtitle": "AI Study Assistant",
+    "product_tagline": "Learn smarter. Revise faster. Prepare better.",
+    "creator_name": "Ali Shair",
+    "creator_role": "CS Student • Developer • Content Creator",
+    "creator_description": "I build practical tools using coding and AI to solve real problems for students and small businesses.",
+    "creator_email": "infoali014@gmail.com",
+    "github_link": "Add your GitHub link here",
+    "portfolio_link": "Coming soon",
+    "linkedin_link": "Coming soon",
+    "instagram_link": "Coming soon",
+    "app_version": "v1.0 Beta",
+    "footer_text": "StudyMate AI © 2026 • Built by Ali Shair",
+    "about_what": "StudyMate AI is a personal study workspace that helps students organize notes, chat with uploaded material, generate quizzes, review flashcards, and plan revision.",
+    "about_why": "I built it to make exam preparation more organized, practical, and accessible using AI.",
+    "mission_statement": "Help students learn smarter with secure, personalized, and useful AI study tools.",
+    "feature_highlights": "Study Library\nChat With Notes\nTeach Me Mode\nQuiz Generator\nFlashcards\nRevision Planner\nMulti-format notes support\nPersonalized user accounts",
+    "announcement_active": "false",
+    "announcement_type": "info",
+    "announcement_message": "",
+    "enable_public_signup": "true",
+    "enable_demo_mode": "true",
+    "enable_google_login": "false",
+}
+
+
+def get_app_setting(key, default=None):
+    """Return one application setting."""
+    with closing(get_connection()) as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+    if row:
+        return row["value"]
+    return BRANDING_DEFAULTS.get(key, default)
+
+
+def set_app_setting(key, value):
+    """Save one application setting."""
+    with closing(get_connection()) as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key)
+            DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+            """,
+            (key, str(value)),
+        )
+        conn.commit()
+    return True
+
+
+def get_branding_settings():
+    """Return all branding settings with defaults filled in."""
+    settings = dict(BRANDING_DEFAULTS)
+    with closing(get_connection()) as conn:
+        rows = conn.execute("SELECT key, value FROM app_settings").fetchall()
+    for row in rows:
+        if row["key"] in settings:
+            settings[row["key"]] = row["value"]
+    return settings
+
+
+def save_branding_settings(settings_dict):
+    """Save branding/admin-editable settings."""
+    for key, value in settings_dict.items():
+        if key in BRANDING_DEFAULTS:
+            set_app_setting(key, value)
+    return True
+
+
+def reset_branding_settings_to_defaults():
+    """Reset branding settings to defaults."""
+    with closing(get_connection()) as conn:
+        conn.executemany(
+            """
+            INSERT INTO app_settings (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key)
+            DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+            """,
+            list(BRANDING_DEFAULTS.items()),
+        )
+        conn.commit()
+    return True
+
+
+def ensure_admin_user(password_hash_callback):
+    """Create or update the initial admin from env/secrets when configured."""
+    admin_email = (
+        os.getenv("ADMIN_EMAIL", "").strip().lower()
+        or _get_streamlit_secret("ADMIN_EMAIL").strip().lower()
+    )
+    admin_password = os.getenv("ADMIN_PASSWORD", "").strip() or _get_streamlit_secret("ADMIN_PASSWORD").strip()
+    admin_name = os.getenv("ADMIN_NAME", "").strip() or _get_streamlit_secret("ADMIN_NAME").strip() or "Admin User"
+    if not admin_email or not admin_password:
+        return None
+
+    existing_user = get_user_by_email(admin_email)
+    password_hash = password_hash_callback(admin_password)
+    with closing(get_connection()) as conn:
+        if existing_user:
+            conn.execute(
+                """
+                UPDATE users
+                SET role = 'admin', is_active = 1, name = ?, password_hash = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (admin_name, password_hash, existing_user["id"]),
+            )
+            conn.commit()
+            return existing_user["id"]
+
+        cursor = conn.execute(
+            """
+            INSERT INTO users (name, email, password_hash, auth_provider, role, is_active)
+            VALUES (?, ?, ?, 'email', 'admin', 1)
+            """,
+            (admin_name, admin_email, password_hash),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def user_is_admin(user_id):
+    """Return True when the user has admin role."""
+    user = get_user_by_id(user_id)
+    return bool(user and user["role"] == "admin" and int(user["is_active"]) == 1)
+
+
+def count_admins():
+    """Return number of active admin users."""
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1"
+        ).fetchone()[0]
+
+
+def get_admin_overview_counts():
+    """Return app-wide admin dashboard counts."""
+    with closing(get_connection()) as conn:
+        return {
+            "users": conn.execute("SELECT COUNT(*) FROM users").fetchone()[0],
+            "subjects": conn.execute("SELECT COUNT(*) FROM subjects WHERE is_deleted = 0").fetchone()[0],
+            "documents": conn.execute("SELECT COUNT(*) FROM uploaded_documents WHERE is_deleted = 0").fetchone()[0],
+            "flashcards": conn.execute("SELECT COUNT(*) FROM flashcards").fetchone()[0],
+            "quizzes": conn.execute("SELECT COUNT(*) FROM quiz_results").fetchone()[0],
+            "revision_plans": conn.execute("SELECT COUNT(*) FROM revision_plans").fetchone()[0],
+        }
+
+
+def get_recent_users(limit=8):
+    """Return recent users without sensitive fields."""
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            """
+            SELECT id, name, email, role, is_active, created_at
+            FROM users
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (int(limit),),
+        ).fetchall()
+
+
+def get_recent_uploads(limit=8):
+    """Return recent uploaded documents for admin overview."""
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            """
+            SELECT uploaded_documents.file_name, uploaded_documents.file_type,
+                   uploaded_documents.uploaded_at, users.email, subjects.name AS subject_name
+            FROM uploaded_documents
+            JOIN users ON users.id = uploaded_documents.user_id
+            JOIN subjects ON subjects.id = uploaded_documents.subject_id
+            WHERE uploaded_documents.is_deleted = 0
+            ORDER BY uploaded_documents.uploaded_at DESC
+            LIMIT ?
+            """,
+            (int(limit),),
+        ).fetchall()
+
+
+def get_all_users_with_stats(search_text=""):
+    """Return users and basic activity stats for admin management."""
+    query = """
+        SELECT users.id, users.name, users.email, users.role, users.is_active, users.created_at,
+               COUNT(DISTINCT subjects.id) AS subject_count,
+               COUNT(DISTINCT uploaded_documents.id) AS document_count
+        FROM users
+        LEFT JOIN subjects ON subjects.user_id = users.id AND subjects.is_deleted = 0
+        LEFT JOIN uploaded_documents ON uploaded_documents.user_id = users.id AND uploaded_documents.is_deleted = 0
+    """
+    params = []
+    clean_search = (search_text or "").strip().lower()
+    if clean_search:
+        query += " WHERE lower(users.name) LIKE ? OR lower(users.email) LIKE ?"
+        params.extend([f"%{clean_search}%", f"%{clean_search}%"])
+    query += " GROUP BY users.id ORDER BY users.created_at DESC"
+    with closing(get_connection()) as conn:
+        return conn.execute(query, params).fetchall()
+
+
+def update_user_role(target_user_id, role, admin_user_id):
+    """Update a user's role, preventing removal of the last admin."""
+    if not user_is_admin(admin_user_id):
+        return False, "Access denied."
+    clean_role = role if role in {"student", "admin"} else "student"
+    target = get_user_by_id(target_user_id)
+    if not target:
+        return False, "User not found."
+    if target["role"] == "admin" and clean_role != "admin" and count_admins() <= 1:
+        return False, "Cannot remove the last admin."
+    with closing(get_connection()) as conn:
+        conn.execute(
+            "UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (clean_role, target_user_id),
+        )
+        conn.commit()
+    return True, "User role updated."
+
+
+def set_user_active(target_user_id, is_active, admin_user_id):
+    """Enable or disable a user, preventing disabling the last admin."""
+    if not user_is_admin(admin_user_id):
+        return False, "Access denied."
+    target = get_user_by_id(target_user_id)
+    if not target:
+        return False, "User not found."
+    if target["role"] == "admin" and int(is_active) != 1 and count_admins() <= 1:
+        return False, "Cannot disable the last admin."
+    with closing(get_connection()) as conn:
+        conn.execute(
+            "UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (int(is_active), target_user_id),
+        )
+        conn.commit()
+    return True, "User status updated."
 
 
 def _get_streamlit_secret(name):
@@ -844,6 +1104,7 @@ def get_user_by_remember_token(token):
             JOIN users ON users.id = remember_sessions.user_id
             WHERE remember_sessions.token_hash = ?
               AND remember_sessions.expires_at > ?
+              AND users.is_active = 1
             """,
             (token_hash, now),
         ).fetchone()

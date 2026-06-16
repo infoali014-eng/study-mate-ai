@@ -178,6 +178,33 @@ Only set this to `false` for a private app where you intentionally want everyone
 
 To let signed-in users save their own Gemini keys securely, set `APP_ENCRYPTION_KEY` in `.env` locally or in Streamlit Cloud secrets. Use a long random value and never commit the real value.
 
+### 6B. Optional: Create The First Admin
+
+StudyMate AI can create an admin account safely from local environment variables or Streamlit secrets.
+
+Add these placeholder-style keys to your private `.env` file locally, or to Streamlit Cloud secrets:
+
+```text
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=your_secure_admin_password
+ADMIN_NAME=Admin User
+```
+
+Use your real admin email and a strong password only in private local `.env` or Streamlit Cloud secrets. Never commit real admin credentials.
+
+When the app starts, it checks these values. If both `ADMIN_EMAIL` and `ADMIN_PASSWORD` exist, the admin user is created or updated with a hashed password and role `admin`.
+
+Admin users can:
+
+- Use all normal StudyMate features with their own isolated `user_id`
+- Open Admin Dashboard
+- Edit branding and About page content
+- Manage the announcement banner and simple feature toggles
+- View users and activity counts
+- Change roles or disable users while protecting the last active admin
+
+Normal student users cannot see admin navigation, and direct admin page access is blocked server-side.
+
 ### 7. Run The App
 
 Start Streamlit:
