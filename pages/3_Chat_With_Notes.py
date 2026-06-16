@@ -1,25 +1,33 @@
 import html
 import json
+import mimetypes
+import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import streamlit as st
 
 from modules import ai_engine
 from modules.auth import get_current_user_display_name, require_login
 from modules.database import (
+    attach_chat_attachments_to_message,
     create_chat_session,
     delete_chat_session,
+    get_chat_attachments,
     get_chat_session,
     get_chat_messages,
     get_chat_sessions,
     get_documents_by_subject,
     get_subjects,
     init_db,
+    save_chat_attachment,
     save_chat_message,
     update_chat_session_context,
     update_chat_session_title,
 )
+from modules.document_processor import IMAGE_TYPES, process_uploaded_file
 from modules.security import validate_chat_question
+from modules.security import sanitize_filename, is_path_inside
 from modules.ui import (
     apply_theme,
     page_header,
@@ -74,6 +82,13 @@ MODE_BADGES = {
     "Chat with Multiple Notes": "Multiple notes",
     "Teach Me Mode": "Teach Me Mode",
 }
+BASE_DIR = Path(__file__).resolve().parent.parent
+CHAT_UPLOAD_DIR = BASE_DIR / "data" / "chat_uploads"
+CHAT_ATTACHMENT_TYPES = {"PDF", "PNG", "JPG", "JPEG", "WEBP", "DOCX", "PPTX", "TXT", "MD"}
+CHAT_MAX_ATTACHMENTS = 5
+CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+CHAT_DOC_MAX_BYTES = 20 * 1024 * 1024
+ATTACHMENT_PROMPT_CHAR_LIMIT = 9000
 
 
 def get_provider_label():
@@ -114,6 +129,172 @@ def render_sources(sources):
             st.markdown(f"**{source_title(source, index)}**")
             st.write(source.get("text", "")[:1200])
             st.divider()
+
+
+def _attachment_icon(file_type):
+    """Return a small readable icon for an attachment type."""
+    icons = {
+        "PDF": "\U0001f4c4",
+        "DOCX": "\U0001f4dd",
+        "PPTX": "\U0001f4ca",
+        "TXT": "\U0001f4c3",
+        "MD": "\U0001f4c3",
+        "PNG": "\U0001f5bc\ufe0f",
+        "JPG": "\U0001f5bc\ufe0f",
+        "JPEG": "\U0001f5bc\ufe0f",
+        "WEBP": "\U0001f5bc\ufe0f",
+    }
+    return icons.get(str(file_type).upper(), "\U0001f4ce")
+
+
+def _format_size(size_bytes):
+    """Return a friendly file size."""
+    size = int(size_bytes or 0)
+    if size >= 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    return f"{size / 1024:.1f} KB"
+
+
+def _attachment_rows_to_cards(rows):
+    """Convert SQLite attachment rows to message-safe dictionaries."""
+    cards = []
+    for row in rows or []:
+        cards.append(
+            {
+                "id": row["id"],
+                "file_name": row["file_name"],
+                "file_type": row["file_type"],
+                "file_size": row["file_size"],
+                "extraction_method": row["extraction_method"],
+                "warning": row["warning_message"],
+            }
+        )
+    return cards
+
+
+def render_message_attachments(attachments):
+    """Render saved attachment chips inside a chat message."""
+    if not attachments:
+        return
+    st.markdown("**Attachments**")
+    for attachment in attachments:
+        file_type = str(attachment.get("file_type", "")).upper()
+        st.markdown(
+            f"{_attachment_icon(file_type)} **{html.escape(attachment.get('file_name', 'Attachment'))}** "
+            f"`{html.escape(file_type or 'FILE')}` - {_format_size(attachment.get('file_size', 0))}"
+        )
+        if attachment.get("warning"):
+            st.caption(attachment["warning"])
+
+
+def _chat_attachment_context(attachments):
+    """Build a safe prompt block from processed attachments."""
+    if not attachments:
+        return "", []
+
+    image_paths = []
+    blocks = [
+        "The user attached the following files. Use them as context for the answer."
+    ]
+    remaining_chars = ATTACHMENT_PROMPT_CHAR_LIMIT
+
+    for index, attachment in enumerate(attachments, start=1):
+        file_type = attachment["file_type"]
+        extracted_text = (attachment.get("extracted_text") or "").strip()
+        warning = attachment.get("warning", "")
+        file_block = [
+            f"Attachment {index}: {attachment['file_name']}",
+            f"Type: {file_type}",
+            f"Extraction method: {attachment.get('extraction_method') or 'not available'}",
+        ]
+        if warning:
+            file_block.append(f"Warning: {warning}")
+        if extracted_text and remaining_chars > 0:
+            preview = extracted_text[:remaining_chars]
+            remaining_chars -= len(preview)
+            file_block.append("Extracted text/context:")
+            file_block.append(preview)
+            if len(extracted_text) > len(preview):
+                file_block.append("... attachment text truncated for prompt safety ...")
+        else:
+            file_block.append("No readable text was extracted from this attachment.")
+
+        blocks.append("\n".join(file_block))
+        if file_type in IMAGE_TYPES and attachment.get("file_path"):
+            image_paths.append(attachment["file_path"])
+
+    return "\n\n".join(blocks), image_paths
+
+
+def _save_and_process_chat_attachments(uploaded_files, session_id):
+    """Validate, save, extract, and record chat attachments for the active user."""
+    if not uploaded_files:
+        return [], []
+
+    files = list(uploaded_files)[:CHAT_MAX_ATTACHMENTS]
+    warnings = []
+    processed = []
+    upload_root = CHAT_UPLOAD_DIR / str(user_id) / str(session_id)
+    upload_root.mkdir(parents=True, exist_ok=True)
+
+    for uploaded_file in files:
+        safe_name, error = sanitize_filename(uploaded_file.name)
+        if error:
+            warnings.append(f"{uploaded_file.name}: {error}")
+            continue
+
+        file_type = Path(safe_name).suffix.replace(".", "").upper()
+        if file_type not in CHAT_ATTACHMENT_TYPES:
+            warnings.append(f"{safe_name}: This file type is not supported in chat attachments.")
+            continue
+
+        file_size = int(getattr(uploaded_file, "size", 0) or 0)
+        max_size = CHAT_IMAGE_MAX_BYTES if file_type in IMAGE_TYPES else CHAT_DOC_MAX_BYTES
+        if file_size > max_size:
+            warnings.append(f"{safe_name}: This file is too large. Please upload a smaller file.")
+            continue
+
+        unique_name = f"{Path(safe_name).stem}_{uuid.uuid4().hex[:8]}{Path(safe_name).suffix.lower()}"
+        file_path = upload_root / unique_name
+        if not is_path_inside(upload_root, file_path):
+            warnings.append(f"{safe_name}: File path was rejected for safety.")
+            continue
+
+        file_path.write_bytes(uploaded_file.getvalue())
+        result = process_uploaded_file(file_path, file_type)
+        warning_message = " ".join(result.get("warnings", []))
+        attachment_id = save_chat_attachment(
+            user_id=user_id,
+            session_id=session_id,
+            file_name=safe_name,
+            file_path=str(file_path),
+            file_type=file_type,
+            mime_type=getattr(uploaded_file, "type", "") or mimetypes.guess_type(safe_name)[0] or "",
+            file_size=file_size,
+            extracted_text=result.get("text", ""),
+            extraction_method=result.get("method", ""),
+            warning_message=warning_message,
+        )
+        if not attachment_id:
+            warnings.append(f"{safe_name}: Could not save attachment metadata.")
+            continue
+
+        processed.append(
+            {
+                "id": attachment_id,
+                "file_name": safe_name,
+                "file_path": str(file_path),
+                "file_type": file_type,
+                "file_size": file_size,
+                "extracted_text": result.get("text", ""),
+                "extraction_method": result.get("method", ""),
+                "warning": warning_message,
+            }
+        )
+
+    if len(uploaded_files) > CHAT_MAX_ATTACHMENTS:
+        warnings.append(f"Only the first {CHAT_MAX_ATTACHMENTS} attachments were processed.")
+    return processed, warnings
 
 
 def render_follow_up_suggestions(message_index, suggestions):
@@ -190,6 +371,10 @@ def _generate_chat_title(message):
 def _load_saved_chat_messages(session_id):
     """Load one saved chat session into Streamlit session state."""
     rows = get_chat_messages(st.session_state.get("user_id"), session_id)
+    attachment_rows = get_chat_attachments(st.session_state.get("user_id"), session_id)
+    attachments_by_message = {}
+    for attachment in attachment_rows:
+        attachments_by_message.setdefault(attachment["message_id"], []).append(attachment)
     messages = []
     for row in rows:
         context = _decode_json(row["context_json"], {})
@@ -206,6 +391,7 @@ def _load_saved_chat_messages(session_id):
                 "warning": row["warning"],
                 "source_count": row["source_count"],
                 "suggestions": _decode_json(row["suggestions_json"], []),
+                "attachments": _attachment_rows_to_cards(attachments_by_message.get(row["id"], [])),
                 "created_at": row["created_at"],
                 "timestamp": row["created_at"],
             }
@@ -301,7 +487,7 @@ def _persist_chat_message(message):
         context.get("chat_mode") or message.get("mode") or context.get("badge", "General Chat"),
         context,
     )
-    save_chat_message(
+    return save_chat_message(
         user_id=st.session_state.get("user_id"),
         session_id=session_id,
         role=message.get("role"),
@@ -324,8 +510,9 @@ def _message_timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def add_chat_pair(question, answer_data, context):
+def add_chat_pair(question, answer_data, context, attachments=None):
     """Append one user message and one assistant response to session history."""
+    attachments = attachments or []
     messages = _chat_messages()
     session_id = _ensure_chat_session(context.get("chat_mode", "General Chat"), context.get("label", ""))
     session = get_chat_session(st.session_state.get("user_id"), session_id)
@@ -343,6 +530,16 @@ def add_chat_pair(question, answer_data, context):
             "mode": context.get("badge", context.get("label", "General Chat")),
             "subject_id": context.get("subject_id"),
             "document_id": context.get("document_ids", [None])[0] if context.get("document_ids") else None,
+            "attachments": [
+                {
+                    "id": attachment["id"],
+                    "file_name": attachment["file_name"],
+                    "file_type": attachment["file_type"],
+                    "file_size": attachment["file_size"],
+                    "warning": attachment.get("warning", ""),
+                }
+                for attachment in attachments
+            ],
             "context": context,
             "created_at": timestamp,
         }
@@ -362,7 +559,14 @@ def add_chat_pair(question, answer_data, context):
         }
     messages.append(user_message)
     messages.append(assistant_message)
-    _persist_chat_message(user_message)
+    user_message_id = _persist_chat_message(user_message)
+    if user_message_id and attachments:
+        attach_chat_attachments_to_message(
+            st.session_state.get("user_id"),
+            session_id,
+            [attachment["id"] for attachment in attachments],
+            user_message_id,
+        )
     _persist_chat_message(assistant_message)
 
 
@@ -483,7 +687,7 @@ def render_chat_history_panel():
             is_active = session["id"] == active_id
             title = session["title"] or "New Chat"
             mode = session["chat_mode"] or "General Chat"
-            label = f"{'✓ ' if is_active else ''}{title}"
+            label = f"{'[Active] ' if is_active else ''}{title}"
 
             with st.container(border=True):
                 st.markdown(
@@ -660,6 +864,7 @@ def build_teach_me_prompt(
     language_style,
     teaching_depth,
     notes_context,
+    attachment_context,
     chat_history,
     user_memory,
     user_message,
@@ -732,6 +937,9 @@ Recent lesson history:
 Uploaded notes context:
 {notes_context or "No relevant note chunks selected."}
 
+Attached file context:
+{attachment_context or "No files attached to this message."}
+
 Student message:
 {user_message}
 
@@ -747,7 +955,7 @@ def _teach_suggestions():
     return DEFAULT_TEACH_SUGGESTIONS
 
 
-def generate_teach_me_answer(question, context, first_lesson=False):
+def generate_teach_me_answer(question, context, first_lesson=False, attachment_context="", image_paths=None):
     """Generate a Teach Me Mode tutor response with optional notes context."""
     sources = []
     warning = ""
@@ -782,15 +990,26 @@ def generate_teach_me_answer(question, context, first_lesson=False):
 
     provider = get_provider_label()
     if provider == "Demo Mode":
-        answer = _demo_teach_response(
-            context.get("topic", "this topic"),
-            context.get("learning_level", "Normal"),
-            context.get("language_style", "Simple English"),
-            context.get("teaching_depth", "Balanced"),
-            notes_context=notes_context,
-            user_message=question,
-            first_lesson=first_lesson,
-        )
+        if attachment_context:
+            answer = f"""
+Demo Mode response: I received your attachment(s).
+
+## What I found in the attachment
+{attachment_context[:1400]}
+
+## Placeholder answer
+Connect Gemini or Ollama to get a full multimodal tutor response.
+"""
+        else:
+            answer = _demo_teach_response(
+                context.get("topic", "this topic"),
+                context.get("learning_level", "Normal"),
+                context.get("language_style", "Simple English"),
+                context.get("teaching_depth", "Balanced"),
+                notes_context=notes_context,
+                user_message=question,
+                first_lesson=first_lesson,
+            )
     else:
         prompt = build_teach_me_prompt(
             user_name=_memory_display_name(),
@@ -799,6 +1018,7 @@ def generate_teach_me_answer(question, context, first_lesson=False):
             language_style=context.get("language_style", "Simple English"),
             teaching_depth=context.get("teaching_depth", "Balanced"),
             notes_context=notes_context,
+            attachment_context=attachment_context,
             chat_history=_compact_chat_history(10),
             user_memory=_memory_profile_text(),
             user_message=question,
@@ -806,7 +1026,16 @@ def generate_teach_me_answer(question, context, first_lesson=False):
             first_lesson=first_lesson,
         )
         try:
-            answer = ai_engine.ask_ai(prompt)
+            if image_paths and get_provider_label() == "Gemini":
+                try:
+                    answer = ai_engine.ask_gemini_multimodal(prompt, image_paths=image_paths)
+                except Exception:
+                    if attachment_context and "Extracted text/context:" in attachment_context:
+                        answer = ai_engine.ask_ai(prompt)
+                    else:
+                        raise
+            else:
+                answer = ai_engine.ask_ai(prompt)
         except Exception as exc:
             if hasattr(ai_engine, "safe_ai_error_message"):
                 answer = ai_engine.safe_ai_error_message(exc)
@@ -822,7 +1051,7 @@ def generate_teach_me_answer(question, context, first_lesson=False):
     }
 
 
-def generate_chat_answer(question, answer_style, chat_mode, context):
+def generate_chat_answer(question, answer_style, chat_mode, context, attachment_context="", image_paths=None):
     """
     Generate a chatbot response with a compatibility fallback.
 
@@ -834,6 +1063,8 @@ def generate_chat_answer(question, answer_style, chat_mode, context):
             question=question,
             context=context,
             first_lesson=context.get("first_lesson", False),
+            attachment_context=attachment_context,
+            image_paths=image_paths,
         )
 
     if hasattr(ai_engine, "generate_study_chat_response"):
@@ -847,6 +1078,8 @@ def generate_chat_answer(question, answer_style, chat_mode, context):
             user_id=st.session_state.get("user_id"),
             chat_history=_compact_chat_history(10),
             user_memory=_memory_profile_text(),
+            attachment_context=attachment_context,
+            image_paths=image_paths,
         )
 
     if chat_mode != "General Chat" and context["subject_id"] is not None:
@@ -868,11 +1101,23 @@ Saved student memory and preferences:
 Recent conversation:
 {_compact_chat_history(10) or "No previous messages in this chat."}
 
+Attached file context:
+{attachment_context or "No files attached to this message."}
+
 Question:
 {question}
 """
     try:
-        answer = ai_engine.ask_ai(prompt)
+        if image_paths and get_provider_label() == "Gemini":
+            try:
+                answer = ai_engine.ask_gemini_multimodal(prompt, image_paths=image_paths)
+            except Exception:
+                if attachment_context and "Extracted text/context:" in attachment_context:
+                    answer = ai_engine.ask_ai(prompt)
+                else:
+                    raise
+        else:
+            answer = ai_engine.ask_ai(prompt)
     except Exception as exc:
         if hasattr(ai_engine, "safe_ai_error_message"):
             answer = ai_engine.safe_ai_error_message(exc)
@@ -982,6 +1227,8 @@ if "study_chat_teach_context" not in st.session_state:
     st.session_state.study_chat_teach_context = {}
 if "study_chat_pending_prompt" not in st.session_state:
     st.session_state.study_chat_pending_prompt = ""
+if "chat_attachment_uploader_key" not in st.session_state:
+    st.session_state.chat_attachment_uploader_key = 0
 
 subjects = get_subjects(user_id=user_id)
 prefill_subject_id = st.session_state.pop("chat_prefill_subject_id", None)
@@ -1310,6 +1557,7 @@ for message_index, message in enumerate(messages):
             st.warning(message["warning"])
 
         render_ai_markdown(message["content"])
+        render_message_attachments(message.get("attachments", []))
 
         if message["role"] == "assistant":
             source_count = message.get("source_count", 0)
@@ -1339,11 +1587,37 @@ if st.session_state.get("study_chat_regenerate"):
                 answer_style=last_request["answer_style"],
                 chat_mode=last_request["chat_mode"],
                 context=last_request["context"],
+                attachment_context=last_request.get("attachment_context", ""),
+                image_paths=last_request.get("image_paths", []),
             )
         finally:
             loading_slot.empty()
         add_assistant_message(answer_data, last_request["context"])
     st.rerun()
+
+with st.expander("Attach files to next message", expanded=False):
+    chat_uploaded_files = st.file_uploader(
+        "Attach images, PDFs, DOCX, PPTX, TXT, or Markdown files",
+        type=["png", "jpg", "jpeg", "webp", "pdf", "docx", "pptx", "txt", "md"],
+        accept_multiple_files=True,
+        key=f"chat_attachments_{st.session_state.chat_attachment_uploader_key}",
+        help=(
+            f"Up to {CHAT_MAX_ATTACHMENTS} files. Images up to 5 MB each; "
+            "documents/PDF/PPTX up to 20 MB each."
+        ),
+    )
+    if chat_uploaded_files:
+        st.caption("Files ready for your next message:")
+        for uploaded in chat_uploaded_files[:CHAT_MAX_ATTACHMENTS]:
+            file_type = Path(uploaded.name).suffix.replace(".", "").upper()
+            st.markdown(
+                f"{_attachment_icon(file_type)} **{html.escape(uploaded.name)}** "
+                f"`{html.escape(file_type)}` - {_format_size(getattr(uploaded, 'size', 0))}"
+            )
+        if len(chat_uploaded_files) > CHAT_MAX_ATTACHMENTS:
+            st.warning(f"Only the first {CHAT_MAX_ATTACHMENTS} files will be sent.")
+    else:
+        st.caption("Upload Notes is for permanent Study Library files. Chat attachments are saved only with this chat.")
 
 pending_prompt = st.session_state.pop("study_chat_pending_prompt", "")
 typed_prompt = st.chat_input("Ask StudyMate anything... Follow-up questions are welcome.")
@@ -1377,12 +1651,23 @@ if prompt:
         st.warning("Select at least one uploaded note first, or switch to General Chat.")
         st.stop()
 
+    active_session_id = _sync_active_chat_context(chat_mode, context)
+    processed_attachments, attachment_warnings = _save_and_process_chat_attachments(
+        chat_uploaded_files,
+        active_session_id,
+    )
+    for attachment_warning in attachment_warnings:
+        st.warning(attachment_warning)
+    attachment_context, image_paths = _chat_attachment_context(processed_attachments)
+
     st.session_state.study_chat_last_question = clean_prompt
     st.session_state.study_chat_last_request = {
         "question": clean_prompt,
         "answer_style": answer_style,
         "chat_mode": chat_mode,
         "context": context,
+        "attachment_context": attachment_context,
+        "image_paths": image_paths,
     }
     loading_slot = st.empty()
     with loading_slot:
@@ -1393,9 +1678,12 @@ if prompt:
             answer_style=answer_style,
             chat_mode=chat_mode,
             context=context,
+            attachment_context=attachment_context,
+            image_paths=image_paths,
         )
     finally:
         loading_slot.empty()
 
-    add_chat_pair(clean_prompt, answer_data, context)
+    add_chat_pair(clean_prompt, answer_data, context, attachments=processed_attachments)
+    st.session_state.chat_attachment_uploader_key += 1
     st.rerun()

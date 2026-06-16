@@ -251,6 +251,28 @@ def create_tables():
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS chat_attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                session_id INTEGER NOT NULL,
+                message_id INTEGER,
+                file_name TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_type TEXT DEFAULT '',
+                mime_type TEXT DEFAULT '',
+                file_size INTEGER DEFAULT 0,
+                extracted_text TEXT DEFAULT '',
+                extraction_method TEXT DEFAULT '',
+                warning_message TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (session_id) REFERENCES chat_sessions (id) ON DELETE CASCADE,
+                FOREIGN KEY (message_id) REFERENCES chat_messages (id) ON DELETE SET NULL
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS study_sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -372,6 +394,7 @@ def _run_migrations(conn):
     _add_missing_column(conn, "chat_sessions", "document_ids_json", "TEXT DEFAULT '[]'")
     _add_missing_column(conn, "chat_sessions", "is_archived", "INTEGER DEFAULT 0")
     _add_missing_column(conn, "chat_messages", "metadata_json", "TEXT DEFAULT '{}'")
+    _add_missing_column(conn, "chat_attachments", "warning_message", "TEXT DEFAULT ''")
     _add_missing_column(conn, "study_sessions", "notes", "TEXT DEFAULT ''")
 
     for table in ["uploaded_documents", "quiz_results", "flashcards", "weak_topics", "revision_plans"]:
@@ -413,6 +436,9 @@ def _run_migrations(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_archived ON chat_sessions(user_id, is_archived)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_attachments_user ON chat_attachments(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_attachments_session ON chat_attachments(session_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_attachments_message ON chat_attachments(message_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_user_memories_user ON user_memories(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_user_memories_active ON user_memories(user_id, is_active)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_study_sessions_user ON study_sessions(user_id)")
@@ -2005,6 +2031,102 @@ def delete_chat_session(user_id, session_id):
         )
         conn.commit()
         return cursor.rowcount > 0
+
+
+def save_chat_attachment(
+    user_id,
+    session_id,
+    file_name,
+    file_path,
+    file_type="",
+    mime_type="",
+    file_size=0,
+    extracted_text="",
+    extraction_method="",
+    warning_message="",
+    message_id=None,
+):
+    """Save metadata for one chat-scoped attachment."""
+    if not user_id or not session_id or not file_name or not file_path:
+        return None
+    with closing(get_connection()) as conn:
+        owner = conn.execute(
+            "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ? AND is_archived = 0",
+            (session_id, user_id),
+        ).fetchone()
+        if not owner:
+            return None
+        cursor = conn.execute(
+            """
+            INSERT INTO chat_attachments
+                (user_id, session_id, message_id, file_name, file_path, file_type,
+                 mime_type, file_size, extracted_text, extraction_method, warning_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                session_id,
+                message_id,
+                file_name,
+                file_path,
+                file_type,
+                mime_type,
+                int(file_size or 0),
+                extracted_text or "",
+                extraction_method or "",
+                warning_message or "",
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def attach_chat_attachments_to_message(user_id, session_id, attachment_ids, message_id):
+    """Link already-saved attachments to one owned chat message."""
+    if not user_id or not session_id or not attachment_ids or not message_id:
+        return False
+    placeholders = ",".join("?" for _ in attachment_ids)
+    params = [message_id, *attachment_ids, user_id, session_id]
+    with closing(get_connection()) as conn:
+        conn.execute(
+            f"""
+            UPDATE chat_attachments
+            SET message_id = ?
+            WHERE id IN ({placeholders})
+              AND user_id = ?
+              AND session_id = ?
+            """,
+            params,
+        )
+        conn.commit()
+    return True
+
+
+def get_chat_attachments(user_id, session_id, message_id=None):
+    """Return attachments for one owned chat session, optionally one message."""
+    if not user_id or not session_id:
+        return []
+    clauses = [
+        "chat_attachments.user_id = ?",
+        "chat_attachments.session_id = ?",
+        "chat_sessions.user_id = ?",
+        "chat_sessions.is_archived = 0",
+    ]
+    params = [user_id, session_id, user_id]
+    if message_id is not None:
+        clauses.append("chat_attachments.message_id = ?")
+        params.append(message_id)
+    with closing(get_connection()) as conn:
+        return conn.execute(
+            f"""
+            SELECT chat_attachments.*
+            FROM chat_attachments
+            JOIN chat_sessions ON chat_sessions.id = chat_attachments.session_id
+            WHERE {" AND ".join(clauses)}
+            ORDER BY chat_attachments.id ASC
+            """,
+            params,
+        ).fetchall()
 
 
 def save_user_memory(user_id, key, value, category="custom"):

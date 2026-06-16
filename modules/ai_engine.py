@@ -1,6 +1,8 @@
 import os
 import re
 import time
+import base64
+import mimetypes
 from pathlib import Path
 
 import requests
@@ -587,6 +589,109 @@ def _ask_single_gemini_model(prompt, api_key, selected_model):
         raise AIProviderError("Gemini returned an unexpected response format.") from exc
 
 
+def ask_gemini_multimodal(prompt, image_paths=None, model=None, api_key=None):
+    """Send text plus image attachments to a Gemini multimodal model."""
+    key = api_key or get_gemini_api_key()
+    if not key:
+        raise AIProviderError(MISSING_GEMINI_KEY_MESSAGE)
+
+    clean_paths = [Path(path) for path in (image_paths or []) if path]
+    if not clean_paths:
+        return ask_gemini(prompt, model=model, api_key=key)
+
+    preferred_model = normalize_gemini_model(
+        model or get_session_ai_settings().get("gemini_model") or GEMINI_MODEL
+    )
+    model_errors = []
+    quota_error_seen = False
+    for attempt_number, selected_model in enumerate(get_gemini_model_candidates(preferred_model), start=1):
+        try:
+            return _ask_single_gemini_multimodal_model(
+                prompt=prompt,
+                image_paths=clean_paths,
+                api_key=key,
+                selected_model=selected_model,
+            )
+        except AIProviderError as exc:
+            status_code = getattr(exc, "status_code", None)
+            quota_error_seen = quota_error_seen or getattr(exc, "quota_error", False)
+            model_errors.append(str(exc))
+            if status_code not in TEMPORARY_GEMINI_STATUSES:
+                raise
+            if attempt_number < len(get_gemini_model_candidates(preferred_model)):
+                time.sleep(0.8)
+                continue
+
+    if quota_error_seen:
+        raise AIProviderError(
+            "Gemini quota or rate limit is blocking this API key right now. "
+            "Try again later, use another Gemini key, or switch to Ollama/Demo Mode."
+        )
+    raise AIProviderError(
+        "Gemini vision is temporarily unavailable. "
+        f"Last error: {model_errors[-1] if model_errors else 'No details returned.'}"
+    )
+
+
+def _ask_single_gemini_multimodal_model(prompt, image_paths, api_key, selected_model):
+    """Call one Gemini model with inline image data."""
+    parts = [{"text": prompt}]
+    for image_path in image_paths[:5]:
+        mime_type = mimetypes.guess_type(str(image_path))[0] or "image/png"
+        try:
+            image_bytes = image_path.read_bytes()
+        except OSError as exc:
+            raise AIProviderError("Could not read one attached image safely.") from exc
+        parts.append(
+            {
+                "inline_data": {
+                    "mime_type": mime_type,
+                    "data": base64.b64encode(image_bytes).decode("ascii"),
+                }
+            }
+        )
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{selected_model}:generateContent"
+    )
+    try:
+        response = requests.post(
+            url,
+            params={"key": api_key},
+            json={"contents": [{"parts": parts}]},
+            timeout=160,
+        )
+        response.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        detail = _safe_gemini_error_message(response if "response" in locals() else None)
+        if status_code in {401, 403}:
+            message = "Gemini rejected the API key. Please check your Gemini API key."
+        elif status_code == 404:
+            message = f"Gemini model '{selected_model}' is not available for vision input."
+        elif status_code == 429:
+            message = f"Gemini quota or rate limit was reached for model '{selected_model}'."
+        elif status_code in TEMPORARY_GEMINI_STATUSES:
+            message = f"Gemini vision model '{selected_model}' is temporarily busy."
+        elif status_code:
+            message = f"Gemini vision request failed with status {status_code}."
+        else:
+            message = "Could not connect to Gemini vision. Please check your internet connection."
+        if detail:
+            message = f"{message} Gemini said: {_brief_gemini_detail(detail)}"
+        provider_error = AIProviderError(message)
+        provider_error.status_code = status_code
+        provider_error.quota_error = status_code == 429 or _looks_like_quota_error(detail)
+        raise provider_error from exc
+
+    data = response.json()
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except (KeyError, IndexError, TypeError) as exc:
+        raise AIProviderError("Gemini vision returned an unexpected response format.") from exc
+
+
 def _safe_gemini_error_message(response):
     """Return Gemini's error text without exposing request URLs or API keys."""
     if response is None:
@@ -776,6 +881,7 @@ def build_study_chat_prompt(
     question,
     answer_style,
     notes_context="",
+    attachment_context="",
     context_label="General Chat",
     general_chat=False,
     chat_history="",
@@ -823,11 +929,15 @@ Recent conversation:
 
 {context_block}
 
+Attached file context:
+{attachment_context or "No files attached to this message."}
+
 Student question:
 {question}
 
 Answer with clean, study-friendly Markdown. For non-trivial questions, use a natural subset of:
 # Topic Title
+## What I found in the attachment
 ## Simple Explanation
 ## Key Points
 ## Example
@@ -880,6 +990,8 @@ def generate_study_chat_response(
     user_id=None,
     chat_history="",
     user_memory="",
+    attachment_context="",
+    image_paths=None,
 ):
     """Generate a chatbot answer with optional RAG context and sources."""
     sources = []
@@ -914,6 +1026,7 @@ def generate_study_chat_response(
         question=question,
         answer_style=answer_style,
         notes_context=notes_context,
+        attachment_context=attachment_context,
         context_label=context_label,
         general_chat=chat_mode == "General Chat",
         chat_history=chat_history,
@@ -922,7 +1035,16 @@ def generate_study_chat_response(
     )
 
     try:
-        answer = ask_ai(prompt)
+        if image_paths and get_selected_provider() == "Gemini":
+            try:
+                answer = ask_gemini_multimodal(prompt, image_paths=image_paths)
+            except Exception:
+                if attachment_context and "Extracted text/context:" in attachment_context:
+                    answer = ask_ai(prompt)
+                else:
+                    raise
+        else:
+            answer = ask_ai(prompt)
     except Exception as exc:
         answer = safe_ai_error_message(exc)
 
