@@ -9,7 +9,12 @@ import streamlit as st
 
 from modules import ai_engine
 from modules.auth import get_current_user_display_name, require_login
-from modules.audio_processor import AUDIO_TYPES, save_audio_file, transcribe_audio, validate_audio_file
+from modules.audio_processor import (
+    AUDIO_TYPES,
+    save_audio_file,
+    transcribe_audio,
+    validate_audio_file,
+)
 from modules.database import (
     attach_chat_attachments_to_message,
     create_chat_session,
@@ -252,26 +257,30 @@ def _audio_upload_to_attachment(uploaded_file, session_id):
     provider = get_provider_label()
     if provider == "Demo Mode":
         transcript_result = {
+            "success": False,
             "transcript": "",
             "method": "unavailable",
+            "error": "Voice transcription needs Gemini API key or local transcription support.",
             "warnings": ["Voice transcription is not available in Demo Mode."],
+            "status": {},
         }
     else:
         with st.spinner("Transcribing audio..."):
+            gemini_api_key = ai_engine.get_gemini_api_key()
+            gemini_model = ai_engine.get_session_ai_settings().get("gemini_model")
             transcript_result = transcribe_audio(
                 saved_audio["file_path"],
-                provider="gemini" if provider == "Gemini" else "local",
-                api_key=ai_engine.get_gemini_api_key() if provider == "Gemini" else None,
-                model=(
-                    ai_engine.get_session_ai_settings().get("gemini_model")
-                    if provider == "Gemini"
-                    else None
-                ),
+                provider="auto",
+                api_key=gemini_api_key,
+                model=gemini_model,
             )
 
     transcript = (transcript_result.get("transcript") or "").strip()
     warnings = transcript_result.get("warnings", [])
-    warning_message = " ".join(warnings)
+    error_message = transcript_result.get("error", "")
+    warning_parts = [error_message] if error_message else []
+    warning_parts.extend(warnings)
+    warning_message = " ".join(part for part in warning_parts if part)
     attachment_id = save_chat_attachment(
         user_id=user_id,
         session_id=session_id,
@@ -296,9 +305,10 @@ def _audio_upload_to_attachment(uploaded_file, session_id):
         "extracted_text": transcript,
         "extraction_method": transcript_result.get("method", "unavailable"),
         "warning": warning_message,
+        "status": transcript_result.get("status", {}),
     }
     if not transcript:
-        return attachment, f"{safe_name}: Could not transcribe this audio. Please try a clearer recording."
+        return attachment, warning_message or "No speech was detected. Please try again with clearer audio."
     return attachment, ""
 
 
@@ -1434,6 +1444,8 @@ if "voice_transcript_text" not in st.session_state:
     st.session_state.voice_transcript_text = ""
 if "voice_pending_audio" not in st.session_state:
     st.session_state.voice_pending_audio = None
+if "voice_transcription_status" not in st.session_state:
+    st.session_state.voice_transcription_status = None
 if "show_chat_history_panel" not in st.session_state:
     st.session_state.show_chat_history_panel = True
 
@@ -1833,15 +1845,15 @@ with chat_col:
 
     with st.expander("Voice Input", expanded=False):
         st.caption(
-            "Record a short voice note or upload audio. Voice/audio may be sent to the selected AI provider "
-            "for transcription if online transcription is used."
+            "Speak clearly for 2-5 seconds, then click transcribe. Voice/audio may be sent to Gemini "
+            "for transcription when your Gemini key is available."
         )
         recorded_audio = None
         if hasattr(st, "audio_input"):
             recorded_audio = st.audio_input(
                 "Record voice",
                 key=f"voice_recording_{st.session_state.voice_audio_uploader_key}",
-                help="Keep recordings short for the first version. Two to five minutes works best.",
+                help="Short, clear recordings work best. Start with one sentence.",
             )
         else:
             st.info("Browser voice recording is not available in this Streamlit version. Upload an audio file instead.")
@@ -1856,12 +1868,24 @@ with chat_col:
         selected_audio = recorded_audio or uploaded_audio
         if selected_audio:
             selected_audio_name = getattr(selected_audio, "name", "voice_recording.wav")
+            selected_audio_type = getattr(selected_audio, "type", "") or mimetypes.guess_type(selected_audio_name)[0] or "audio/wav"
+            selected_audio_size = getattr(selected_audio, "size", 0) or 0
             st.caption(
                 f"Ready: {_attachment_icon(Path(selected_audio_name).suffix.replace('.', '').upper())} "
-                f"{html.escape(selected_audio_name)} - {_format_size(getattr(selected_audio, 'size', 0))}"
+                f"{html.escape(selected_audio_name)} - {_format_size(selected_audio_size)}"
             )
+            try:
+                st.audio(selected_audio.getvalue(), format=selected_audio_type)
+            except Exception:
+                st.info("Audio received, but browser playback is not available for this file.")
+            st.info(
+                f"Audio received: yes | File type: {Path(selected_audio_name).suffix.replace('.', '').upper() or 'AUDIO'} "
+                f"| File size: {_format_size(selected_audio_size)}"
+            )
+        else:
+            st.caption("Audio received: no")
 
-        voice_col1, voice_col2 = st.columns(2)
+        voice_col1, voice_col2, voice_col3 = st.columns(3)
         with voice_col1:
             if st.button("Transcribe Audio", use_container_width=True):
                 if not selected_audio:
@@ -1879,20 +1903,51 @@ with chat_col:
                             "extraction_method": attachment.get("extraction_method", ""),
                             "warning": attachment.get("warning", ""),
                         }
+                        transcript_len = len(attachment.get("extracted_text", "") or "")
+                        st.session_state.voice_transcription_status = {
+                            "audio_received": "yes",
+                            "file_type": attachment["file_type"],
+                            "file_size": attachment["file_size"],
+                            "method": attachment.get("extraction_method", "unavailable"),
+                            "transcript_length": transcript_len,
+                        }
                         st.session_state.voice_transcript_text = attachment.get("extracted_text", "")
                         if st.session_state.voice_transcript_text:
                             st.success("Transcription ready.")
                         else:
-                            st.warning("Could not transcribe this audio. Please try a clearer recording.")
+                            st.warning("No speech was detected. Please try again with clearer audio.")
                     if warning:
                         st.warning(warning)
 
         with voice_col2:
-            if st.button("Clear Transcription", use_container_width=True):
+            if st.button("Clear", use_container_width=True):
                 st.session_state.voice_pending_audio = None
                 st.session_state.voice_transcript_text = ""
+                st.session_state.voice_transcription_status = None
                 st.session_state.voice_audio_uploader_key += 1
                 st.rerun()
+
+        with voice_col3:
+            if st.button("Try Again", use_container_width=True):
+                st.session_state.voice_pending_audio = None
+                st.session_state.voice_transcript_text = ""
+                st.session_state.voice_transcription_status = None
+                st.session_state.voice_audio_uploader_key += 1
+                st.rerun()
+
+        if st.session_state.voice_transcription_status:
+            status = st.session_state.voice_transcription_status
+            st.info(
+                " | ".join(
+                    [
+                        f"Audio received: {status.get('audio_received', 'yes')}",
+                        f"File type: {status.get('file_type', 'AUDIO')}",
+                        f"File size: {_format_size(status.get('file_size', 0))}",
+                        f"Transcription method: {status.get('method', 'unavailable')}",
+                        f"Transcript length: {status.get('transcript_length', 0)} characters",
+                    ]
+                )
+            )
 
         if st.session_state.voice_pending_audio:
             transcript = st.text_area(
@@ -1901,7 +1956,9 @@ with chat_col:
                 height=120,
                 placeholder="Your transcribed voice message will appear here.",
             )
-            if st.button("Send Transcribed Message", type="primary", use_container_width=True):
+            if not (transcript or "").strip():
+                st.warning("No speech was detected. Please try again with clearer audio.")
+            if st.button("Send to Chat", type="primary", use_container_width=True):
                 clean_transcript, transcript_error = validate_chat_question(transcript, max_length=1200)
                 if transcript_error:
                     st.warning(transcript_error)
@@ -2019,5 +2076,6 @@ with chat_col:
         if pending_audio_attachment:
             st.session_state.voice_pending_audio = None
             st.session_state.voice_transcript_text = ""
+            st.session_state.voice_transcription_status = None
             st.session_state.voice_audio_uploader_key += 1
         st.rerun()

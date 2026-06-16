@@ -12,26 +12,75 @@ from modules.security import is_path_inside, sanitize_filename
 AUDIO_TYPES = {"MP3", "WAV", "M4A", "OGG", "WEBM"}
 MAX_AUDIO_MB = int(os.getenv("STUDYMATE_MAX_AUDIO_MB", "10"))
 MAX_AUDIO_BYTES = MAX_AUDIO_MB * 1024 * 1024
+MIN_AUDIO_BYTES = int(os.getenv("STUDYMATE_MIN_AUDIO_BYTES", "1024"))
+MIN_AUDIO_SECONDS = float(os.getenv("STUDYMATE_MIN_AUDIO_SECONDS", "1.0"))
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CHAT_UPLOAD_DIR = PROJECT_ROOT / "data" / "chat_uploads"
 GEMINI_AUDIO_PROMPT = (
-    "Transcribe this student audio clearly. If the audio is unclear, return the "
-    "readable parts and mention that some parts were unclear. Return only the transcript."
+    "Transcribe this audio clearly. Return only the spoken words. "
+    "If speech is unclear, return the best possible transcription."
 )
+UNSUPPORTED_AUDIO_MESSAGE = "This audio format is not supported. Try WAV, MP3, M4A, OGG, or WEBM."
+
+
+def _transcription_result(
+    success,
+    transcript="",
+    method="unavailable",
+    error="",
+    warnings=None,
+    technical_error="",
+    status=None,
+):
+    """Return a consistent, UI-safe transcription response."""
+    return {
+        "success": bool(success),
+        "transcript": (transcript or "").strip(),
+        "method": method,
+        "error": error,
+        "warnings": warnings or [],
+        "technical_error": technical_error,
+        "status": status or {},
+    }
+
+
+def _guess_audio_mime(file_path, fallback="audio/wav"):
+    """Guess a stable audio mime type for Gemini inline data."""
+    guessed = mimetypes.guess_type(str(file_path))[0]
+    if guessed:
+        return guessed
+
+    extension = Path(file_path).suffix.lower()
+    extension_map = {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".m4a": "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".webm": "audio/webm",
+    }
+    return extension_map.get(extension, fallback)
 
 
 def validate_audio_file(file_name, file_size):
     """Validate a chat audio upload before saving or transcribing it."""
-    safe_name, error = sanitize_filename(file_name)
+    original_name = file_name or "voice_recording.wav"
+    extension = Path(original_name).suffix.replace(".", "").upper()
+    if extension not in AUDIO_TYPES:
+        return "", UNSUPPORTED_AUDIO_MESSAGE
+
+    safe_name, error = sanitize_filename(original_name)
     if error:
         return "", error
 
-    file_type = Path(safe_name).suffix.replace(".", "").upper()
-    if file_type not in AUDIO_TYPES:
-        return "", "This audio format is not supported."
+    size = int(file_size or 0)
+    if size <= 0:
+        return "", "No audio was recorded. Please record again and allow microphone permission."
 
-    if int(file_size or 0) > MAX_AUDIO_BYTES:
-        return "", f"Audio file too large. Please upload audio under {MAX_AUDIO_MB} MB."
+    if size < MIN_AUDIO_BYTES:
+        return "", "Recording is too short. Please speak for at least 2-3 seconds."
+
+    if size > MAX_AUDIO_BYTES:
+        return "", "Audio file is too large. Please upload a shorter recording."
 
     return safe_name, ""
 
@@ -57,12 +106,16 @@ def save_audio_file(user_id, chat_session_id, uploaded_file):
         return None, "Audio file path was rejected for safety."
 
     file_path.write_bytes(uploaded_file.getvalue())
+    file_size = file_path.stat().st_size
+    if file_size <= 0:
+        return None, "No audio was recorded. Please record again and allow microphone permission."
+
     return {
         "file_name": safe_name,
         "file_path": str(file_path),
         "file_type": suffix.replace(".", "").upper(),
-        "mime_type": getattr(uploaded_file, "type", "") or mimetypes.guess_type(safe_name)[0] or "",
-        "file_size": int(getattr(uploaded_file, "size", 0) or file_path.stat().st_size),
+        "mime_type": getattr(uploaded_file, "type", "") or _guess_audio_mime(safe_name),
+        "file_size": file_size,
     }, ""
 
 
@@ -76,6 +129,56 @@ def get_audio_duration(file_path):
         return None
 
 
+def inspect_audio_file(file_path, file_type=""):
+    """Collect safe diagnostics for the UI without exposing local paths."""
+    path = Path(file_path)
+    status = {
+        "audio_received": False,
+        "file_type": (file_type or path.suffix.replace(".", "")).upper(),
+        "file_size": 0,
+        "duration": None,
+        "mime_type": _guess_audio_mime(path),
+    }
+
+    if not path.exists() or not path.is_file():
+        return status, "Audio file was not found. Please record or upload it again."
+
+    status["audio_received"] = True
+    status["file_size"] = path.stat().st_size
+    status["duration"] = get_audio_duration(path)
+
+    if status["file_size"] <= 0:
+        return status, "No audio was recorded. Please record again and allow microphone permission."
+    if status["file_size"] < MIN_AUDIO_BYTES:
+        return status, "Recording is too short. Please speak for at least 2-3 seconds."
+    if status["file_size"] > MAX_AUDIO_BYTES:
+        return status, "Audio file is too large. Please upload a shorter recording."
+    if status["duration"] is not None and status["duration"] < MIN_AUDIO_SECONDS:
+        return status, "Recording is too short. Please speak for at least 2-3 seconds."
+
+    return status, ""
+
+
+def convert_audio_to_wav(file_path):
+    """Convert browser-created audio, such as WEBM, to WAV when pydub/ffmpeg is available."""
+    source = Path(file_path)
+    if source.suffix.lower() == ".wav":
+        return str(source), ""
+
+    converted_path = source.with_suffix(".converted.wav")
+    try:
+        from pydub import AudioSegment
+
+        audio = AudioSegment.from_file(source)
+        audio.export(converted_path, format="wav")
+        return str(converted_path), ""
+    except Exception as exc:
+        return (
+            str(source),
+            "Audio conversion is not available on this server. Try uploading a WAV or MP3 file.",
+        )
+
+
 def transcribe_with_local_whisper(file_path):
     """Try optional local Whisper packages without making them required."""
     try:
@@ -85,13 +188,15 @@ def transcribe_with_local_whisper(file_path):
         model = WhisperModel(model_name, device="cpu", compute_type="int8")
         segments, _ = model.transcribe(str(file_path))
         transcript = " ".join(segment.text.strip() for segment in segments if segment.text.strip())
-        return {
-            "transcript": transcript.strip(),
-            "method": "whisper",
-            "warnings": [] if transcript.strip() else ["Could not transcribe this audio. Please try a clearer recording."],
-        }
-    except Exception:
-        pass
+        if transcript:
+            return _transcription_result(True, transcript, method="local_whisper")
+        return _transcription_result(
+            False,
+            method="local_whisper",
+            error="No speech was detected. Please try again with clearer audio.",
+        )
+    except Exception as exc:
+        first_error = str(exc)[:180]
 
     try:
         import whisper
@@ -100,38 +205,66 @@ def transcribe_with_local_whisper(file_path):
         model = whisper.load_model(model_name)
         result = model.transcribe(str(file_path))
         transcript = (result.get("text") or "").strip()
-        return {
-            "transcript": transcript,
-            "method": "whisper",
-            "warnings": [] if transcript else ["Could not transcribe this audio. Please try a clearer recording."],
-        }
-    except Exception:
-        return {
-            "transcript": "",
-            "method": "unavailable",
-            "warnings": ["Local speech-to-text is not installed on this deployment."],
-        }
+        if transcript:
+            return _transcription_result(True, transcript, method="local_whisper")
+        return _transcription_result(
+            False,
+            method="local_whisper",
+            error="No speech was detected. Please try again with clearer audio.",
+        )
+    except Exception as exc:
+        technical = first_error or str(exc)[:180]
+        return _transcription_result(
+            False,
+            method="unavailable",
+            error="Local speech-to-text is not installed on this deployment.",
+            technical_error=technical,
+        )
 
 
-def transcribe_with_gemini_audio(file_path, api_key=None, model=None):
+def _extract_gemini_text(data):
+    """Read transcript text from Gemini response variants."""
+    try:
+        parts = data.get("candidates", [])[0].get("content", {}).get("parts", [])
+        text_parts = [part.get("text", "") for part in parts if part.get("text")]
+        return "\n".join(text_parts).strip()
+    except (IndexError, AttributeError, TypeError):
+        return ""
+
+
+def transcribe_with_gemini_audio(file_path, api_key, mime_type=None, model=None):
     """Transcribe audio with Gemini using the current user's API key."""
     if not api_key:
-        return {
-            "transcript": "",
-            "method": "unavailable",
-            "warnings": ["Gemini API key is missing for audio transcription."],
-        }
+        return _transcription_result(
+            False,
+            method="unavailable",
+            error="Voice transcription needs Gemini API key or local transcription support.",
+        )
 
     path = Path(file_path)
-    mime_type = mimetypes.guess_type(str(path))[0] or "audio/wav"
+    if not path.exists():
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="Audio file was not found. Please record or upload it again.",
+        )
+
     try:
         audio_bytes = path.read_bytes()
-    except OSError:
-        return {
-            "transcript": "",
-            "method": "unavailable",
-            "warnings": ["Could not read this audio file safely."],
-        }
+    except OSError as exc:
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="Could not read this audio file safely.",
+            technical_error=str(exc)[:180],
+        )
+
+    if not audio_bytes:
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="No audio was recorded. Please record again and allow microphone permission.",
+        )
 
     selected_model = model or os.getenv("GEMINI_AUDIO_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.0-flash"))
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{selected_model}:generateContent"
@@ -142,7 +275,7 @@ def transcribe_with_gemini_audio(file_path, api_key=None, model=None):
                     {"text": GEMINI_AUDIO_PROMPT},
                     {
                         "inline_data": {
-                            "mime_type": mime_type,
+                            "mime_type": mime_type or _guess_audio_mime(path),
                             "data": base64.b64encode(audio_bytes).decode("ascii"),
                         }
                     },
@@ -153,41 +286,91 @@ def transcribe_with_gemini_audio(file_path, api_key=None, model=None):
 
     try:
         response = requests.post(url, params={"key": api_key}, json=payload, timeout=180)
-        response.raise_for_status()
+        if response.status_code >= 400:
+            return _transcription_result(
+                False,
+                method="gemini_audio",
+                error="Gemini audio transcription could not complete. Check your API key, quota, or try again.",
+                technical_error=f"HTTP {response.status_code}",
+            )
+
         data = response.json()
-        transcript = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        return {
-            "transcript": transcript,
-            "method": "gemini_audio",
-            "warnings": [] if transcript else ["Could not transcribe this audio. Please try a clearer recording."],
-        }
-    except Exception:
-        return {
-            "transcript": "",
-            "method": "unavailable",
-            "warnings": ["Gemini audio transcription could not complete. Try a clearer recording or local transcription."],
-        }
+        transcript = _extract_gemini_text(data)
+        if transcript:
+            return _transcription_result(True, transcript, method="gemini_audio")
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="No speech was detected. Please try again with clearer audio.",
+        )
+    except requests.RequestException as exc:
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="Gemini audio transcription could not complete. Check your network connection and try again.",
+            technical_error=str(exc)[:180],
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="Gemini returned an unreadable transcription response. Please try again.",
+            technical_error=str(exc)[:180],
+        )
 
 
 def transcribe_audio(file_path, provider="auto", api_key=None, model=None):
     """Transcribe audio using Gemini or optional local Whisper, with safe fallbacks."""
     clean_provider = (provider or "auto").lower()
-    warnings = []
+    path = Path(file_path)
+    status, status_error = inspect_audio_file(path)
+    if status_error:
+        return _transcription_result(False, method="unavailable", error=status_error, status=status)
 
-    if clean_provider in {"auto", "gemini", "gemini_audio"}:
-        gemini_result = transcribe_with_gemini_audio(file_path, api_key=api_key, model=model)
-        if gemini_result.get("transcript"):
-            return gemini_result
-        warnings.extend(gemini_result.get("warnings", []))
+    warnings = []
+    candidates = [(str(path), status.get("mime_type"))]
+    if path.suffix.lower() in {".webm", ".ogg", ".m4a"}:
+        converted_path, conversion_warning = convert_audio_to_wav(path)
+        if conversion_warning:
+            warnings.append(conversion_warning)
+        elif converted_path != str(path):
+            candidates.insert(0, (converted_path, "audio/wav"))
+
+    if clean_provider in {"auto", "gemini", "gemini_audio"} and api_key:
+        for candidate_path, mime_type in candidates:
+            gemini_result = transcribe_with_gemini_audio(
+                candidate_path,
+                api_key=api_key,
+                mime_type=mime_type,
+                model=model,
+            )
+            gemini_result["status"] = status
+            if warnings:
+                gemini_result["warnings"] = list(dict.fromkeys(warnings + gemini_result.get("warnings", [])))
+            if gemini_result.get("success"):
+                return gemini_result
+            warnings.extend(gemini_result.get("warnings", []))
+            last_error = gemini_result.get("error", "")
+    else:
+        last_error = "Voice transcription needs Gemini API key or local transcription support."
 
     if clean_provider in {"auto", "local", "whisper", "local_whisper"}:
-        local_result = transcribe_with_local_whisper(file_path)
-        if local_result.get("transcript"):
+        local_result = transcribe_with_local_whisper(candidates[0][0])
+        local_result["status"] = status
+        if warnings:
+            local_result["warnings"] = list(dict.fromkeys(warnings + local_result.get("warnings", [])))
+        if local_result.get("success"):
             return local_result
         warnings.extend(local_result.get("warnings", []))
+        last_error = local_result.get("error") or last_error
 
-    return {
-        "transcript": "",
-        "method": "unavailable",
-        "warnings": warnings or ["Voice transcription is not available in Demo Mode."],
-    }
+    if not api_key and clean_provider in {"auto", "gemini", "gemini_audio"}:
+        last_error = "Voice transcription needs Gemini API key or local transcription support."
+
+    return _transcription_result(
+        False,
+        method="unavailable",
+        error=last_error or "No speech was detected. Please try again with clearer audio.",
+        warnings=list(dict.fromkeys(warnings)),
+        status=status,
+    )
