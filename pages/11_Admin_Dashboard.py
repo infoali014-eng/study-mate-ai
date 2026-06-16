@@ -90,6 +90,7 @@ with st.container(border=True):
     col3.write(f"Demo Mode: {branding['enable_demo_mode']}")
     col4.write(f"OCR: {ocr_status()}")
     st.write(f"Gemini configured for current admin: {'Yes' if ai_engine.get_gemini_api_key() else 'No'}")
+    st.write(f"OpenAI configured for current admin: {'Yes' if getattr(ai_engine, 'get_openai_api_key', lambda: '')() else 'No'}")
     st.write(f"Groq configured for current admin: {'Yes' if ai_engine.get_groq_api_key() else 'No'}")
     st.write(f"Max upload size: {os.getenv('STUDYMATE_MAX_UPLOAD_MB', '100')} MB")
     st.write("Allowed file types: PDF, PNG, JPG, JPEG, WEBP, DOCX, PPTX, XLSX, TXT, MD, CSV, JSON")

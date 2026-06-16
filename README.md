@@ -2,7 +2,7 @@
 
 StudyMate AI is a secure, multi-user exam preparation workspace for organizing notes, chatting with study material, generating quizzes, reviewing flashcards, and planning revision.
 
-It is built with Streamlit, SQLite, PyMuPDF, ChromaDB, Gemini, optional Ollama local mode, and Demo Mode fallback.
+It is built with Streamlit, SQLite, PyMuPDF, ChromaDB, Gemini, optional OpenAI/ChatGPT API support, optional Ollama local mode, and Demo Mode fallback.
 
 ## Features
 
@@ -17,7 +17,7 @@ It is built with Streamlit, SQLite, PyMuPDF, ChromaDB, Gemini, optional Ollama l
 - Chat with uploaded notes
 - Generate summaries, quizzes, flashcards, and revision plans
 - Store app data locally in SQLite
-- Use Gemini by default, Ollama as optional local mode, or Demo Mode as fallback
+- Use Gemini or OpenAI/ChatGPT API, Ollama as optional local mode, or Demo Mode as fallback
 
 ## Important Security Rule
 
@@ -38,7 +38,7 @@ Use `.env.example` as a template only. It must contain placeholders, not real ke
 Before deploying or sharing the app:
 
 1. Keep `.env` and `.streamlit/secrets.toml` private and never commit them.
-2. Keep `REQUIRE_USER_API_KEYS=true` for public deployments so each visitor uses their own Gemini/Groq key.
+2. Keep `REQUIRE_USER_API_KEYS=true` for public deployments so each visitor uses their own Gemini/OpenAI/Groq key.
 3. Keep the SQLite database and `data/uploads` folder private to the app server.
 4. Test with two separate accounts before sharing the app:
    - User A creates subjects and uploads notes.
@@ -56,13 +56,21 @@ Install these before running the app:
 1. Python 3.10 or newer
 2. Git
 3. VS Code, recommended
-4. A Gemini API key from Google AI Studio
+4. A Gemini API key from Google AI Studio, or an OpenAI API key if you want ChatGPT/OpenAI mode
 
 Get a Gemini API key here:
 
 ```text
 https://aistudio.google.com/app/apikey
 ```
+
+Get an OpenAI API key here:
+
+```text
+https://platform.openai.com/api-keys
+```
+
+OpenAI API usage is usually paid or usage-based. Use your own key and monitor usage in your OpenAI account.
 
 ## Install On A New Computer
 
@@ -154,11 +162,14 @@ Add your own Gemini key:
 
 ```text
 GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.0-flash
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-5.4-mini
 GROQ_API_KEY=your_groq_api_key_here
 APP_ENCRYPTION_KEY=replace_with_a_long_random_secret_for_saved_user_keys
 ```
 
-If you do not use Groq, leave the Groq placeholder as it is.
+If you do not use OpenAI or Groq, leave those placeholders as they are.
 
 Optional Gemini model setting:
 
@@ -168,6 +179,14 @@ GEMINI_MODEL=gemini-2.0-flash
 
 The app uses `gemini-2.0-flash` by default and can try fallback Gemini models when Gemini is busy.
 
+Optional OpenAI model setting:
+
+```text
+OPENAI_MODEL=gpt-5.4-mini
+```
+
+OpenAI models depend on your OpenAI account access. If the selected model is unavailable, open `AI Settings` and choose another OpenAI model.
+
 For public deployments, the app is configured to require each visitor to enter their own AI key in AI Settings:
 
 ```text
@@ -176,7 +195,7 @@ REQUIRE_USER_API_KEYS=true
 
 Only set this to `false` for a private app where you intentionally want everyone to use one shared app key.
 
-To let signed-in users save their own Gemini keys securely, set `APP_ENCRYPTION_KEY` in `.env` locally or in Streamlit Cloud secrets. Use a long random value and never commit the real value.
+To let signed-in users save their own Gemini/OpenAI/Groq keys securely, set `APP_ENCRYPTION_KEY` in `.env` locally or in Streamlit Cloud secrets. Use a long random value and never commit the real value.
 
 ### 6B. Optional: Create The First Admin
 
@@ -236,11 +255,12 @@ http://localhost:8507
 Inside the app sidebar:
 
 1. Open `AI Settings`
-2. Select `Gemini`
+2. Select `Gemini API` or `OpenAI API`
 3. Confirm Gemini model is `gemini-2.0-flash`
-4. Paste your own Gemini API key into the password field
-5. Click `Save Gemini Key` if `APP_ENCRYPTION_KEY` is configured, or `Use Temporarily` for the current browser session
-6. Click `Test Gemini Connection`
+4. For OpenAI, confirm the OpenAI model, for example `gpt-5.4-mini`
+5. Paste your own provider API key into the matching password field
+6. Click the matching save button if `APP_ENCRYPTION_KEY` is configured, or use the temporary-session button
+7. Click `Test Gemini Connection` or `Test OpenAI Connection`
 
 For public deployments, each user must use their own key. Saved keys are encrypted and linked to that user's account. Temporary keys stay only in that user's current browser session.
 
@@ -266,6 +286,35 @@ When Google auth is restored later, add setup instructions in a new change.
 6. Open `Study Library` to view uploaded material
 7. Open `Chat With Notes` and ask questions from your uploaded notes
 8. Use `Quiz Mode`, `Flashcards`, and `Revision Planner` for exam practice
+
+## OpenAI / ChatGPT API Mode
+
+OpenAI is optional. Gemini remains supported.
+
+To use OpenAI:
+
+1. Create an OpenAI API key at `https://platform.openai.com/api-keys`
+2. Start StudyMate AI and log in
+3. Open `AI Settings`
+4. Select `OpenAI API`
+5. Choose an OpenAI model, for example `gpt-5.4-mini`
+6. Paste your OpenAI API key into the password field
+7. Click `Save OpenAI Key` if `APP_ENCRYPTION_KEY` is configured, or `Use OpenAI Temporarily`
+8. Click `Test OpenAI Connection`
+
+Saved OpenAI keys are encrypted per user. User A cannot use or see User B's saved OpenAI key. Temporary keys stay only in the current browser session.
+
+For private deployments only, you can set a shared key in `.env` or Streamlit secrets:
+
+```text
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-5.4-mini
+REQUIRE_USER_API_KEYS=false
+```
+
+For public deployments, keep `REQUIRE_USER_API_KEYS=true` so every visitor enters their own provider key.
+
+OpenAI API may cost money. Monitor your usage and billing in your OpenAI account.
 
 ## Optional Ollama Local Mode
 
@@ -347,6 +396,21 @@ Use this model in AI Settings:
 ```text
 gemini-2.0-flash
 ```
+
+### OpenAI API Key Is Missing
+
+Open `AI Settings`, select `OpenAI API`, and paste your own OpenAI API key into the OpenAI password field.
+
+If secure saving is unavailable, add `APP_ENCRYPTION_KEY` in Streamlit secrets or use `Use OpenAI Temporarily`.
+
+### OpenAI Model, Quota, Or Billing Error
+
+If OpenAI says the model is unavailable, quota is exceeded, or billing is blocked:
+
+- Choose another OpenAI model in `AI Settings`
+- Check your OpenAI billing and usage
+- Use another OpenAI API key
+- Switch to `Gemini API`, `Ollama Local`, or `Demo Mode`
 
 ### Uploaded Notes Do Not Answer
 

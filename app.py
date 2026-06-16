@@ -62,8 +62,8 @@ with col3:
     )
 
 st.info(
-    "Gemini is the default AI provider. Add your API key in AI Settings. "
-    "Ollama and Demo Mode are also available when enabled."
+    "Gemini and OpenAI API providers are available in AI Settings. "
+    "Ollama Local and Demo Mode are also available when enabled."
 )
 
 st.caption(f"{branding['footer_text']} | {branding['app_version']}")

@@ -102,6 +102,27 @@ def get_provider_label():
     return "Ollama"
 
 
+def _provider_supports_vision(provider=None):
+    """Return True when the selected provider can receive image attachments directly."""
+    if hasattr(ai_engine, "provider_supports_vision"):
+        return ai_engine.provider_supports_vision(provider or get_provider_label())
+    return (provider or get_provider_label()) == "Gemini"
+
+
+def _is_gemini_provider(provider=None):
+    """Return True when the selected provider is Gemini."""
+    if hasattr(ai_engine, "is_gemini_provider"):
+        return ai_engine.is_gemini_provider(provider or get_provider_label())
+    return (provider or get_provider_label()) == "Gemini"
+
+
+def _is_openai_provider(provider=None):
+    """Return True when the selected provider is OpenAI."""
+    if hasattr(ai_engine, "is_openai_provider"):
+        return ai_engine.is_openai_provider(provider or get_provider_label())
+    return (provider or get_provider_label()) == "OpenAI"
+
+
 def get_subject_index(subjects, subject_id):
     """Find a subject's selectbox index from its id."""
     if not subject_id:
@@ -274,6 +295,31 @@ def _audio_upload_to_attachment(uploaded_file, session_id):
                 api_key=gemini_api_key,
                 model=gemini_model,
             )
+            if (
+                not transcript_result.get("transcript")
+                and _is_openai_provider(provider)
+                and hasattr(ai_engine, "transcribe_with_openai_audio")
+            ):
+                openai_result = ai_engine.transcribe_with_openai_audio(
+                    saved_audio["file_path"],
+                    api_key=ai_engine.get_openai_api_key() if hasattr(ai_engine, "get_openai_api_key") else None,
+                )
+                if openai_result.get("success"):
+                    transcript_result = {
+                        "success": True,
+                        "transcript": openai_result.get("transcript", ""),
+                        "method": openai_result.get("method", "openai_audio"),
+                        "error": "",
+                        "warnings": transcript_result.get("warnings", []),
+                        "status": transcript_result.get("status", {}),
+                    }
+                else:
+                    transcript_result.setdefault("warnings", []).append(
+                        openai_result.get(
+                            "error",
+                            "OpenAI audio transcription is not configured yet. Using available transcription fallback.",
+                        )
+                    )
 
     transcript = (transcript_result.get("transcript") or "").strip()
     warnings = transcript_result.get("warnings", [])
@@ -321,7 +367,7 @@ def _provider_cannot_read_attachment_response():
     """Friendly message for providers that cannot inspect unreadable images directly."""
     return (
         "This provider cannot directly read this attachment, and no readable text was extracted. "
-        "Try Gemini vision for images, upload clearer text, or use a transcription provider for audio."
+        "Try Gemini vision, OpenAI vision, upload clearer text, or use a transcription provider for audio."
     )
 
 
@@ -757,13 +803,28 @@ def _chat_group_label(updated_at):
     return "Older"
 
 
+def _format_chat_updated_at(updated_at):
+    """Format a chat timestamp for a compact one-line history card."""
+    try:
+        updated = datetime.fromisoformat(str(updated_at).replace("Z", "").split(".")[0])
+    except Exception:
+        return "Updated recently"
+
+    today = datetime.now().date()
+    time_label = updated.strftime("%I:%M %p").lstrip("0")
+    if updated.date() == today:
+        return f"Today, {time_label}"
+    if updated.date() == today - timedelta(days=1):
+        return f"Yesterday, {time_label}"
+    return updated.strftime("%b %d, %I:%M %p").replace(" 0", " ")
+
+
 def render_chat_history_panel():
     """Render a compact left-side ChatGPT-style history manager."""
     st.markdown(
         """
         <div class="chat-history-heading">
             <span>Chat History</span>
-            <small>Saved sessions</small>
         </div>
         """,
         unsafe_allow_html=True,
@@ -801,7 +862,10 @@ def render_chat_history_panel():
             group = _chat_group_label(session["updated_at"])
             if group != current_group:
                 current_group = group
-                st.caption(group)
+                st.markdown(
+                    f"<div class='history-group-label'>{html.escape(group)}</div>",
+                    unsafe_allow_html=True,
+                )
 
             is_active = session["id"] == active_id
             title = session["title"] or "New Chat"
@@ -813,23 +877,35 @@ def render_chat_history_panel():
                 "Chat with Multiple Notes": "Notes",
                 "Teach Me Mode": "Teach Me",
             }.get(mode, "Chat")
-            active_class = " active-chat-card" if is_active else ""
+            active_class = " active" if is_active else ""
+            updated_label = _format_chat_updated_at(session["updated_at"])
 
-            st.markdown(f"<div class='history-item{active_class}'>", unsafe_allow_html=True)
-            item_col, more_col = st.columns([0.78, 0.22], gap="small")
+            st.markdown(
+                f"""
+                <div class="history-card{active_class}">
+                    <div class="history-card-main">
+                        <span class="history-mode-badge">{html.escape(mode_short)}</span>
+                        <span class="history-title" title="{html.escape(title)}">{html.escape(title)}</span>
+                    </div>
+                    <div class="history-meta">Updated: {html.escape(updated_label)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            item_col, more_col = st.columns([0.84, 0.16], gap="small")
             with item_col:
+                open_label = "Open active chat" if is_active else "Open chat"
                 if st.button(
-                    title[:42],
+                    open_label,
                     key=f"open_chat_{session['id']}",
                     use_container_width=True,
                     type="primary" if is_active else "secondary",
                 ):
                     _request_chat_session_load(session["id"])
                     st.rerun()
-                st.caption(f"{mode_short} - {str(session['updated_at']).split('.')[0]}")
 
             with more_col:
-                action_container = st.popover("...") if hasattr(st, "popover") else st.expander("...", expanded=False)
+                action_container = st.popover("⋮") if hasattr(st, "popover") else st.expander("⋮", expanded=False)
                 with action_container:
                     new_title = st.text_input(
                         "Rename chat",
@@ -867,7 +943,7 @@ def render_chat_history_panel():
                         if st.button("Delete Chat", key=f"delete_chat_{session['id']}", use_container_width=True):
                             st.session_state[pending_key] = True
                             st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("<div class='history-card-spacer'></div>", unsafe_allow_html=True)
 
 
 def _demo_teach_response(
@@ -1162,9 +1238,7 @@ Connect Gemini or Ollama to get a full multimodal tutor response.
             provider_label = get_provider_label()
             if attachment_context and not attachment_has_text and not image_paths:
                 answer = _provider_cannot_read_attachment_response()
-            elif image_paths and provider_label != "Gemini" and not attachment_has_text:
-                answer = _provider_cannot_read_attachment_response()
-            elif image_paths and provider_label == "Gemini":
+            elif image_paths and _is_gemini_provider(provider_label):
                 try:
                     answer = ai_engine.ask_gemini_multimodal(prompt, image_paths=image_paths)
                 except Exception:
@@ -1172,6 +1246,16 @@ Connect Gemini or Ollama to get a full multimodal tutor response.
                         answer = ai_engine.ask_ai(prompt)
                     else:
                         raise
+            elif image_paths and _is_openai_provider(provider_label):
+                try:
+                    answer = ai_engine.generate_with_openai_multimodal(prompt, image_paths=image_paths)
+                except Exception:
+                    if attachment_has_text:
+                        answer = ai_engine.ask_ai(prompt)
+                    else:
+                        raise
+            elif image_paths and not _provider_supports_vision(provider_label) and not attachment_has_text:
+                answer = _provider_cannot_read_attachment_response()
             else:
                 answer = ai_engine.ask_ai(prompt)
         except Exception as exc:
@@ -1250,9 +1334,7 @@ Question:
         provider_label = get_provider_label()
         if attachment_context and not attachment_has_text and not image_paths:
             answer = _provider_cannot_read_attachment_response()
-        elif image_paths and provider_label != "Gemini" and not attachment_has_text:
-            answer = _provider_cannot_read_attachment_response()
-        elif image_paths and provider_label == "Gemini":
+        elif image_paths and _is_gemini_provider(provider_label):
             try:
                 answer = ai_engine.ask_gemini_multimodal(prompt, image_paths=image_paths)
             except Exception:
@@ -1260,6 +1342,16 @@ Question:
                     answer = ai_engine.ask_ai(prompt)
                 else:
                     raise
+        elif image_paths and _is_openai_provider(provider_label):
+            try:
+                answer = ai_engine.generate_with_openai_multimodal(prompt, image_paths=image_paths)
+            except Exception:
+                if attachment_has_text:
+                    answer = ai_engine.ask_ai(prompt)
+                else:
+                    raise
+        elif image_paths and not _provider_supports_vision(provider_label) and not attachment_has_text:
+            answer = _provider_cannot_read_attachment_response()
         else:
             answer = ai_engine.ask_ai(prompt)
     except Exception as exc:
@@ -1382,37 +1474,77 @@ st.markdown(
             display: flex;
             justify-content: space-between;
             align-items: end;
-            margin: 4px 0 10px 0;
+            margin: 4px 0 8px 0;
             color: var(--sm-ink);
             font-weight: 900;
             font-size: 1.05rem;
         }
-        .chat-history-heading small {
+        .history-group-label {
+            margin: 14px 0 7px 2px;
             color: var(--sm-muted);
-            font-size: 0.76rem;
-            font-weight: 700;
+            font-size: 0.72rem;
+            font-weight: 850;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
         }
-        .history-item {
-            padding: 4px 2px 2px;
+        .history-card {
+            min-height: 58px;
+            padding: 10px 11px;
+            border: 1px solid rgba(148, 163, 184, 0.26);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 8px 24px rgba(17, 25, 54, 0.045);
+        }
+        .history-card.active {
+            border-color: rgba(20, 184, 180, 0.42);
+            background: linear-gradient(135deg, rgba(224, 255, 251, 0.95), rgba(242, 235, 255, 0.95));
+            box-shadow: 0 10px 28px rgba(20, 184, 180, 0.11);
+        }
+        .history-card-main {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            min-width: 0;
+            width: 100%;
         }
         .history-title {
             color: var(--sm-ink);
             font-weight: 850;
-            line-height: 1.25;
+            line-height: 1.2;
             font-size: 0.92rem;
-            overflow-wrap: anywhere;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 0;
+        }
+        .history-mode-badge {
+            display: inline-flex;
+            align-items: center;
+            flex-shrink: 0;
+            max-width: 74px;
+            padding: 3px 7px;
+            border-radius: 999px;
+            background: rgba(20, 184, 180, 0.11);
+            color: #0f766e;
+            font-size: 0.66rem;
+            font-weight: 900;
+            line-height: 1;
+            white-space: nowrap;
         }
         .history-meta {
-            display: flex;
-            justify-content: space-between;
-            gap: 8px;
             color: var(--sm-muted);
             font-size: 0.72rem;
             font-weight: 700;
-            margin-top: 8px;
+            margin-top: 7px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        .active-chat-card .history-title {
+        .history-card.active .history-title {
             color: #155e75;
+        }
+        .history-card-spacer {
+            height: 8px;
         }
         div[data-testid="stChatMessage"] {
             border-radius: 18px;
@@ -1461,7 +1593,7 @@ prefill_document_ids = st.session_state.pop("chat_prefill_document_ids", [])
 prefill_question = st.session_state.pop("chat_prefill_question", "")
 
 if st.session_state.show_chat_history_panel:
-    history_col, chat_col = st.columns([0.20, 0.80], gap="medium")
+    history_col, chat_col = st.columns([0.24, 0.76], gap="medium")
     with history_col:
         render_chat_history_panel()
 else:
@@ -1845,8 +1977,8 @@ with chat_col:
 
     with st.expander("Voice Input", expanded=False):
         st.caption(
-            "Speak clearly for 2-5 seconds, then click transcribe. Voice/audio may be sent to Gemini "
-            "for transcription when your Gemini key is available."
+            "Speak clearly for 2-5 seconds, then click transcribe. Voice/audio may be sent to Gemini or OpenAI "
+            "for transcription when your key is available."
         )
         recorded_audio = None
         if hasattr(st, "audio_input"):

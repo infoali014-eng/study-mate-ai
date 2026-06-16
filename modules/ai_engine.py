@@ -18,9 +18,15 @@ load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 DEFAULT_AI_PROVIDER = os.getenv("AI_PROVIDER", "Gemini")
 REQUIRE_USER_API_KEYS = os.getenv("REQUIRE_USER_API_KEYS", "true").lower() != "false"
+OPENAI_MODEL_OPTIONS = [
+    model.strip()
+    for model in os.getenv("OPENAI_MODEL_OPTIONS", "gpt-5.4-mini,gpt-5.4,gpt-5.5").split(",")
+    if model.strip()
+]
 LEGACY_GEMINI_MODELS = {"gemini-1.5-flash", "gemini-1.5-pro"}
 GEMINI_FALLBACK_MODELS = [
     "gemini-2.0-flash",
@@ -36,6 +42,7 @@ MISSING_GEMINI_KEY_MESSAGE = (
     "Gemini API key is missing. Add it in AI Settings, save it securely for your account, "
     "or enter a temporary session key."
 )
+MISSING_OPENAI_KEY_MESSAGE = "OpenAI API key is missing. Add it in AI Settings."
 
 ANSWER_STYLE_INSTRUCTIONS = {
     "Simple English": "Use short, clear sentences and explain the idea like a friendly tutor.",
@@ -138,6 +145,55 @@ def get_gemini_model_candidates(preferred_model=None):
             models.append(normalized)
 
     return models
+
+
+def normalize_provider(provider):
+    """Map friendly UI labels to stable provider names used by the app."""
+    clean = (provider or DEFAULT_AI_PROVIDER or "Gemini").strip().lower()
+    aliases = {
+        "gemini": "Gemini",
+        "gemini api": "Gemini",
+        "google gemini": "Gemini",
+        "openai": "OpenAI",
+        "openai api": "OpenAI",
+        "chatgpt": "OpenAI",
+        "chatgpt/openai": "OpenAI",
+        "groq": "Groq",
+        "groq api": "Groq",
+        "ollama": "Ollama",
+        "ollama local": "Ollama",
+        "demo": "Demo Mode",
+        "demo mode": "Demo Mode",
+    }
+    return aliases.get(clean, provider or DEFAULT_AI_PROVIDER)
+
+
+def provider_display_name(provider=None):
+    """Return a user-facing provider label."""
+    canonical = normalize_provider(provider or get_selected_provider())
+    labels = {
+        "Gemini": "Gemini API",
+        "OpenAI": "OpenAI API",
+        "Groq": "Groq API",
+        "Ollama": "Ollama Local",
+        "Demo Mode": "Demo Mode",
+    }
+    return labels.get(canonical, str(provider or canonical))
+
+
+def is_gemini_provider(provider=None):
+    """Return True when the selected provider is Gemini."""
+    return normalize_provider(provider or get_selected_provider()) == "Gemini"
+
+
+def is_openai_provider(provider=None):
+    """Return True when the selected provider is OpenAI."""
+    return normalize_provider(provider or get_selected_provider()) == "OpenAI"
+
+
+def provider_supports_vision(provider=None):
+    """Return whether the provider path can receive image attachments directly."""
+    return normalize_provider(provider or get_selected_provider()) in {"Gemini", "OpenAI"}
 
 
 def _get_streamlit_secret(name):
@@ -397,6 +453,8 @@ def get_session_ai_settings():
             "gemini_model": normalize_gemini_model(
                 st.session_state.get("gemini_model", GEMINI_MODEL)
             ),
+            "openai_api_key": st.session_state.get("openai_api_key", ""),
+            "openai_model": st.session_state.get("openai_model", OPENAI_MODEL),
             "ollama_model": st.session_state.get("ollama_model", OLLAMA_MODEL),
             "groq_model": st.session_state.get("groq_model", GROQ_MODEL),
         }
@@ -405,6 +463,8 @@ def get_session_ai_settings():
             "provider": DEFAULT_AI_PROVIDER,
             "gemini_api_key": "",
             "gemini_model": GEMINI_MODEL,
+            "openai_api_key": "",
+            "openai_model": OPENAI_MODEL,
             "ollama_model": OLLAMA_MODEL,
             "groq_model": GROQ_MODEL,
         }
@@ -449,6 +509,24 @@ def get_groq_api_key():
     return session_key or os.getenv("GROQ_API_KEY", "") or _get_streamlit_secret("GROQ_API_KEY")
 
 
+def get_openai_api_key():
+    """Return the OpenAI key for the current user/session without exposing it."""
+    settings = get_session_ai_settings()
+    user_id = _get_current_user_id()
+    saved_user_key = get_user_api_key(user_id, "openai") if user_id else ""
+    session_key = settings.get("openai_api_key")
+
+    if REQUIRE_USER_API_KEYS:
+        return saved_user_key or session_key
+
+    return (
+        saved_user_key
+        or session_key
+        or os.getenv("OPENAI_API_KEY", "")
+        or _get_streamlit_secret("OPENAI_API_KEY")
+    )
+
+
 def get_gemini_key_source():
     """Return where the active Gemini key is coming from, without exposing it."""
     settings = get_session_ai_settings()
@@ -470,6 +548,32 @@ def get_gemini_key_source():
         return "environment variable"
 
     if _get_streamlit_secret("GEMINI_API_KEY"):
+        return "Streamlit secrets"
+
+    return "missing"
+
+
+def get_openai_key_source():
+    """Return where the active OpenAI key is coming from, without exposing it."""
+    settings = get_session_ai_settings()
+    user_id = _get_current_user_id()
+    if user_id and get_user_api_key(user_id, "openai"):
+        return "saved securely for this user"
+
+    if settings.get("openai_api_key"):
+        return "temporary AI Settings session password field"
+
+    if REQUIRE_USER_API_KEYS:
+        return "missing - each user must add their own key in AI Settings"
+
+    env_file_values = dotenv_values(PROJECT_ROOT / ".env")
+    if env_file_values.get("OPENAI_API_KEY"):
+        return "local .env file"
+
+    if os.getenv("OPENAI_API_KEY", ""):
+        return "environment variable"
+
+    if _get_streamlit_secret("OPENAI_API_KEY"):
         return "Streamlit secrets"
 
     return "missing"
@@ -692,6 +796,164 @@ def _ask_single_gemini_multimodal_model(prompt, image_paths, api_key, selected_m
         raise AIProviderError("Gemini vision returned an unexpected response format.") from exc
 
 
+def _openai_client(api_key):
+    """Create an OpenAI SDK client lazily so the app still imports if the SDK is missing."""
+    try:
+        from openai import OpenAI
+    except Exception as exc:
+        raise AIProviderError("OpenAI SDK is not installed. Run pip install -r requirements.txt.") from exc
+    return OpenAI(api_key=api_key)
+
+
+def _extract_openai_response_text(response):
+    """Return text from OpenAI Responses API objects without depending on one SDK shape."""
+    output_text = getattr(response, "output_text", "")
+    if output_text:
+        return str(output_text).strip()
+
+    try:
+        output = getattr(response, "output", []) or []
+        chunks = []
+        for item in output:
+            content = getattr(item, "content", []) or []
+            for part in content:
+                text = getattr(part, "text", "")
+                if text:
+                    chunks.append(text)
+        return "\n".join(chunks).strip()
+    except Exception:
+        return ""
+
+
+def _safe_openai_error_message(exc, selected_model=None):
+    """Convert OpenAI SDK exceptions into safe user-facing messages."""
+    status_code = getattr(exc, "status_code", None)
+    message = str(exc).lower()
+    model_hint = f" Model: {selected_model}." if selected_model else ""
+
+    if status_code in {401, 403} or "api key" in message or "authentication" in message:
+        return "OpenAI rejected the API key. Please check your OpenAI API key in AI Settings."
+    if status_code == 404 or "model" in message and "not found" in message:
+        return f"OpenAI model is not available for this key.{model_hint} Select another model in AI Settings."
+    if status_code == 429 or "rate limit" in message or "quota" in message or "billing" in message:
+        return "OpenAI request was blocked by rate limit, quota, or billing. Check your OpenAI account usage."
+    if status_code and status_code >= 500:
+        return "OpenAI is temporarily unavailable. Please try again in a few minutes."
+    if status_code:
+        return f"OpenAI request failed with status {status_code}. Please check your key, model, or billing/quota."
+    return "OpenAI request failed. Please check your API key, model selection, or billing/quota."
+
+
+def generate_with_openai(prompt, api_key=None, model=None, attachments=None):
+    """Generate a text response with OpenAI."""
+    key = api_key or get_openai_api_key()
+    if not key:
+        raise AIProviderError(MISSING_OPENAI_KEY_MESSAGE)
+
+    selected_model = model or get_session_ai_settings().get("openai_model") or OPENAI_MODEL
+    try:
+        client = _openai_client(key)
+        response = client.responses.create(
+            model=selected_model,
+            input=prompt,
+        )
+        text = _extract_openai_response_text(response)
+        if not text:
+            raise AIProviderError("OpenAI returned an empty response. Please try again.")
+        return text
+    except AIProviderError:
+        raise
+    except Exception as exc:
+        raise AIProviderError(_safe_openai_error_message(exc, selected_model)) from exc
+
+
+def _image_to_openai_part(image_path):
+    """Build an OpenAI Responses API image part from a local image path."""
+    path = Path(image_path)
+    try:
+        image_bytes = path.read_bytes()
+    except OSError as exc:
+        raise AIProviderError("Could not read one attached image safely.") from exc
+    mime_type = mimetypes.guess_type(str(path))[0] or "image/png"
+    image_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+    return {"type": "input_image", "image_url": image_url}
+
+
+def generate_with_openai_multimodal(prompt, api_key=None, model=None, image_paths=None, file_context=None):
+    """Generate a response with OpenAI using text plus optional image attachments."""
+    clean_paths = [Path(path) for path in (image_paths or []) if path]
+    if not clean_paths:
+        combined_prompt = prompt
+        if file_context:
+            combined_prompt = f"{prompt}\n\nAttached file context:\n{file_context}"
+        return generate_with_openai(combined_prompt, api_key=api_key, model=model)
+
+    key = api_key or get_openai_api_key()
+    if not key:
+        raise AIProviderError(MISSING_OPENAI_KEY_MESSAGE)
+
+    selected_model = model or get_session_ai_settings().get("openai_model") or OPENAI_MODEL
+    content = [{"type": "input_text", "text": prompt}]
+    if file_context:
+        content.append({"type": "input_text", "text": f"Attached file context:\n{file_context}"})
+    for image_path in clean_paths[:5]:
+        content.append(_image_to_openai_part(image_path))
+
+    try:
+        client = _openai_client(key)
+        response = client.responses.create(
+            model=selected_model,
+            input=[{"role": "user", "content": content}],
+        )
+        text = _extract_openai_response_text(response)
+        if not text:
+            raise AIProviderError("OpenAI returned an empty multimodal response. Please try again.")
+        return text
+    except AIProviderError:
+        raise
+    except Exception as exc:
+        raise AIProviderError(_safe_openai_error_message(exc, selected_model)) from exc
+
+
+def transcribe_with_openai_audio(file_path, api_key=None, model=None):
+    """Optionally transcribe audio with OpenAI if the selected account/model supports it."""
+    key = api_key or get_openai_api_key()
+    if not key:
+        return {
+            "success": False,
+            "transcript": "",
+            "method": "openai_audio",
+            "error": "OpenAI audio transcription is not configured yet. Using available transcription fallback.",
+        }
+
+    selected_model = model or os.getenv("OPENAI_AUDIO_MODEL", "gpt-4o-mini-transcribe")
+    try:
+        client = _openai_client(key)
+        with open(file_path, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model=selected_model,
+                file=audio_file,
+            )
+        text = (getattr(transcript, "text", "") or "").strip()
+        return {
+            "success": bool(text),
+            "transcript": text,
+            "method": "openai_audio",
+            "error": "" if text else "No speech was detected. Please try again with clearer audio.",
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "transcript": "",
+            "method": "openai_audio",
+            "error": "OpenAI audio transcription is not configured yet. Using available transcription fallback.",
+            "technical_error": str(exc)[:160],
+        }
+
+
+ask_openai = generate_with_openai
+
+
 def _safe_gemini_error_message(response):
     """Return Gemini's error text without exposing request URLs or API keys."""
     if response is None:
@@ -799,10 +1061,14 @@ def ask_demo(prompt):
 def ask_ai(prompt, provider=None, model=None):
     """Ask the selected AI provider. Gemini is the default provider."""
     _check_ai_rate_limit()
-    selected_provider = provider or get_selected_provider()
+    selected_provider = normalize_provider(provider or get_selected_provider())
 
     if selected_provider == "Gemini":
         return ask_gemini(prompt, model=model)
+
+    if selected_provider == "OpenAI":
+        selected_model = model or get_session_ai_settings().get("openai_model") or OPENAI_MODEL
+        return generate_with_openai(prompt, model=selected_model)
 
     if selected_provider == "Ollama":
         selected_model = model or get_session_ai_settings().get("ollama_model") or OLLAMA_MODEL
@@ -817,7 +1083,15 @@ def ask_ai(prompt, provider=None, model=None):
 
 def get_missing_key_message():
     """Expose the missing-key copy for pages that want to show it directly."""
+    provider = normalize_provider(get_selected_provider())
+    if provider == "OpenAI":
+        return MISSING_OPENAI_KEY_MESSAGE
     return MISSING_GEMINI_KEY_MESSAGE
+
+
+def generate_response(prompt, provider=None, model=None, attachments=None):
+    """Compatibility wrapper for pages that need a generic AI response call."""
+    return ask_ai(prompt, provider=provider, model=model)
 
 
 def chat_with_notes(
@@ -1002,7 +1276,7 @@ def _provider_cannot_read_attachment_response():
     """Explain why a non-vision provider cannot answer from an unreadable attachment."""
     return (
         "This provider cannot directly read this attachment, and no readable text was extracted. "
-        "Try Gemini vision for images, upload clearer text, or use a transcription provider for audio."
+        "Try Gemini vision, OpenAI vision, upload clearer text, or use a transcription provider for audio."
     )
 
 
@@ -1061,15 +1335,13 @@ def generate_study_chat_response(
         user_id=user_id,
     )
 
-    selected_provider = get_selected_provider()
+    selected_provider = normalize_provider(get_selected_provider())
     attachment_has_text = _attachment_context_has_text(attachment_context)
 
     try:
         if attachment_context and selected_provider == "Demo Mode":
             answer = _demo_attachment_response(attachment_context)
         elif attachment_context and not attachment_has_text and not image_paths:
-            answer = _provider_cannot_read_attachment_response()
-        elif image_paths and selected_provider != "Gemini" and not attachment_has_text:
             answer = _provider_cannot_read_attachment_response()
         elif image_paths and selected_provider == "Gemini":
             try:
@@ -1079,6 +1351,16 @@ def generate_study_chat_response(
                     answer = ask_ai(prompt)
                 else:
                     raise
+        elif image_paths and selected_provider == "OpenAI":
+            try:
+                answer = generate_with_openai_multimodal(prompt, image_paths=image_paths)
+            except Exception:
+                if attachment_has_text:
+                    answer = ask_ai(prompt)
+                else:
+                    raise
+        elif image_paths and not attachment_has_text:
+            answer = _provider_cannot_read_attachment_response()
         else:
             answer = ask_ai(prompt)
     except Exception as exc:
