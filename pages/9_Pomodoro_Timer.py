@@ -1,6 +1,7 @@
 import time
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from modules.auth import require_login
 from modules.database import get_study_sessions, get_subjects, init_db, save_study_session
@@ -59,6 +60,99 @@ def _format_time(seconds):
     return f"{minutes:02d}:{secs:02d}"
 
 
+def _render_live_timer(mode, remaining, running):
+    """Render a live countdown in the browser without rerunning Streamlit every second."""
+    end_at_ms = int((time.time() + remaining) * 1000) if running else 0
+    running_js = "true" if running else "false"
+    components.html(
+        f"""
+        <div class="timer-card">
+            <div class="timer-pill">{mode}</div>
+            <div id="studymate-timer" class="timer-time">{_format_time(remaining)}</div>
+            <div id="studymate-timer-note" class="timer-note">
+                {"Counting down live. Keep this tab open while studying." if running else "Press Start to begin a live countdown."}
+            </div>
+        </div>
+        <style>
+            .timer-card {{
+                text-align: center;
+                border-radius: 24px;
+                padding: 1.35rem 1rem;
+                background:
+                    radial-gradient(circle at 92% 12%, rgba(20, 184, 180, 0.12), transparent 24%),
+                    linear-gradient(135deg, #ffffff, #f5fbff);
+                border: 1px solid rgba(220, 231, 247, 0.95);
+                box-shadow: 0 12px 34px rgba(57, 76, 119, 0.10);
+                font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            }}
+            .timer-pill {{
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0.34rem 0.78rem;
+                border-radius: 999px;
+                background: linear-gradient(135deg, #d9fbf4, #e9f3ff);
+                color: #087c78;
+                font-size: 0.8rem;
+                font-weight: 850;
+            }}
+            .timer-time {{
+                margin: 0.45rem 0 0.15rem;
+                color: #111936;
+                font-size: clamp(3rem, 14vw, 5rem);
+                line-height: 1;
+                font-weight: 900;
+                letter-spacing: 0;
+            }}
+            .timer-note {{
+                color: #5f6f91;
+                font-size: 0.95rem;
+                font-weight: 650;
+            }}
+            .timer-complete {{
+                color: #0f766e;
+            }}
+        </style>
+        <script>
+            const timerEl = document.getElementById("studymate-timer");
+            const noteEl = document.getElementById("studymate-timer-note");
+            const running = {running_js};
+            const endAt = {end_at_ms};
+            let initialRemaining = {int(remaining)};
+
+            function formatTime(totalSeconds) {{
+                const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+                const minutes = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
+                const seconds = String(safeSeconds % 60).padStart(2, "0");
+                return `${{minutes}}:${{seconds}}`;
+            }}
+
+            function updateTimer() {{
+                let remaining = initialRemaining;
+                if (running) {{
+                    remaining = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+                }}
+                timerEl.textContent = formatTime(remaining);
+                if (running && remaining <= 0) {{
+                    timerEl.classList.add("timer-complete");
+                    noteEl.textContent = "Session complete. Click Save Session to record it.";
+                    if (intervalId) {{
+                        clearInterval(intervalId);
+                    }}
+                }}
+            }}
+
+            let intervalId = null;
+            updateTimer();
+            if (running) {{
+                intervalId = setInterval(updateTimer, 1000);
+            }}
+        </script>
+        """,
+        height=230,
+    )
+
+
 st.set_page_config(page_title="Pomodoro Timer - StudyMate AI", layout="wide")
 user_id = require_login()
 init_db()
@@ -95,15 +189,10 @@ with st.container(border=True):
     notes = st.text_input("Session note", placeholder="Example: revised normalization examples")
 
     remaining = _current_remaining()
-    st.markdown(
-        f"""
-        <div class="soft-card" style="text-align:center;">
-            <span class="status-pill">{st.session_state[_timer_key('mode')]}</span>
-            <h1 style="font-size:4rem; margin:0.4rem 0;">{_format_time(remaining)}</h1>
-            <p class="muted">Keep this tab open while studying. Use Refresh if you want to update the countdown display.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    _render_live_timer(
+        st.session_state[_timer_key("mode")],
+        remaining,
+        st.session_state.get(_timer_key("running"), False),
     )
 
     start_col, pause_col, reset_col, save_col = st.columns(4)
