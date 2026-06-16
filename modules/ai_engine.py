@@ -1002,7 +1002,7 @@ def _provider_cannot_read_attachment_response():
     """Explain why a non-vision provider cannot answer from an unreadable attachment."""
     return (
         "This provider cannot directly read this attachment, and no readable text was extracted. "
-        "Try Gemini vision or upload clearer text."
+        "Try Gemini vision for images, upload clearer text, or use a transcription provider for audio."
     )
 
 
@@ -1067,6 +1067,8 @@ def generate_study_chat_response(
     try:
         if attachment_context and selected_provider == "Demo Mode":
             answer = _demo_attachment_response(attachment_context)
+        elif attachment_context and not attachment_has_text and not image_paths:
+            answer = _provider_cannot_read_attachment_response()
         elif image_paths and selected_provider != "Gemini" and not attachment_has_text:
             answer = _provider_cannot_read_attachment_response()
         elif image_paths and selected_provider == "Gemini":

@@ -9,6 +9,7 @@ import streamlit as st
 
 from modules import ai_engine
 from modules.auth import get_current_user_display_name, require_login
+from modules.audio_processor import AUDIO_TYPES, save_audio_file, transcribe_audio, validate_audio_file
 from modules.database import (
     attach_chat_attachments_to_message,
     create_chat_session,
@@ -143,6 +144,11 @@ def _attachment_icon(file_type):
         "JPG": "\U0001f5bc\ufe0f",
         "JPEG": "\U0001f5bc\ufe0f",
         "WEBP": "\U0001f5bc\ufe0f",
+        "MP3": "\U0001f399\ufe0f",
+        "WAV": "\U0001f399\ufe0f",
+        "M4A": "\U0001f399\ufe0f",
+        "OGG": "\U0001f399\ufe0f",
+        "WEBM": "\U0001f399\ufe0f",
     }
     return icons.get(str(file_type).upper(), "\U0001f4ce")
 
@@ -167,6 +173,7 @@ def _attachment_rows_to_cards(rows):
                 "file_size": row["file_size"],
                 "extraction_method": row["extraction_method"],
                 "warning": row["warning_message"],
+                "transcript_preview": (row["extracted_text"] or "")[:500],
             }
         )
     return cards
@@ -185,6 +192,8 @@ def render_message_attachments(attachments):
         )
         if attachment.get("warning"):
             st.caption(attachment["warning"])
+        if str(file_type).upper() in AUDIO_TYPES and attachment.get("transcript_preview"):
+            st.caption(f"Transcript: {attachment['transcript_preview']}")
 
 
 def _chat_attachment_context(attachments):
@@ -226,6 +235,75 @@ def _chat_attachment_context(attachments):
     return "\n\n".join(blocks), image_paths
 
 
+def _audio_upload_to_attachment(uploaded_file, session_id):
+    """Save and transcribe one audio upload for the active chat session."""
+    if not uploaded_file:
+        return None, "Audio file is missing."
+
+    safe_name, validation_error = validate_audio_file(
+        getattr(uploaded_file, "name", "voice_recording.wav"),
+        getattr(uploaded_file, "size", 0) or 0,
+    )
+    if validation_error:
+        return None, f"{getattr(uploaded_file, 'name', 'audio')}: {validation_error}"
+
+    saved_audio, save_error = save_audio_file(user_id, session_id, uploaded_file)
+    if save_error:
+        return None, f"{safe_name}: {save_error}"
+
+    provider = get_provider_label()
+    if provider == "Demo Mode":
+        transcript_result = {
+            "transcript": "",
+            "method": "unavailable",
+            "warnings": ["Voice transcription is not available in Demo Mode."],
+        }
+    else:
+        with st.spinner("Transcribing audio..."):
+            transcript_result = transcribe_audio(
+                saved_audio["file_path"],
+                provider="gemini" if provider == "Gemini" else "local",
+                api_key=ai_engine.get_gemini_api_key() if provider == "Gemini" else None,
+                model=(
+                    ai_engine.get_session_ai_settings().get("gemini_model")
+                    if provider == "Gemini"
+                    else None
+                ),
+            )
+
+    transcript = (transcript_result.get("transcript") or "").strip()
+    warnings = transcript_result.get("warnings", [])
+    warning_message = " ".join(warnings)
+    attachment_id = save_chat_attachment(
+        user_id=user_id,
+        session_id=session_id,
+        file_name=saved_audio["file_name"],
+        file_path=saved_audio["file_path"],
+        file_type=saved_audio["file_type"],
+        mime_type=saved_audio["mime_type"],
+        file_size=saved_audio["file_size"],
+        extracted_text=transcript,
+        extraction_method=transcript_result.get("method", "unavailable"),
+        warning_message=warning_message,
+    )
+    if not attachment_id:
+        return None, f"{safe_name}: Could not save audio metadata."
+
+    attachment = {
+        "id": attachment_id,
+        "file_name": saved_audio["file_name"],
+        "file_path": saved_audio["file_path"],
+        "file_type": saved_audio["file_type"],
+        "file_size": saved_audio["file_size"],
+        "extracted_text": transcript,
+        "extraction_method": transcript_result.get("method", "unavailable"),
+        "warning": warning_message,
+    }
+    if not transcript:
+        return attachment, f"{safe_name}: Could not transcribe this audio. Please try a clearer recording."
+    return attachment, ""
+
+
 def _attachment_context_has_text(attachment_context):
     """Return True when an attachment contains extracted text that a text model can use."""
     return bool(attachment_context and "Extracted text/context:" in attachment_context)
@@ -235,7 +313,7 @@ def _provider_cannot_read_attachment_response():
     """Friendly message for providers that cannot inspect unreadable images directly."""
     return (
         "This provider cannot directly read this attachment, and no readable text was extracted. "
-        "Try Gemini vision or upload clearer text."
+        "Try Gemini vision for images, upload clearer text, or use a transcription provider for audio."
     )
 
 
@@ -1041,7 +1119,9 @@ Connect Gemini or Ollama to get a full multimodal tutor response.
         try:
             attachment_has_text = _attachment_context_has_text(attachment_context)
             provider_label = get_provider_label()
-            if image_paths and provider_label != "Gemini" and not attachment_has_text:
+            if attachment_context and not attachment_has_text and not image_paths:
+                answer = _provider_cannot_read_attachment_response()
+            elif image_paths and provider_label != "Gemini" and not attachment_has_text:
                 answer = _provider_cannot_read_attachment_response()
             elif image_paths and provider_label == "Gemini":
                 try:
@@ -1127,7 +1207,9 @@ Question:
     try:
         attachment_has_text = _attachment_context_has_text(attachment_context)
         provider_label = get_provider_label()
-        if image_paths and provider_label != "Gemini" and not attachment_has_text:
+        if attachment_context and not attachment_has_text and not image_paths:
+            answer = _provider_cannot_read_attachment_response()
+        elif image_paths and provider_label != "Gemini" and not attachment_has_text:
             answer = _provider_cannot_read_attachment_response()
         elif image_paths and provider_label == "Gemini":
             try:
@@ -1250,6 +1332,12 @@ if "study_chat_pending_prompt" not in st.session_state:
     st.session_state.study_chat_pending_prompt = ""
 if "chat_attachment_uploader_key" not in st.session_state:
     st.session_state.chat_attachment_uploader_key = 0
+if "voice_audio_uploader_key" not in st.session_state:
+    st.session_state.voice_audio_uploader_key = 0
+if "voice_transcript_text" not in st.session_state:
+    st.session_state.voice_transcript_text = ""
+if "voice_pending_audio" not in st.session_state:
+    st.session_state.voice_pending_audio = None
 
 subjects = get_subjects(user_id=user_id)
 prefill_subject_id = st.session_state.pop("chat_prefill_subject_id", None)
@@ -1616,6 +1704,84 @@ if st.session_state.get("study_chat_regenerate"):
         add_assistant_message(answer_data, last_request["context"])
     st.rerun()
 
+with st.expander("Voice Input", expanded=False):
+    st.caption(
+        "Record a short voice note or upload audio. Voice/audio may be sent to the selected AI provider "
+        "for transcription if online transcription is used."
+    )
+    recorded_audio = None
+    if hasattr(st, "audio_input"):
+        recorded_audio = st.audio_input(
+            "Record voice",
+            key=f"voice_recording_{st.session_state.voice_audio_uploader_key}",
+            help="Keep recordings short for the first version. Two to five minutes works best.",
+        )
+    else:
+        st.info("Browser voice recording is not available in this Streamlit version. Upload an audio file instead.")
+
+    uploaded_audio = st.file_uploader(
+        "Upload audio file",
+        type=["mp3", "wav", "m4a", "ogg", "webm"],
+        key=f"voice_audio_upload_{st.session_state.voice_audio_uploader_key}",
+        help="Supported: MP3, WAV, M4A, OGG, WEBM. Max 10 MB.",
+    )
+
+    selected_audio = recorded_audio or uploaded_audio
+    if selected_audio:
+        selected_audio_name = getattr(selected_audio, "name", "voice_recording.wav")
+        st.caption(
+            f"Ready: {_attachment_icon(Path(selected_audio_name).suffix.replace('.', '').upper())} "
+            f"{html.escape(selected_audio_name)} - {_format_size(getattr(selected_audio, 'size', 0))}"
+        )
+
+    voice_col1, voice_col2 = st.columns(2)
+    with voice_col1:
+        if st.button("Transcribe Audio", use_container_width=True):
+            if not selected_audio:
+                st.warning("Record voice or upload an audio file first.")
+            else:
+                active_session_id = _sync_active_chat_context(chat_mode, context)
+                attachment, warning = _audio_upload_to_attachment(selected_audio, active_session_id)
+                if attachment:
+                    st.session_state.voice_pending_audio = {
+                        "id": attachment["id"],
+                        "file_name": attachment["file_name"],
+                        "file_type": attachment["file_type"],
+                        "file_size": attachment["file_size"],
+                        "extracted_text": attachment.get("extracted_text", ""),
+                        "extraction_method": attachment.get("extraction_method", ""),
+                        "warning": attachment.get("warning", ""),
+                    }
+                    st.session_state.voice_transcript_text = attachment.get("extracted_text", "")
+                    if st.session_state.voice_transcript_text:
+                        st.success("Transcription ready.")
+                    else:
+                        st.warning("Could not transcribe this audio. Please try a clearer recording.")
+                if warning:
+                    st.warning(warning)
+
+    with voice_col2:
+        if st.button("Clear Transcription", use_container_width=True):
+            st.session_state.voice_pending_audio = None
+            st.session_state.voice_transcript_text = ""
+            st.session_state.voice_audio_uploader_key += 1
+            st.rerun()
+
+    if st.session_state.voice_pending_audio:
+        transcript = st.text_area(
+            "Edit transcribed text before sending",
+            key="voice_transcript_text",
+            height=120,
+            placeholder="Your transcribed voice message will appear here.",
+        )
+        if st.button("Send Transcribed Message", type="primary", use_container_width=True):
+            clean_transcript, transcript_error = validate_chat_question(transcript, max_length=1200)
+            if transcript_error:
+                st.warning(transcript_error)
+            else:
+                st.session_state.study_chat_pending_prompt = clean_transcript
+                st.rerun()
+
 with st.expander("Attach files to next message", expanded=False):
     chat_uploaded_files = st.file_uploader(
         "Attach images, PDFs, DOCX, PPTX, TXT, or Markdown files",
@@ -1657,8 +1823,21 @@ if prompt:
     if chat_mode == "Teach Me Mode":
         context = dict(st.session_state.get("study_chat_teach_context", {}))
         if not context:
-            st.warning("Start a lesson first by entering a topic in Teach Me Mode.")
-            st.stop()
+            context = {
+                "subject_id": None,
+                "document_ids": [],
+                "label": f"Teach Me: {clean_prompt[:60]}",
+                "badge": "Teach Me Mode",
+                "chat_mode": "Teach Me Mode",
+                "topic": clean_prompt[:80],
+                "material_source": "General Knowledge",
+                "learning_level": "Normal",
+                "language_style": "Simple English",
+                "teaching_depth": "Balanced",
+                "source_label": "Voice/Text Prompt",
+                "first_lesson": False,
+            }
+            st.session_state.study_chat_teach_context = context
         context["first_lesson"] = False
     elif chat_mode != "General Chat" and not selected_subject:
         st.warning("Select a subject first, or switch to General Chat.")
@@ -1677,6 +1856,9 @@ if prompt:
         chat_uploaded_files,
         active_session_id,
     )
+    pending_audio_attachment = st.session_state.get("voice_pending_audio")
+    if pending_audio_attachment:
+        processed_attachments.append(pending_audio_attachment)
     for attachment_warning in attachment_warnings:
         st.warning(attachment_warning)
     attachment_context, image_paths = _chat_attachment_context(processed_attachments)
@@ -1707,4 +1889,8 @@ if prompt:
 
     add_chat_pair(clean_prompt, answer_data, context, attachments=processed_attachments)
     st.session_state.chat_attachment_uploader_key += 1
+    if pending_audio_attachment:
+        st.session_state.voice_pending_audio = None
+        st.session_state.voice_transcript_text = ""
+        st.session_state.voice_audio_uploader_key += 1
     st.rerun()
