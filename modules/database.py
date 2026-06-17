@@ -1775,7 +1775,7 @@ def create_chat_session(
         return cursor.lastrowid
 
 
-def get_chat_sessions(user_id, limit=30, include_archived=False, search=""):
+def get_chat_sessions(user_id, limit=30, include_archived=False, search="", subject_id=None):
     """Return saved chat sessions for a user."""
     if not user_id:
         return []
@@ -1786,6 +1786,9 @@ def get_chat_sessions(user_id, limit=30, include_archived=False, search=""):
     if search:
         clauses.append("LOWER(title) LIKE ?")
         params.append(f"%{str(search).strip().lower()}%")
+    if subject_id is not None:
+        clauses.append("subject_id = ?")
+        params.append(subject_id)
     params.append(int(limit))
     with closing(get_connection()) as conn:
         return conn.execute(
@@ -1798,6 +1801,7 @@ def get_chat_sessions(user_id, limit=30, include_archived=False, search=""):
             """,
             params,
         ).fetchall()
+
 
 
 def get_chat_session(user_id, session_id):
