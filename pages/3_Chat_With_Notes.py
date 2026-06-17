@@ -7,6 +7,11 @@ from pathlib import Path
 
 import streamlit as st
 
+try:
+    import plotly.io as pio
+except Exception:
+    pio = None
+
 from modules import ai_engine
 from modules.auth import get_current_user_display_name, require_login
 from modules.audio_processor import (
@@ -32,6 +37,7 @@ from modules.database import (
     update_chat_session_title,
 )
 from modules.document_processor import IMAGE_TYPES, process_uploaded_file
+from modules.math_visualizer import generate_math_visualization, should_visualize_math
 from modules.security import validate_chat_question
 from modules.security import sanitize_filename, is_path_inside
 from modules.ui import (
@@ -218,6 +224,28 @@ def render_message_attachments(attachments):
             st.caption(attachment["warning"])
         if str(file_type).upper() in AUDIO_TYPES and attachment.get("transcript_preview"):
             st.caption(f"Transcript: {attachment['transcript_preview']}")
+
+
+def render_math_visualizations(visualizations):
+    """Render persisted mathematical Plotly figures inside chat messages."""
+    for index, visualization in enumerate(visualizations or [], start=1):
+        figure_json = visualization.get("figure_json", "")
+        if not figure_json:
+            continue
+        try:
+            figure = pio.from_json(figure_json)
+        except Exception:
+            st.warning("This saved math graph could not be displayed.")
+            continue
+        st.plotly_chart(
+            figure,
+            use_container_width=True,
+            key=f"math_visual_{index}_{abs(hash(figure_json[:80]))}",
+        )
+        if visualization.get("exact_result"):
+            st.caption(f"Exact result: {visualization['exact_result']}")
+        if visualization.get("numeric_result") is not None:
+            st.caption(f"Numerical approximation: {visualization['numeric_result']}")
 
 
 def _chat_attachment_context(attachments):
@@ -536,6 +564,7 @@ def _load_saved_chat_messages(session_id):
                 "warning": row["warning"],
                 "source_count": row["source_count"],
                 "suggestions": _decode_json(row["suggestions_json"], []),
+                "math_visualizations": metadata.get("math_visualizations", []),
                 "attachments": _attachment_rows_to_cards(attachments_by_message.get(row["id"], [])),
                 "created_at": row["created_at"],
                 "timestamp": row["created_at"],
@@ -649,6 +678,7 @@ def _persist_chat_message(message):
             "mode": message.get("mode"),
             "subject_id": message.get("subject_id"),
             "document_id": message.get("document_id"),
+            "math_visualizations": message.get("math_visualizations", []),
         },
         context_json=json.dumps(message.get("context", {}), default=str),
         sources_json=json.dumps(message.get("sources", []), default=str),
@@ -708,6 +738,7 @@ def add_chat_pair(question, answer_data, context, attachments=None):
             "source_count": answer_data["source_count"],
             "context": context,
             "suggestions": answer_data.get("suggestions", []),
+            "math_visualizations": answer_data.get("math_visualizations", []),
             "created_at": _message_timestamp(),
         }
     messages.append(user_message)
@@ -737,6 +768,7 @@ def add_assistant_message(answer_data, context):
             "source_count": answer_data["source_count"],
             "context": context,
             "suggestions": answer_data.get("suggestions", []),
+            "math_visualizations": answer_data.get("math_visualizations", []),
             "created_at": _message_timestamp(),
         }
     _chat_messages().append(assistant_message)
@@ -1280,6 +1312,28 @@ def generate_chat_answer(question, answer_style, chat_mode, context, attachment_
     Streamlit Cloud can occasionally keep an older imported module in memory
     after a deploy. This wrapper prevents a hard crash if ai_engine is stale.
     """
+    if should_visualize_math(question):
+        math_visualization = generate_math_visualization(question)
+        if math_visualization:
+            return {
+                "answer": math_visualization.get(
+                    "explanation",
+                    "I created a mathematical visualization for this problem.",
+                ),
+                "sources": [],
+                "warning": math_visualization.get("error", ""),
+                "source_count": 0,
+                "suggestions": [
+                    "Show the derivative graph",
+                    "Explain the shaded area",
+                    "Give exam-style steps",
+                    "Try another interval",
+                ],
+                "math_visualizations": [math_visualization]
+                if math_visualization.get("figure_json")
+                else [],
+            }
+
     if chat_mode == "Teach Me Mode":
         return generate_teach_me_answer(
             question=question,
@@ -1937,6 +1991,7 @@ with chat_col:
                     st.warning(message["warning"])
 
                 render_ai_markdown(message["content"])
+                render_math_visualizations(message.get("math_visualizations", []))
                 render_message_attachments(message.get("attachments", []))
 
                 if message["role"] == "assistant":
