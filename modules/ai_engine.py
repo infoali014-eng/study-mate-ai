@@ -18,13 +18,13 @@ load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 DEFAULT_AI_PROVIDER = os.getenv("AI_PROVIDER", "Gemini")
 REQUIRE_USER_API_KEYS = os.getenv("REQUIRE_USER_API_KEYS", "true").lower() != "false"
 OPENAI_MODEL_OPTIONS = [
     model.strip()
-    for model in os.getenv("OPENAI_MODEL_OPTIONS", "gpt-5.4-mini,gpt-5.4,gpt-5.5").split(",")
+    for model in os.getenv("OPENAI_MODEL_OPTIONS", "gpt-4o-mini,gpt-4o,o1-mini").split(",")
     if model.strip()
 ]
 LEGACY_GEMINI_MODELS = {"gemini-1.5-flash", "gemini-1.5-pro"}
@@ -249,6 +249,40 @@ flowchart TD
     B --> C[Apply with example]
     C --> D[Exam-ready answer]
 ```
+
+MATHEMATICAL GRAPHING & VISUALIZATION:
+If the user asks to graph, plot, sketch, or visualize a mathematical function (such as a trigonometric function, region of integration for a double integral, or standard 2D curves), you must solve the question step-by-step in your response text. At the very end of your response, you must append a structured JSON block inside `<math_graph> ... </math_graph>` tags. Do not put markdown code block formatting (like ```json) inside the tags.
+The JSON block must conform to this schema:
+{{
+  "type": "standard_2d" | "trigonometric",
+  "title": "Title of the Graph",
+  "x_min": -6.28,
+  "x_max": 6.28,
+  "x_label": "x",
+  "y_label": "y",
+  "y_min": optional_float,
+  "y_max": optional_float,
+  "curves": [
+    {{
+      "expression": "sin(x)",
+      "label": "y = sin(x)",
+      "color": "#14b8b4"  // Use premium Hex colors: e.g. #2f7df6, #ff637d, #8b5cf6, #14b8b4, #ffb703
+    }}
+  ],
+  "shading": {{
+    "lower_expr": "x^2",  // lower boundary function of x
+    "upper_expr": "x",    // upper boundary function of x
+    "x_min": 0,           // start of shaded region
+    "x_max": 1,           // end of shaded region
+    "color": "rgba(20, 184, 180, 0.28)", // semi-transparent color
+    "label": "Region description"
+  }}
+}}
+
+Important:
+1. "type": "trigonometric" will automatically format the x-axis with pi-based labels (e.g. -pi, -pi/2, 0, pi/2, pi) and grids. Always use this for trigonometric functions.
+2. For double integrals, use "type": "standard_2d" and define the "shading" parameter to shade the region of integration. Keep curves for the boundaries in the "curves" list so they are clearly outlined.
+3. Make sure the expressions in "curves" or "shading" are standard single-variable formulas in 'x' that Python/SymPy can parse (e.g. '3*x', 'sin(x)', 'x**2', 'exp(x)'). Do not use 'y = ...' inside the expression string.
 
 For academic questions, prefer this structure when useful:
 - Simple explanation
@@ -1366,9 +1400,14 @@ def generate_study_chat_response(
     except Exception as exc:
         answer = safe_ai_error_message(exc)
 
+    from modules.math_visualizer import parse_and_build_math_graphs
+    clean_answer, math_visualizations = parse_and_build_math_graphs(answer)
+    answer = clean_answer
+
     return {
         "answer": answer,
         "sources": sources,
         "warning": warning,
         "source_count": len(sources),
+        "math_visualizations": math_visualizations,
     }

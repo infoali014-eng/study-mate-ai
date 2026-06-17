@@ -661,3 +661,222 @@ def generate_math_visualization(prompt):
             ),
             "error": str(exc)[:160],
         }
+
+
+def get_trig_ticks(x_min, x_max):
+    """Calculate fractional tick marks for trigonometric axes."""
+    ticks = []
+    labels = []
+    half_pi = np.pi / 2
+    for k in range(-40, 41):
+        val = k * half_pi
+        if x_min - 0.1 <= val <= x_max + 0.1:
+            ticks.append(val)
+            if k == 0:
+                labels.append("0")
+            elif k == 1:
+                labels.append("π/2")
+            elif k == -1:
+                labels.append("-π/2")
+            elif k % 2 == 0:
+                m = k // 2
+                if m == 1:
+                    labels.append("π")
+                elif m == -1:
+                    labels.append("-π")
+                else:
+                    labels.append(f"{m}π")
+            else:
+                labels.append(f"{k}π/2")
+    return ticks, labels
+
+
+def build_graph_from_spec(spec):
+    """Build a custom mathematical Plotly figure based on an AI-generated spec dict."""
+    if not isinstance(spec, dict):
+        return None
+
+    graph_type = spec.get("type", "standard_2d")
+    title = spec.get("title", "Mathematical Visualization")
+    x_min_val = float(spec.get("x_min", -6.28))
+    x_max_val = float(spec.get("x_max", 6.28))
+    y_min_val = spec.get("y_min", None)
+    y_max_val = spec.get("y_max", None)
+
+    if y_min_val is not None:
+        y_min_val = float(y_min_val)
+    if y_max_val is not None:
+        y_max_val = float(y_max_val)
+
+    fig = go.Figure()
+
+    # 1. Plot curves
+    curves = spec.get("curves", [])
+    for idx, curve in enumerate(curves):
+        expr_str = curve.get("expression", "")
+        label = curve.get("label", expr_str)
+        color = curve.get("color", None)
+
+        if not expr_str:
+            continue
+
+        try:
+            expr = _safe_sympify(expr_str)
+            x_vals = np.linspace(x_min_val, x_max_val, 1000)
+            f = _safe_lambdify(expr)
+            with np.errstate(all="ignore"):
+                y_vals = np.asarray(f(x_vals), dtype=np.complex128)
+            y_vals = np.real_if_close(y_vals, tol=1000)
+            y_vals = np.asarray(y_vals, dtype=float)
+            y_vals[~np.isfinite(y_vals)] = np.nan
+            y_vals[np.abs(y_vals) > 1e6] = np.nan
+
+            if not color:
+                default_colors = ["#2f7df6", "#ff637d", "#8b5cf6", "#14b8b4", "#ffb703"]
+                color = default_colors[idx % len(default_colors)]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=x_vals,
+                    y=y_vals,
+                    mode="lines",
+                    name=label,
+                    line=dict(color=color, width=3),
+                )
+            )
+        except Exception:
+            continue
+
+    # 2. Add Shading
+    shading = spec.get("shading", None)
+    if shading and isinstance(shading, dict):
+        lower_expr_str = shading.get("lower_expr", "0")
+        upper_expr_str = shading.get("upper_expr", "")
+        shading_x_min = float(shading.get("x_min", x_min_val))
+        shading_x_max = float(shading.get("x_max", x_max_val))
+        shading_color = shading.get("color", "rgba(20, 184, 180, 0.28)")
+        shading_label = shading.get("label", "Region of Integration")
+
+        if upper_expr_str:
+            try:
+                lower_expr = _safe_sympify(lower_expr_str)
+                upper_expr = _safe_sympify(upper_expr_str)
+
+                shade_x = np.linspace(shading_x_min, shading_x_max, 500)
+                f_lower = _safe_lambdify(lower_expr)
+                f_upper = _safe_lambdify(upper_expr)
+
+                with np.errstate(all="ignore"):
+                    shade_y_lower = np.asarray(f_lower(shade_x), dtype=float)
+                    shade_y_upper = np.asarray(f_upper(shade_x), dtype=float)
+
+                shade_y_lower[~np.isfinite(shade_y_lower)] = 0.0
+                shade_y_upper[~np.isfinite(shade_y_upper)] = 0.0
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=np.concatenate([shade_x, shade_x[::-1]]),
+                        y=np.concatenate([shade_y_upper, shade_y_lower[::-1]]),
+                        fill="toself",
+                        fillcolor=shading_color,
+                        line=dict(color="rgba(0,0,0,0)"),
+                        name=shading_label,
+                    )
+                )
+            except Exception:
+                pass
+
+    # Layout configurations
+    fig.update_layout(
+        title=title,
+        xaxis_title=spec.get("x_label", "x"),
+        yaxis_title=spec.get("y_label", "y"),
+        template="plotly_white",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        margin=dict(l=40, r=24, t=70, b=40),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, system-ui, sans-serif"),
+    )
+
+    fig.update_xaxes(
+        showgrid=True,
+        gridcolor="rgba(226, 232, 240, 0.8)",
+        zeroline=True,
+        zerolinewidth=1.5,
+        zerolinecolor="#334155",
+    )
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor="rgba(226, 232, 240, 0.8)",
+        zeroline=True,
+        zerolinewidth=1.5,
+        zerolinecolor="#334155",
+    )
+
+    if graph_type == "trigonometric":
+        tickvals, ticktext = get_trig_ticks(x_min_val, x_max_val)
+        fig.update_xaxes(
+            tickvals=tickvals,
+            ticktext=ticktext,
+            tickmode="array",
+        )
+
+    fig.update_xaxes(range=[x_min_val, x_max_val])
+    if y_min_val is not None and y_max_val is not None:
+        fig.update_yaxes(range=[y_min_val, y_max_val])
+
+    return {
+        "kind": graph_type,
+        "expression": "",
+        "exact_result": "",
+        "numeric_result": None,
+        "figure_json": fig.to_json(),
+        "explanation": "",
+    }
+
+
+def parse_and_build_math_graphs(response_text):
+    """Find, extract, and build Plotly figures from <math_graph> JSON tags in assistant text."""
+    import json
+    if not response_text:
+        return "", []
+
+    clean_text = response_text
+    visualizations = []
+
+    pattern = r"<math_graph>(.*?)</math_graph>"
+    matches = list(re.finditer(pattern, clean_text, re.DOTALL))
+
+    for match in reversed(matches):
+        json_str = match.group(1).strip()
+        start, end = match.span()
+
+        # Remove the tag block from the user-facing text
+        clean_text = clean_text[:start] + clean_text[end:]
+
+        try:
+            # Strip potential markdown code block formatting inside the XML tags
+            if json_str.startswith("```"):
+                lines = json_str.splitlines()
+                if len(lines) >= 2:
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines[-1].strip() == "```":
+                        lines = lines[:-1]
+                json_str = "\n".join(lines).strip()
+
+            spec = json.loads(json_str)
+            fig_data = build_graph_from_spec(spec)
+            if fig_data:
+                visualizations.append(fig_data)
+        except Exception as e:
+            visualizations.append({
+                "kind": "math_error",
+                "figure_json": "",
+                "explanation": f"Failed to build graph from spec: {e}",
+            })
+
+    visualizations.reverse()
+    return clean_text.strip(), visualizations

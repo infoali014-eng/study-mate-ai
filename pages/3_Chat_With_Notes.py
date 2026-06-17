@@ -1312,7 +1312,18 @@ def generate_chat_answer(question, answer_style, chat_mode, context, attachment_
     Streamlit Cloud can occasionally keep an older imported module in memory
     after a deploy. This wrapper prevents a hard crash if ai_engine is stale.
     """
-    if should_visualize_math(question):
+    provider = ai_engine.normalize_provider(ai_engine.get_selected_provider())
+    has_api_key = False
+    if provider == "Gemini":
+        has_api_key = bool(ai_engine.get_gemini_api_key())
+    elif provider == "OpenAI":
+        has_api_key = bool(ai_engine.get_openai_api_key())
+    elif provider == "Groq":
+        has_api_key = bool(ai_engine.get_groq_api_key())
+    elif provider == "Ollama":
+        has_api_key = True
+
+    if not has_api_key and should_visualize_math(question):
         math_visualization = generate_math_visualization(question)
         if math_visualization:
             return {
