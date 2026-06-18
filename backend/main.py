@@ -567,6 +567,11 @@ def get_ai_settings(user: dict = Depends(get_current_user)):
     }
 
 
+@app.get("/api/settings/ocr")
+def get_ocr_status():
+    return {"status": ocr_status()}
+
+
 @app.post("/api/settings/ai")
 def save_ai_settings(req: AISettingsSave, user: dict = Depends(get_current_user)):
     # Save active provider to session (in web app we can also allow user-level DB settings)

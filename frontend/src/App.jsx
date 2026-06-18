@@ -85,6 +85,7 @@ function App() {
   const [geminiKey, setGeminiKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
   const [settingsStatus, setSettingsStatus] = useState(null);
+  const [ocrStatus, setOcrStatus] = useState('Checking...');
 
   // Fetch current user and initialize app if authenticated
   useEffect(() => {
@@ -100,6 +101,9 @@ function App() {
   useEffect(() => {
     if (user) {
       fetchSubjects();
+      if (activeTab === 'Upload Notes') {
+        fetchOcrStatus();
+      }
       if (activeTab === 'Pomodoro Timer') {
         fetchPomodoroSessions();
       }
@@ -122,6 +126,20 @@ function App() {
       }
     } catch (e) {
       logout();
+    }
+  };
+
+  const fetchOcrStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/ocr`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOcrStatus(data.status);
+      }
+    } catch (e) {
+      setOcrStatus('Unavailable');
     }
   };
 
@@ -725,6 +743,22 @@ function App() {
             </div>
 
             <div className="glass-card" style={{ maxWidth: '600px', margin: '0 auto' }}>
+              <div style={{
+                background: 'rgba(47, 125, 246, 0.06)',
+                border: '1px solid rgba(47, 125, 246, 0.15)',
+                borderRadius: 'var(--radius-md)',
+                padding: '12px 16px',
+                marginBottom: '20px',
+                fontSize: '13.5px',
+                color: 'var(--color-charcoal)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <span style={{ fontSize: '16px' }}>ℹ️</span>
+                <span><strong>OCR Status:</strong> {ocrStatus}. Image/scanned notes may be limited if OCR is unavailable.</span>
+              </div>
+
               <form onSubmit={handleUpload}>
                 <div className="form-group">
                   <label className="form-label">Select Subject</label>
@@ -737,7 +771,7 @@ function App() {
                   <textarea className="form-control" placeholder="Optional: chapter info, lecture note name..." value={uploadDesc} onChange={e => setUploadDesc(e.target.value)} rows="3" />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Upload File (PDF, Images, DOCX, TXT)</label>
+                  <label className="form-label">Upload File (PDF, Images, DOCX, PPTX, TXT)</label>
                   <input className="form-control" type="file" onChange={e => setUploadFile(e.target.files[0])} required />
                 </div>
                 {uploadWarning && <div style={{ color: 'var(--color-secondary)', fontSize: '13px', marginBottom: '12px' }}>{uploadWarning}</div>}
