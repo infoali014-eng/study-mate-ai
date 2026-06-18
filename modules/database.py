@@ -2510,9 +2510,9 @@ def get_group_leaderboard(group_id):
         return conn.execute(
             """
             SELECT u.name AS user_name, s.name AS subject_name,
-                   MAX(qr.score_percentage) AS max_score,
+                   MAX(CAST(qr.score AS FLOAT) / NULLIF(qr.total_questions, 0) * 100) AS max_score,
                    COUNT(qr.id) AS total_quizzes,
-                   AVG(qr.score_percentage) AS avg_score
+                   AVG(CAST(qr.score AS FLOAT) / NULLIF(qr.total_questions, 0) * 100) AS avg_score
             FROM quiz_results qr
             JOIN users u ON qr.user_id = u.id
             JOIN subjects s ON qr.subject_id = s.id
