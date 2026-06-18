@@ -63,7 +63,7 @@ if not subjects:
 
 subject_options = {}
 for s in subjects:
-    if s.get("group_name"):
+    if s["group_name"]:
         display_name = f"👥 [{s['group_name']}] {s['name']}"
     else:
         display_name = f"👤 [Personal] {s['name']}"
