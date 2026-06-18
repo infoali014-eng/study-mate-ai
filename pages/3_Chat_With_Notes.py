@@ -1833,6 +1833,14 @@ if pending_session_load:
     loaded_session_from_history = _load_chat_session(pending_session_load)
 
 subjects = get_subjects(user_id=user_id)
+subject_options = {}
+for s in subjects:
+    if s["group_name"]:
+        display_name = f"👥 [{s['group_name']}] {s['name']}"
+    else:
+        display_name = s['name']
+    subject_options[display_name] = s
+
 prefill_subject_id = st.session_state.pop("chat_prefill_subject_id", None)
 prefill_document_id = st.session_state.pop("chat_prefill_document_id", None)
 prefill_document_ids = st.session_state.pop("chat_prefill_document_ids", [])
@@ -1896,16 +1904,14 @@ with chat_col:
                 if not subjects:
                     st.warning("Create a subject or switch to General Chat.")
                 else:
-                    subject_names = [subject["name"] for subject in subjects]
+                    subject_display_names = list(subject_options.keys())
                     subject_index = get_subject_index(subjects, prefill_subject_id)
-                    selected_subject_name = st.selectbox(
+                    selected_subject_display_name = st.selectbox(
                         "Subject",
-                        subject_names,
+                        subject_display_names,
                         index=subject_index,
                     )
-                    selected_subject = next(
-                        subject for subject in subjects if subject["name"] == selected_subject_name
-                    )
+                    selected_subject = subject_options[selected_subject_display_name]
                     subject_documents = list(
                         get_documents_by_subject(selected_subject["id"], user_id=user_id)
                     )
@@ -1982,14 +1988,12 @@ with chat_col:
                     st.selectbox("Subject", ["Create a subject first"], disabled=True)
                     st.warning("Create a subject or choose General Knowledge.")
                 else:
-                    teach_subject_name = st.selectbox(
+                    teach_subject_display_name = st.selectbox(
                         "Subject",
-                        [subject["name"] for subject in subjects],
+                        list(subject_options.keys()),
                         key="teach_subject_selector",
                     )
-                    teach_subject = next(
-                        subject for subject in subjects if subject["name"] == teach_subject_name
-                    )
+                    teach_subject = subject_options[teach_subject_display_name]
                     teach_subject_documents = list(
                         get_documents_by_subject(teach_subject["id"], user_id=user_id)
                     )
