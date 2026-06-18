@@ -499,10 +499,11 @@ def transcribe_audio(file_path, provider="auto", api_key=None, model=None):
     else:
         attempts = ["gemini", "groq", "openai", "local"]
 
-    last_error = ""
+    errors = []
     for attempt in attempts:
         if attempt == "gemini":
             if not gemini_key:
+                errors.append("Gemini: API key is not configured.")
                 continue
             for candidate_path, mime_type in candidates:
                 gemini_result = transcribe_with_gemini_audio(
@@ -517,10 +518,14 @@ def transcribe_audio(file_path, provider="auto", api_key=None, model=None):
                 if gemini_result.get("success"):
                     return gemini_result
                 warnings.extend(gemini_result.get("warnings", []))
-                last_error = gemini_result.get("error", "")
+                errors.append(f"Gemini: {gemini_result.get('error', 'unknown error')}")
 
         elif attempt == "groq":
             if not groq_key:
+                errors.append("Groq: API key is not configured.")
+                continue
+            if "your_groq_api_key" in groq_key:
+                errors.append("Groq: API key is a placeholder in .env.")
                 continue
             groq_result = transcribe_with_groq_audio(candidates[0][0], api_key=groq_key)
             groq_result["status"] = status
@@ -529,10 +534,14 @@ def transcribe_audio(file_path, provider="auto", api_key=None, model=None):
             if groq_result.get("success"):
                 return groq_result
             warnings.extend(groq_result.get("warnings", []))
-            last_error = groq_result.get("error", "")
+            errors.append(f"Groq: {groq_result.get('error', 'unknown error')}")
 
         elif attempt == "openai":
             if not openai_key:
+                errors.append("OpenAI: API key is not configured.")
+                continue
+            if "your_openai_api_key" in openai_key:
+                errors.append("OpenAI: API key is a placeholder.")
                 continue
             openai_result = ai_engine.transcribe_with_openai_audio(candidates[0][0], api_key=openai_key)
             openai_result["status"] = status
@@ -541,7 +550,7 @@ def transcribe_audio(file_path, provider="auto", api_key=None, model=None):
             if openai_result.get("success"):
                 return openai_result
             warnings.extend(openai_result.get("warnings", []))
-            last_error = openai_result.get("error", "")
+            errors.append(f"OpenAI: {openai_result.get('error', 'unknown error')}")
 
         elif attempt == "local":
             local_result = transcribe_with_local_whisper(candidates[0][0])
@@ -551,12 +560,15 @@ def transcribe_audio(file_path, provider="auto", api_key=None, model=None):
             if local_result.get("success"):
                 return local_result
             warnings.extend(local_result.get("warnings", []))
-            last_error = local_result.get("error") or last_error
+            errors.append(f"Local Whisper: {local_result.get('error', 'unknown error')}")
+
+    # Combine errors for user clarity
+    error_msg = "Transcription failed:\n" + "\n".join(f"- {e}" for e in errors)
 
     return _transcription_result(
         False,
         method="unavailable",
-        error=last_error or "Voice transcription is unavailable. Configure an API key or ensure local speech-to-text is installed.",
+        error=error_msg,
         warnings=list(dict.fromkeys(warnings)),
         status=status,
     )
