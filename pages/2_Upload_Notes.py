@@ -66,7 +66,7 @@ for s in subjects:
     if s["group_name"]:
         display_name = f"👥 [{s['group_name']}] {s['name']}"
     else:
-        display_name = f"👤 [Personal] {s['name']}"
+        display_name = s['name']
     subject_options[display_name] = s
 
 section_title("Upload Workspace", "☁️")

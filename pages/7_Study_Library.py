@@ -339,7 +339,7 @@ def render_document_details(document):
             st.write(extracted_text[:3000] if extracted_text else "No extracted text preview found.")
 
 
-def apply_filters(documents, selected_subject, selected_file_type, search_text):
+def apply_filters(documents, selected_subject_id, selected_file_type, search_text):
     """Apply search, subject, and file type filters together."""
     filtered = list(documents)
 
@@ -347,8 +347,8 @@ def apply_filters(documents, selected_subject, selected_file_type, search_text):
         query = search_text.lower().strip()
         filtered = [document for document in filtered if query in document["file_name"].lower()]
 
-    if selected_subject != "All":
-        filtered = [document for document in filtered if document["subject_name"] == selected_subject]
+    if selected_subject_id != "All":
+        filtered = [document for document in filtered if str(document["subject_id"]) == str(selected_subject_id)]
 
     if selected_file_type != "All types":
         filtered = [
@@ -371,16 +371,16 @@ if "library_pending_delete" not in st.session_state:
     st.session_state.library_pending_delete = None
 if "library_summary" not in st.session_state:
     st.session_state.library_summary = {}
-if "library_success" not in st.session_state:
-    st.session_state.library_success = ""
 if "library_auto_summary" not in st.session_state:
     st.session_state.library_auto_summary = None
+if "library_search" not in st.session_state:
+    st.session_state.library_search = ""
 if "library_subject_filter" not in st.session_state:
     st.session_state.library_subject_filter = "All"
 if "library_file_type_filter" not in st.session_state:
     st.session_state.library_file_type_filter = "All types"
-if "library_search" not in st.session_state:
-    st.session_state.library_search = ""
+if "library_success" not in st.session_state:
+    st.session_state.library_success = ""
 
 st.markdown(
     """
@@ -388,6 +388,13 @@ st.markdown(
         <h1>Study Library</h1>
         <p>Browse, read, and manage your uploaded notes subject-wise.</p>
     </div>
+    <style>
+    .filter-card-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+    </style>
     """,
     unsafe_allow_html=True,
 )
@@ -404,8 +411,8 @@ for s in subjects:
     if s["group_name"]:
         display_name = f"👥 [{s['group_name']}] {s['name']}"
     else:
-        display_name = f"👤 [Personal] {s['name']}"
-    subject_options[display_name] = s["name"]
+        display_name = s['name']
+    subject_options[display_name] = s["id"]
 
 subject_display_names = list(subject_options.keys())
 file_types = ["All types"] + sorted({(document["file_type"] or "PDF").upper() for document in documents})
@@ -480,11 +487,11 @@ for index, display_name in enumerate(subject_display_names):
             args=(display_name,),
         )
 
-actual_subject_name = subject_options.get(st.session_state.library_subject_filter, "All")
+actual_subject_id = subject_options.get(st.session_state.library_subject_filter, "All")
 
 filtered_documents = apply_filters(
     documents=documents,
-    selected_subject=actual_subject_name,
+    selected_subject_id=actual_subject_id,
     selected_file_type=st.session_state.library_file_type_filter,
     search_text=st.session_state.library_search,
 )
