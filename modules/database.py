@@ -289,6 +289,33 @@ def create_tables():
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS study_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                invite_code TEXT UNIQUE NOT NULL,
+                owner_id INTEGER NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS study_group_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'member',
+                joined_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(group_id, user_id),
+                FOREIGN KEY (group_id) REFERENCES study_groups (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS app_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT DEFAULT '',
@@ -373,6 +400,7 @@ def _run_migrations(conn):
     _add_missing_column(conn, "users", "is_active", "INTEGER DEFAULT 1")
     _add_missing_column(conn, "users", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
     _add_missing_column(conn, "subjects", "user_id", "INTEGER")
+    _add_missing_column(conn, "subjects", "group_id", "INTEGER")
     _add_missing_column(conn, "subjects", "is_deleted", "INTEGER DEFAULT 0")
     _add_missing_column(conn, "uploaded_documents", "user_id", "INTEGER")
     _add_missing_column(conn, "uploaded_documents", "file_type", "TEXT DEFAULT 'PDF'")
@@ -1198,53 +1226,58 @@ def delete_remember_session(token):
 
 
 def subject_belongs_to_user(subject_id, user_id):
-    """Check subject ownership before sensitive actions."""
+    """Check subject ownership or group membership before sensitive actions."""
     if not user_id:
         return False
     with closing(get_connection()) as conn:
         row = conn.execute(
             """
             SELECT id FROM subjects
-            WHERE id = ? AND user_id = ? AND is_deleted = 0
+            WHERE id = ? 
+              AND (user_id = ? OR group_id IN (SELECT group_id FROM study_group_members WHERE user_id = ?))
+              AND is_deleted = 0
             """,
-            (subject_id, user_id),
+            (subject_id, user_id, user_id),
         ).fetchone()
         return row is not None
 
 
 def document_belongs_to_user(document_id, user_id):
-    """Check document ownership before preview/chat/delete actions."""
+    """Check document ownership or group membership before preview/chat/delete actions."""
     if not user_id:
         return False
     with closing(get_connection()) as conn:
         row = conn.execute(
             """
-            SELECT uploaded_documents.id
-            FROM uploaded_documents
-            JOIN subjects ON subjects.id = uploaded_documents.subject_id
-            WHERE uploaded_documents.id = ?
-              AND uploaded_documents.user_id = ?
-              AND subjects.user_id = ?
-              AND uploaded_documents.is_deleted = 0
-              AND subjects.is_deleted = 0
+            SELECT ud.id
+            FROM uploaded_documents ud
+            JOIN subjects s ON s.id = ud.subject_id
+            WHERE ud.id = ?
+              AND (
+                ud.user_id = ? 
+                OR s.user_id = ? 
+                OR s.group_id IN (SELECT group_id FROM study_group_members WHERE user_id = ?)
+              )
+              AND ud.is_deleted = 0
+              AND s.is_deleted = 0
             """,
-            (document_id, user_id, user_id),
+            (document_id, user_id, user_id, user_id),
         ).fetchone()
         return row is not None
 
 
-def add_subject(name, description="", user_id=None):
-    """Add a subject for the current user and return its new id."""
+def add_subject(name, description="", user_id=None, group_id=None):
+    """Add a subject for the current user/group and return its new id."""
     if not user_id:
         return None
     try:
         with closing(get_connection()) as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO subjects (user_id, name, description)
-                VALUES (?, ?, ?)
+                INSERT INTO subjects (user_id, name, description, group_id)
+                VALUES (?, ?, ?, ?)
                 """,
-                (user_id, name.strip(), description.strip()),
+                (user_id, name.strip(), description.strip(), group_id),
             )
             conn.commit()
             return cursor.lastrowid
@@ -1258,31 +1291,40 @@ def create_subject(name, description="", user_id=None):
 
 
 def get_subjects(user_id=None):
-    """Return the current user's subjects sorted by newest first."""
+    """Return the current user's subjects (personal + group shared) sorted by newest first."""
     if not user_id:
         return []
     with closing(get_connection()) as conn:
+        conn.row_factory = sqlite3.Row
         return conn.execute(
             """
-            SELECT * FROM subjects
-            WHERE user_id = ? AND is_deleted = 0
-            ORDER BY created_at DESC
+            SELECT s.*, sg.name AS group_name 
+            FROM subjects s
+            LEFT JOIN study_groups sg ON s.group_id = sg.id
+            WHERE (s.user_id = ? OR s.group_id IN (SELECT group_id FROM study_group_members WHERE user_id = ?))
+              AND s.is_deleted = 0
+            ORDER BY s.created_at DESC
             """,
-            (user_id,),
+            (user_id, user_id),
         ).fetchall()
 
 
 def get_subject(subject_id, user_id=None):
-    """Return one subject only if it belongs to the current user."""
+    """Return one subject only if it belongs to the current user or their study groups."""
     if not user_id:
         return None
     with closing(get_connection()) as conn:
+        conn.row_factory = sqlite3.Row
         return conn.execute(
             """
-            SELECT * FROM subjects
-            WHERE id = ? AND user_id = ? AND is_deleted = 0
+            SELECT s.*, sg.name AS group_name 
+            FROM subjects s
+            LEFT JOIN study_groups sg ON s.group_id = sg.id
+            WHERE s.id = ? 
+              AND (s.user_id = ? OR s.group_id IN (SELECT group_id FROM study_group_members WHERE user_id = ?))
+              AND s.is_deleted = 0
             """,
-            (subject_id, user_id),
+            (subject_id, user_id, user_id),
         ).fetchone()
 
 
@@ -2323,3 +2365,161 @@ def get_dashboard_counts(user_id=None):
             "flashcards": flashcards,
             "quizzes": quizzes,
         }
+
+
+def create_study_group(name, description, owner_id):
+    """Create a new study group and return its ID and invite code."""
+    import random
+    import string
+    
+    if not name or not owner_id:
+        return None, "Group name and owner ID are required."
+        
+    # Generate a unique invite code
+    code_found = False
+    invite_code = ""
+    with closing(get_connection()) as conn:
+        for _ in range(10): # try 10 times to get unique
+            # Format: MATH-1234
+            prefix = "".join(random.choices(string.ascii_uppercase, k=4))
+            suffix = "".join(random.choices(string.digits, k=4))
+            test_code = f"{prefix}-{suffix}"
+            exists = conn.execute("SELECT 1 FROM study_groups WHERE invite_code = ?", (test_code,)).fetchone()
+            if not exists:
+                invite_code = test_code
+                code_found = True
+                break
+        if not code_found:
+            return None, "Could not generate a unique invite code. Try again."
+            
+        cursor = conn.execute(
+            """
+            INSERT INTO study_groups (name, description, invite_code, owner_id)
+            VALUES (?, ?, ?, ?)
+            """,
+            (name.strip(), description.strip(), invite_code, owner_id)
+        )
+        group_id = cursor.lastrowid
+        
+        # Add owner as a member with 'owner' role
+        conn.execute(
+            """
+            INSERT INTO study_group_members (group_id, user_id, role)
+            VALUES (?, ?, 'owner')
+            """,
+            (group_id, owner_id)
+        )
+        conn.commit()
+    return group_id, invite_code
+
+
+def join_study_group(invite_code, user_id):
+    """Add user to a study group using the invite code. Returns group name or error."""
+    if not invite_code or not user_id:
+        return None, "Invite code and user ID are required."
+        
+    clean_code = invite_code.strip().upper()
+    with closing(get_connection()) as conn:
+        group = conn.execute(
+            "SELECT id, name FROM study_groups WHERE invite_code = ?", (clean_code,)
+        ).fetchone()
+        if not group:
+            return None, "Invalid invite code. Please check and try again."
+            
+        group_id = group["id"]
+        group_name = group["name"]
+        
+        # Check if already a member
+        is_member = conn.execute(
+            "SELECT 1 FROM study_group_members WHERE group_id = ? AND user_id = ?",
+            (group_id, user_id)
+        ).fetchone()
+        if is_member:
+            return group_name, "You are already a member of this study group."
+            
+        conn.execute(
+            """
+            INSERT INTO study_group_members (group_id, user_id, role)
+            VALUES (?, ?, 'member')
+            """,
+            (group_id, user_id)
+        )
+        conn.commit()
+    return group_name, ""
+
+
+def get_user_study_groups(user_id):
+    """Return all study groups the user is a member of."""
+    if not user_id:
+        return []
+    with closing(get_connection()) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute(
+            """
+            SELECT sg.id, sg.name, sg.description, sg.invite_code, sg.owner_id, sg.created_at, sgm.role
+            FROM study_groups sg
+            JOIN study_group_members sgm ON sg.id = sgm.group_id
+            WHERE sgm.user_id = ?
+            ORDER BY sg.name ASC
+            """,
+            (user_id,)
+        ).fetchall()
+
+
+def get_group_members(group_id):
+    """Return list of members in a study group."""
+    if not group_id:
+        return []
+    with closing(get_connection()) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute(
+            """
+            SELECT u.id, u.name, u.email, sgm.role, sgm.joined_at
+            FROM users u
+            JOIN study_group_members sgm ON u.id = sgm.user_id
+            WHERE sgm.group_id = ?
+            ORDER BY CASE sgm.role WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END, u.name ASC
+            """,
+            (group_id,)
+        ).fetchall()
+
+
+def get_group_subjects(group_id):
+    """Return all subjects shared in a study group."""
+    if not group_id:
+        return []
+    with closing(get_connection()) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute(
+            """
+            SELECT id, name, description, created_at
+            FROM subjects
+            WHERE group_id = ? AND is_deleted = 0
+            ORDER BY name ASC
+            """,
+            (group_id,)
+        ).fetchall()
+
+
+def get_group_leaderboard(group_id):
+    """Return practice quiz high scores for all members of a study group."""
+    if not group_id:
+        return []
+    with closing(get_connection()) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute(
+            """
+            SELECT u.name AS user_name, s.name AS subject_name,
+                   MAX(qr.score_percentage) AS max_score,
+                   COUNT(qr.id) AS total_quizzes,
+                   AVG(qr.score_percentage) AS avg_score
+            FROM quiz_results qr
+            JOIN users u ON qr.user_id = u.id
+            JOIN subjects s ON qr.subject_id = s.id
+            JOIN study_group_members sgm ON u.id = sgm.user_id
+            WHERE sgm.group_id = ? AND s.group_id = ?
+            GROUP BY qr.user_id
+            ORDER BY max_score DESC, avg_score DESC
+            """,
+            (group_id, group_id)
+        ).fetchall()

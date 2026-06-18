@@ -61,8 +61,15 @@ if not subjects:
     )
     st.stop()
 
-subject_options = {subject["name"]: subject for subject in subjects}
-section_title("Upload Workspace", "\u2601\ufe0f")
+subject_options = {}
+for s in subjects:
+    if s.get("group_name"):
+        display_name = f"👥 [{s['group_name']}] {s['name']}"
+    else:
+        display_name = f"👤 [Personal] {s['name']}"
+    subject_options[display_name] = s
+
+section_title("Upload Workspace", "☁️")
 with st.container(border=True):
     selected_name = st.selectbox("Choose subject", list(subject_options.keys()))
     selected_subject = subject_options[selected_name]

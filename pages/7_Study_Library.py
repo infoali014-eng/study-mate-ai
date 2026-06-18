@@ -49,8 +49,9 @@ def read_extracted_text(document):
     """Return extracted text for a document when it is available."""
     text_path = document["extracted_text_path"]
     user_id = st.session_state.get("user_id")
-    allowed_root = DATA_DIR / "extracted_text" / str(user_id)
-    if text_path and is_path_inside(allowed_root, text_path) and Path(text_path).exists():
+    allowed_root = DATA_DIR / "extracted_text"
+    from modules.database import document_belongs_to_user
+    if text_path and document_belongs_to_user(document["id"], user_id) and is_path_inside(allowed_root, text_path) and Path(text_path).exists():
         return Path(text_path).read_text(encoding="utf-8", errors="ignore")
     return ""
 
@@ -245,10 +246,12 @@ def render_document_details(document):
 
         original_path = document["file_path"]
         file_type = (document["file_type"] or Path(document["file_name"]).suffix.replace(".", "") or "PDF").upper()
-        allowed_root = DATA_DIR / "uploads" / str(st.session_state.get("user_id"))
-
-        if not is_path_inside(allowed_root, original_path):
-            st.error("Access denied. This file does not belong to your account.")
+        allowed_root = DATA_DIR / "uploads"
+        from modules.database import document_belongs_to_user
+        if not document_belongs_to_user(document["id"], st.session_state.get("user_id")):
+            st.error("Access denied. This file does not belong to your account or your study groups.")
+        elif not is_path_inside(allowed_root, original_path):
+            st.error("Access denied. Invalid file path.")
         elif not file_exists(original_path):
             st.error("Original file not found. Please re-upload this document.")
         else:

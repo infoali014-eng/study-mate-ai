@@ -1802,6 +1802,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+if st.session_state.get("clear_chat_textarea"):
+    st.session_state.chat_textarea = ""
+    st.session_state.clear_chat_textarea = False
+
 _chat_messages()
 _ensure_chat_session()
 if "study_chat_last_question" not in st.session_state:
@@ -2421,7 +2425,7 @@ with chat_col:
         if send_clicked and typed_prompt.strip():
             send_prompt = typed_prompt.strip()
             # Clear the chat text area value for next message
-            st.session_state.chat_textarea = ""
+            st.session_state.clear_chat_textarea = True
             
         pending_prompt = st.session_state.pop("study_chat_pending_prompt", "")
         prompt = pending_prompt or send_prompt
