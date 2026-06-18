@@ -1723,6 +1723,80 @@ st.markdown(
             .chat-shell-title { align-items: flex-start; }
             .chat-shell-title h1 { font-size: 1.55rem; }
         }
+
+        /* Custom Chat Box Container */
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(div.custom-chat-input-marker) {
+            border: 2px solid #C084FC !important; /* Premium violet border */
+            border-radius: 24px !important;
+            padding: 14px 18px !important;
+            background-color: #ffffff !important;
+            box-shadow: 0 10px 25px -5px rgba(124, 58, 237, 0.08), 0 8px 10px -6px rgba(124, 58, 237, 0.08) !important;
+            margin-top: 10px !important;
+        }
+
+        /* Seamless Textarea */
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(div.custom-chat-input-marker) textarea {
+            border: none !important;
+            box-shadow: none !important;
+            background-color: transparent !important;
+            padding: 0 !important;
+            font-size: 0.98rem !important;
+            color: #1e1b4b !important;
+            font-family: inherit !important;
+            line-height: 1.5 !important;
+            resize: none !important;
+        }
+
+        /* Hide Streamlit form border inside input */
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(div.custom-chat-input-marker) div[data-testid="stVerticalBlock"] {
+            gap: 8px !important;
+        }
+
+        /* Customize buttons and popovers inside the chat input box */
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(div.custom-chat-input-marker) button {
+            border-radius: 18px !important;
+            font-size: 0.88rem !important;
+            font-weight: 600 !important;
+            padding: 4px 12px !important;
+            transition: all 0.2s ease-in-out !important;
+        }
+
+        /* Popover buttons (Attach, Voice) */
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(div.custom-chat-input-marker) div[data-testid="stPopover"] button {
+            border: 1px solid #E2E8F0 !important;
+            background-color: #F8FAFC !important;
+            color: #4338CA !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(div.custom-chat-input-marker) div[data-testid="stPopover"] button:hover {
+            border-color: #C084FC !important;
+            background-color: #F5F3FF !important;
+            color: #6D28D9 !important;
+        }
+
+        /* Plus Button styling */
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(div.custom-chat-input-marker) button[aria-label="+"],
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(div.custom-chat-input-marker) button[data-testid="baseButton-secondary"]:nth-of-type(1) {
+            border-radius: 50% !important;
+            width: 32px !important;
+            height: 32px !important;
+            padding: 0 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-size: 1.1rem !important;
+        }
+
+        /* Primary send button styling */
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(div.custom-chat-input-marker) button[data-testid="baseButton-primary"] {
+            background: linear-gradient(135deg, #a78bfa, #8b5cf6) !important;
+            color: #ffffff !important;
+            border: none !important;
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.25) !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(div.custom-chat-input-marker) button[data-testid="baseButton-primary"]:hover {
+            background: linear-gradient(135deg, #8b5cf6, #7c3aed) !important;
+            box-shadow: 0 6px 16px rgba(124, 58, 237, 0.35) !important;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -2198,156 +2272,159 @@ with chat_col:
                 add_assistant_message(answer_data, last_request["context"])
             st.rerun()
 
-        with st.expander("Voice Input", expanded=False):
-            st.caption(
-                "Speak clearly for 2-5 seconds, then click transcribe. Voice/audio may be sent to Gemini or OpenAI "
-                "for transcription when your key is available."
+        # Unified Custom Chat Box
+        if "chat_textarea" not in st.session_state:
+            st.session_state.chat_textarea = ""
+
+        with st.container(border=True):
+            st.markdown('<div class="custom-chat-input-marker"></div>', unsafe_allow_html=True)
+            
+            # Text area for composing the query
+            typed_prompt = st.text_area(
+                "Ask anything about your notes...",
+                placeholder="Ask anything about your notes...",
+                label_visibility="collapsed",
+                key="chat_textarea",
+                height=70,
             )
-            recorded_audio = None
-            if hasattr(st, "audio_input"):
-                recorded_audio = st.audio_input(
-                    "Record voice",
-                    key=f"voice_recording_{st.session_state.voice_audio_uploader_key}",
-                    help="Short, clear recordings work best. Start with one sentence.",
-                )
-            else:
-                st.info("Browser voice recording is not available in this Streamlit version. Upload an audio file instead.")
-
-            uploaded_audio = st.file_uploader(
-                "Upload audio file",
-                type=["mp3", "wav", "m4a", "ogg", "webm"],
-                key=f"voice_audio_upload_{st.session_state.voice_audio_uploader_key}",
-                help="Supported: MP3, WAV, M4A, OGG, WEBM. Max 10 MB.",
-            )
-
-            selected_audio = recorded_audio or uploaded_audio
-            if selected_audio:
-                selected_audio_name = getattr(selected_audio, "name", "voice_recording.wav")
-                selected_audio_type = getattr(selected_audio, "type", "") or mimetypes.guess_type(selected_audio_name)[0] or "audio/wav"
-                selected_audio_size = getattr(selected_audio, "size", 0) or 0
-                st.caption(
-                    f"Ready: {_attachment_icon(Path(selected_audio_name).suffix.replace('.', '').upper())} "
-                    f"{html.escape(selected_audio_name)} - {_format_size(selected_audio_size)}"
-                )
-                try:
-                    st.audio(selected_audio.getvalue(), format=selected_audio_type)
-                except Exception:
-                    st.info("Audio received, but browser playback is not available for this file.")
-                st.info(
-                    f"Audio received: yes | File type: {Path(selected_audio_name).suffix.replace('.', '').upper() or 'AUDIO'} "
-                    f"| File size: {_format_size(selected_audio_size)}"
-                )
-            else:
-                st.caption("Audio received: no")
-
-            voice_col1, voice_col2, voice_col3 = st.columns(3)
-            with voice_col1:
-                if st.button("Transcribe Audio", use_container_width=True):
-                    if not selected_audio:
-                        st.warning("Record voice or upload an audio file first.")
-                    else:
-                        active_session_id = _sync_active_chat_context(chat_mode, context)
-                        attachment, warning = _audio_upload_to_attachment(selected_audio, active_session_id)
-                        if attachment:
-                            st.session_state.voice_pending_audio = {
-                                "id": attachment["id"],
-                                "file_name": attachment["file_name"],
-                                "file_type": attachment["file_type"],
-                                "file_size": attachment["file_size"],
-                                "extracted_text": attachment.get("extracted_text", ""),
-                                "extraction_method": attachment.get("extraction_method", ""),
-                                "warning": attachment.get("warning", ""),
-                            }
-                            transcript_len = len(attachment.get("extracted_text", "") or "")
-                            st.session_state.voice_transcription_status = {
-                                "audio_received": "yes",
-                                "file_type": attachment["file_type"],
-                                "file_size": attachment["file_size"],
-                                "method": attachment.get("extraction_method", "unavailable"),
-                                "transcript_length": transcript_len,
-                            }
-                            st.session_state.voice_transcript_text = attachment.get("extracted_text", "")
-                            if st.session_state.voice_transcript_text:
-                                st.success("Transcription ready.")
-                            else:
-                                st.warning("No speech was detected. Please try again with clearer audio.")
-                        if warning:
-                            st.warning(warning)
-
-            with voice_col2:
-                if st.button("Clear", use_container_width=True):
-                    st.session_state.voice_pending_audio = None
-                    st.session_state.voice_transcript_text = ""
-                    st.session_state.voice_transcription_status = None
-                    st.session_state.voice_audio_uploader_key += 1
-                    st.rerun()
-
-            with voice_col3:
-                if st.button("Try Again", use_container_width=True):
-                    st.session_state.voice_pending_audio = None
-                    st.session_state.voice_transcript_text = ""
-                    st.session_state.voice_transcription_status = None
-                    st.session_state.voice_audio_uploader_key += 1
-                    st.rerun()
-
-            if st.session_state.voice_transcription_status:
-                status = st.session_state.voice_transcription_status
-                st.info(
-                    " | ".join(
-                        [
-                            f"Audio received: {status.get('audio_received', 'yes')}",
-                            f"File type: {status.get('file_type', 'AUDIO')}",
-                            f"File size: {_format_size(status.get('file_size', 0))}",
-                            f"Transcription method: {status.get('method', 'unavailable')}",
-                            f"Transcript length: {status.get('transcript_length', 0)} characters",
-                        ]
+            
+            # Horizontal action bar at the bottom
+            btn_cols = st.columns([0.08, 0.16, 0.16, 0.44, 0.16])
+            
+            with btn_cols[0]:
+                st.button("+", key="chat_plus_btn", use_container_width=True)
+                
+            with btn_cols[1]:
+                # Attach Popover (Paperclip icon)
+                with st.popover("📎 Attach", use_container_width=True):
+                    chat_uploaded_files = st.file_uploader(
+                        "Attach images, PDFs, DOCX, PPTX, TXT, or Markdown files",
+                        type=["png", "jpg", "jpeg", "webp", "pdf", "docx", "pptx", "txt", "md"],
+                        accept_multiple_files=True,
+                        key=f"chat_attachments_{st.session_state.chat_attachment_uploader_key}",
+                        help=(
+                            f"Up to {CHAT_MAX_ATTACHMENTS} files. Images up to 5 MB each; "
+                            "documents/PDF/PPTX up to 20 MB each."
+                        ),
                     )
-                )
-
-            if st.session_state.voice_pending_audio:
-                transcript = st.text_area(
-                    "Edit transcribed text before sending",
-                    key="voice_transcript_text",
-                    height=120,
-                    placeholder="Your transcribed voice message will appear here.",
-                )
-                if not (transcript or "").strip():
-                    st.warning("No speech was detected. Please try again with clearer audio.")
-                if st.button("Send to Chat", type="primary", use_container_width=True):
-                    clean_transcript, transcript_error = validate_chat_question(transcript, max_length=1200)
-                    if transcript_error:
-                        st.warning(transcript_error)
+                    if chat_uploaded_files:
+                        st.caption("Files ready for your next message:")
+                        for uploaded in chat_uploaded_files[:CHAT_MAX_ATTACHMENTS]:
+                            file_type = Path(uploaded.name).suffix.replace(".", "").upper()
+                            st.markdown(
+                                f"{_attachment_icon(file_type)} **{html.escape(uploaded.name)}** "
+                                f"`{html.escape(file_type)}` - {_format_size(getattr(uploaded, 'size', 0))}"
+                            )
+                        if len(chat_uploaded_files) > CHAT_MAX_ATTACHMENTS:
+                            st.warning(f"Only the first {CHAT_MAX_ATTACHMENTS} files will be sent.")
                     else:
-                        st.session_state.study_chat_pending_prompt = clean_transcript
-                        st.rerun()
-
-        with st.expander("Attach files to next message", expanded=False):
-            chat_uploaded_files = st.file_uploader(
-                "Attach images, PDFs, DOCX, PPTX, TXT, or Markdown files",
-                type=["png", "jpg", "jpeg", "webp", "pdf", "docx", "pptx", "txt", "md"],
-                accept_multiple_files=True,
-                key=f"chat_attachments_{st.session_state.chat_attachment_uploader_key}",
-                help=(
-                    f"Up to {CHAT_MAX_ATTACHMENTS} files. Images up to 5 MB each; "
-                    "documents/PDF/PPTX up to 20 MB each."
-                ),
-            )
-            if chat_uploaded_files:
-                st.caption("Files ready for your next message:")
-                for uploaded in chat_uploaded_files[:CHAT_MAX_ATTACHMENTS]:
-                    file_type = Path(uploaded.name).suffix.replace(".", "").upper()
-                    st.markdown(
-                        f"{_attachment_icon(file_type)} **{html.escape(uploaded.name)}** "
-                        f"`{html.escape(file_type)}` - {_format_size(getattr(uploaded, 'size', 0))}"
+                        st.caption("Attach files to send with your next message.")
+                        
+            with btn_cols[2]:
+                # Voice Popover (Mic icon)
+                with st.popover("🎤 Voice", use_container_width=True):
+                    st.caption(
+                        "Speak clearly for 2-5 seconds, then click transcribe. Voice/audio will be transcribed "
+                        "using Gemini, Groq, or OpenAI."
                     )
-                if len(chat_uploaded_files) > CHAT_MAX_ATTACHMENTS:
-                    st.warning(f"Only the first {CHAT_MAX_ATTACHMENTS} files will be sent.")
-            else:
-                st.caption("Upload Notes is for permanent Study Library files. Chat attachments are saved only with this chat.")
+                    recorded_audio = None
+                    if hasattr(st, "audio_input"):
+                        recorded_audio = st.audio_input(
+                            "Record voice",
+                            key=f"voice_recording_{st.session_state.voice_audio_uploader_key}",
+                            help="Short, clear recordings work best. Start with one sentence.",
+                        )
+                    else:
+                        st.info("Browser voice recording is not available in this Streamlit version. Upload an audio file instead.")
 
-    pending_prompt = st.session_state.pop("study_chat_pending_prompt", "")
-    typed_prompt = st.chat_input("Ask StudyMate anything... Follow-up questions are welcome.")
-    prompt = pending_prompt or typed_prompt
+                    uploaded_audio = st.file_uploader(
+                        "Upload audio file",
+                        type=["mp3", "wav", "m4a", "ogg", "webm"],
+                        key=f"voice_audio_upload_{st.session_state.voice_audio_uploader_key}",
+                        help="Supported: MP3, WAV, M4A, OGG, WEBM. Max 10 MB.",
+                    )
+
+                    selected_audio = recorded_audio or uploaded_audio
+                    if selected_audio:
+                        selected_audio_name = getattr(selected_audio, "name", "voice_recording.wav")
+                        selected_audio_type = getattr(selected_audio, "type", "") or mimetypes.guess_type(selected_audio_name)[0] or "audio/wav"
+                        selected_audio_size = getattr(selected_audio, "size", 0) or 0
+                        st.caption(
+                            f"Ready: {_attachment_icon(Path(selected_audio_name).suffix.replace('.', '').upper())} "
+                            f"{html.escape(selected_audio_name)} - {_format_size(selected_audio_size)}"
+                        )
+                        try:
+                            st.audio(selected_audio.getvalue(), format=selected_audio_type)
+                        except Exception:
+                            st.info("Audio received, but browser playback is not available for this file.")
+                            
+                        # Transcription Button
+                        if st.button("Transcribe Audio", key="transcribe_voice_action", use_container_width=True):
+                            active_session_id = _sync_active_chat_context(chat_mode, context)
+                            attachment, warning = _audio_upload_to_attachment(selected_audio, active_session_id)
+                            if attachment:
+                                st.session_state.voice_pending_audio = {
+                                    "id": attachment["id"],
+                                    "file_name": attachment["file_name"],
+                                    "file_type": attachment["file_type"],
+                                    "file_size": attachment["file_size"],
+                                    "extracted_text": attachment.get("extracted_text", ""),
+                                    "extraction_method": attachment.get("extraction_method", ""),
+                                    "warning": attachment.get("warning", ""),
+                                }
+                                transcript_len = len(attachment.get("extracted_text", "") or "")
+                                st.session_state.voice_transcription_status = {
+                                    "audio_received": "yes",
+                                    "file_type": attachment["file_type"],
+                                    "file_size": attachment["file_size"],
+                                    "method": attachment.get("extraction_method", "unavailable"),
+                                    "transcript_length": transcript_len,
+                                }
+                                st.session_state.voice_transcript_text = attachment.get("extracted_text", "")
+                            if warning:
+                                st.warning(warning)
+                                
+                    # Show status if transcribed
+                    if st.session_state.voice_transcription_status:
+                        status = st.session_state.voice_transcription_status
+                        st.info(f"Method: {status.get('method', 'unavailable')} | Length: {status.get('transcript_length', 0)} chars")
+                        
+                    if st.session_state.voice_pending_audio:
+                        transcript_val = st.text_area(
+                            "Edit transcribed text before sending",
+                            value=st.session_state.voice_transcript_text,
+                            key="voice_transcript_edit_area",
+                            height=100,
+                        )
+                        
+                        v_col1, v_col2 = st.columns(2)
+                        with v_col1:
+                            if st.button("Apply to Chat Input", key="apply_voice_to_chat", use_container_width=True):
+                                st.session_state.chat_textarea = transcript_val
+                                # Keep voice pending audio for the attachments list so it gets sent with the message!
+                                st.session_state.voice_pending_audio["extracted_text"] = transcript_val
+                                st.rerun()
+                        with v_col2:
+                            if st.button("Clear", key="clear_voice_popup", use_container_width=True):
+                                st.session_state.voice_pending_audio = None
+                                st.session_state.voice_transcript_text = ""
+                                st.session_state.voice_transcription_status = None
+                                st.session_state.voice_audio_uploader_key += 1
+                                st.rerun()
+            
+            with btn_cols[4]:
+                # Send button (Paper airplane icon)
+                send_clicked = st.button("✈ Send", type="primary", use_container_width=True, key="chat_send_btn")
+
+        # Compute the final prompt
+        send_prompt = ""
+        if send_clicked and typed_prompt.strip():
+            send_prompt = typed_prompt.strip()
+            # Clear the chat text area value for next message
+            st.session_state.chat_textarea = ""
+            
+        pending_prompt = st.session_state.pop("study_chat_pending_prompt", "")
+        prompt = pending_prompt or send_prompt
 
     if prompt:
         clean_prompt, prompt_error = validate_chat_question(prompt)

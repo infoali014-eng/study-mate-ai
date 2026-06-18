@@ -319,8 +319,150 @@ def transcribe_with_gemini_audio(file_path, api_key, mime_type=None, model=None)
         )
 
 
+def transcribe_with_groq_audio(file_path, api_key, model=None):
+    """Transcribe audio with Groq's Whisper API using the Groq key."""
+    if not api_key:
+        return _transcription_result(
+            False,
+            method="groq_audio",
+            error="Groq API key is missing. Add it in AI Settings or .env file.",
+        )
+    path = Path(file_path)
+    if not path.exists():
+        return _transcription_result(
+            False,
+            method="groq_audio",
+            error="Audio file was not found.",
+        )
+
+    # Groq's Whisper endpoint
+    url = "https://api.groq.com/openai/v1/audio/transcriptions"
+    selected_model = model or "whisper-large-v3"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    
+    try:
+        with open(file_path, "rb") as f:
+            files = {
+                "file": (path.name, f, _guess_audio_mime(path)),
+            }
+            data = {
+                "model": selected_model,
+            }
+            response = requests.post(url, headers=headers, files=files, data=data, timeout=60)
+            if response.status_code >= 400:
+                return _transcription_result(
+                    False,
+                    method="groq_audio",
+                    error="Groq audio transcription could not complete. Check your API key or try again.",
+                    technical_error=f"HTTP {response.status_code}: {response.text[:100]}",
+                )
+            result = response.json()
+            text = (result.get("text") or "").strip()
+            if text:
+                return _transcription_result(True, text, method="groq_audio")
+            return _transcription_result(
+                False,
+                method="groq_audio",
+                error="No speech was detected. Please try again with clearer audio.",
+            )
+    except Exception as exc:
+        return _transcription_result(
+            False,
+            method="groq_audio",
+            error="Groq transcription failed.",
+            technical_error=str(exc)[:180],
+        )
+
+
+def transcribe_with_gemini_audio(file_path, api_key, mime_type=None, model=None):
+    """Transcribe audio with Gemini using the current user's API key."""
+    if not api_key:
+        return _transcription_result(
+            False,
+            method="unavailable",
+            error="Voice transcription needs Gemini API key or local transcription support.",
+        )
+
+    path = Path(file_path)
+    if not path.exists():
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="Audio file was not found. Please record or upload it again.",
+        )
+
+    try:
+        audio_bytes = path.read_bytes()
+    except OSError as exc:
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="Could not read this audio file safely.",
+            technical_error=str(exc)[:180],
+        )
+
+    if not audio_bytes:
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="No audio was recorded. Please record again and allow microphone permission.",
+        )
+
+    selected_model = model or os.getenv("GEMINI_AUDIO_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.0-flash"))
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{selected_model}:generateContent"
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": GEMINI_AUDIO_PROMPT},
+                    {
+                        "inlineData": {
+                            "mimeType": mime_type or _guess_audio_mime(path),
+                            "data": base64.b64encode(audio_bytes).decode("ascii"),
+                        }
+                    },
+                ]
+            }
+        ]
+    }
+
+    try:
+        response = requests.post(url, params={"key": api_key}, json=payload, timeout=180)
+        if response.status_code >= 400:
+            return _transcription_result(
+                False,
+                method="gemini_audio",
+                error="Gemini audio transcription could not complete. Check your API key, quota, or try again.",
+                technical_error=f"HTTP {response.status_code}",
+            )
+
+        data = response.json()
+        transcript = _extract_gemini_text(data)
+        if transcript:
+            return _transcription_result(True, transcript, method="gemini_audio")
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="No speech was detected. Please try again with clearer audio.",
+        )
+    except requests.RequestException as exc:
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="Gemini audio transcription could not complete. Check your network connection and try again.",
+            technical_error=str(exc)[:180],
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        return _transcription_result(
+            False,
+            method="gemini_audio",
+            error="Gemini returned an unreadable transcription response. Please try again.",
+            technical_error=str(exc)[:180],
+        )
+
+
 def transcribe_audio(file_path, provider="auto", api_key=None, model=None):
-    """Transcribe audio using Gemini or optional local Whisper, with safe fallbacks."""
+    """Transcribe audio using Gemini, Groq, OpenAI, or optional local Whisper with robust fallback."""
     clean_provider = (provider or "auto").lower()
     path = Path(file_path)
     status, status_error = inspect_audio_file(path)
@@ -336,41 +478,85 @@ def transcribe_audio(file_path, provider="auto", api_key=None, model=None):
         elif converted_path != str(path):
             candidates.insert(0, (converted_path, "audio/wav"))
 
-    if clean_provider in {"auto", "gemini", "gemini_audio"} and api_key:
-        for candidate_path, mime_type in candidates:
-            gemini_result = transcribe_with_gemini_audio(
-                candidate_path,
-                api_key=api_key,
-                mime_type=mime_type,
-                model=model,
-            )
-            gemini_result["status"] = status
-            if warnings:
-                gemini_result["warnings"] = list(dict.fromkeys(warnings + gemini_result.get("warnings", [])))
-            if gemini_result.get("success"):
-                return gemini_result
-            warnings.extend(gemini_result.get("warnings", []))
-            last_error = gemini_result.get("error", "")
+    import modules.ai_engine as ai_engine
+
+    gemini_key = api_key or ai_engine.get_gemini_api_key()
+    openai_key = ai_engine.get_openai_api_key()
+    groq_key = ai_engine.get_groq_api_key()
+
+    active_provider = clean_provider
+    if active_provider == "auto":
+        active_provider = ai_engine.get_selected_provider().lower()
+
+    # Determine priority fallback order
+    attempts = []
+    if "gemini" in active_provider:
+        attempts = ["gemini", "groq", "openai", "local"]
+    elif "groq" in active_provider:
+        attempts = ["groq", "gemini", "openai", "local"]
+    elif "openai" in active_provider:
+        attempts = ["openai", "groq", "gemini", "local"]
     else:
-        last_error = "Voice transcription needs Gemini API key or local transcription support."
+        attempts = ["gemini", "groq", "openai", "local"]
 
-    if clean_provider in {"auto", "local", "whisper", "local_whisper"}:
-        local_result = transcribe_with_local_whisper(candidates[0][0])
-        local_result["status"] = status
-        if warnings:
-            local_result["warnings"] = list(dict.fromkeys(warnings + local_result.get("warnings", [])))
-        if local_result.get("success"):
-            return local_result
-        warnings.extend(local_result.get("warnings", []))
-        last_error = local_result.get("error") or last_error
+    last_error = ""
+    for attempt in attempts:
+        if attempt == "gemini":
+            if not gemini_key:
+                continue
+            for candidate_path, mime_type in candidates:
+                gemini_result = transcribe_with_gemini_audio(
+                    candidate_path,
+                    api_key=gemini_key,
+                    mime_type=mime_type,
+                    model=model,
+                )
+                gemini_result["status"] = status
+                if warnings:
+                    gemini_result["warnings"] = list(dict.fromkeys(warnings + gemini_result.get("warnings", [])))
+                if gemini_result.get("success"):
+                    return gemini_result
+                warnings.extend(gemini_result.get("warnings", []))
+                last_error = gemini_result.get("error", "")
 
-    if not api_key and clean_provider in {"auto", "gemini", "gemini_audio"}:
-        last_error = "Voice transcription needs Gemini API key or local transcription support."
+        elif attempt == "groq":
+            if not groq_key:
+                continue
+            groq_result = transcribe_with_groq_audio(candidates[0][0], api_key=groq_key)
+            groq_result["status"] = status
+            if warnings:
+                groq_result["warnings"] = list(dict.fromkeys(warnings + groq_result.get("warnings", [])))
+            if groq_result.get("success"):
+                return groq_result
+            warnings.extend(groq_result.get("warnings", []))
+            last_error = groq_result.get("error", "")
+
+        elif attempt == "openai":
+            if not openai_key:
+                continue
+            openai_result = ai_engine.transcribe_with_openai_audio(candidates[0][0], api_key=openai_key)
+            openai_result["status"] = status
+            if warnings:
+                openai_result["warnings"] = list(dict.fromkeys(warnings + openai_result.get("warnings", [])))
+            if openai_result.get("success"):
+                return openai_result
+            warnings.extend(openai_result.get("warnings", []))
+            last_error = openai_result.get("error", "")
+
+        elif attempt == "local":
+            local_result = transcribe_with_local_whisper(candidates[0][0])
+            local_result["status"] = status
+            if warnings:
+                local_result["warnings"] = list(dict.fromkeys(warnings + local_result.get("warnings", [])))
+            if local_result.get("success"):
+                return local_result
+            warnings.extend(local_result.get("warnings", []))
+            last_error = local_result.get("error") or last_error
 
     return _transcription_result(
         False,
         method="unavailable",
-        error=last_error or "No speech was detected. Please try again with clearer audio.",
+        error=last_error or "Voice transcription is unavailable. Configure an API key or ensure local speech-to-text is installed.",
         warnings=list(dict.fromkeys(warnings)),
         status=status,
     )

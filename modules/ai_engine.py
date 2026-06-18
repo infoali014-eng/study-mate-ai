@@ -967,7 +967,7 @@ def transcribe_with_openai_audio(file_path, api_key=None, model=None):
             "error": "OpenAI audio transcription is not configured yet. Using available transcription fallback.",
         }
 
-    selected_model = model or os.getenv("OPENAI_AUDIO_MODEL", "gpt-4o-mini-transcribe")
+    selected_model = model or os.getenv("OPENAI_AUDIO_MODEL", "whisper-1")
     try:
         client = _openai_client(key)
         with open(file_path, "rb") as audio_file:
