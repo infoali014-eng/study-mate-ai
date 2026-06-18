@@ -427,6 +427,16 @@ def _run_migrations(conn):
     _add_missing_column(conn, "chat_attachments", "warning_message", "TEXT DEFAULT ''")
     _add_missing_column(conn, "study_sessions", "notes", "TEXT DEFAULT ''")
 
+    # Drop old user+name index and replace with user+group+name index so names only have to be unique per workspace
+    conn.execute("DROP INDEX IF EXISTS idx_subjects_user_name")
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_subjects_user_group_name
+        ON subjects(user_id, IFNULL(group_id, 0), name)
+        WHERE is_deleted = 0
+        """
+    )
+
     for table in ["uploaded_documents", "quiz_results", "flashcards", "weak_topics", "revision_plans"]:
         conn.execute(
             f"""
@@ -442,8 +452,8 @@ def _run_migrations(conn):
 
     conn.execute(
         """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_subjects_user_name
-        ON subjects(user_id, name)
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_subjects_user_group_name
+        ON subjects(user_id, IFNULL(group_id, 0), name)
         WHERE is_deleted = 0
         """
     )
@@ -1281,7 +1291,8 @@ def add_subject(name, description="", user_id=None, group_id=None):
             )
             conn.commit()
             return cursor.lastrowid
-    except sqlite3.IntegrityError:
+    except Exception as e:
+        print(f"Error adding subject: {e}")
         return None
 
 
