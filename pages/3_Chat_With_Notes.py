@@ -1658,15 +1658,14 @@ prefill_document_ids = st.session_state.pop("chat_prefill_document_ids", [])
 prefill_question = st.session_state.pop("chat_prefill_question", "")
 
 if st.session_state.show_chat_history_panel:
-    history_col, chat_col = st.columns([0.24, 0.76], gap="medium")
-    with history_col:
+    with st.sidebar:
         render_chat_history_panel()
-else:
-    chat_col = st.container()
+
+chat_col = st.container()
 
 with chat_col:
     if not st.session_state.show_chat_history_panel:
-        if st.button("Show Chat History", use_container_width=False):
+        if st.button("Open Chat History", key="open_chat_history_btn"):
             st.session_state.show_chat_history_panel = True
             st.rerun()
 
