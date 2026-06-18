@@ -2296,7 +2296,13 @@ with chat_col:
             btn_cols = st.columns([0.08, 0.16, 0.16, 0.44, 0.16])
             
             with btn_cols[0]:
-                st.button("+", key="chat_plus_btn", use_container_width=True)
+                if st.button("+", key="chat_plus_btn", use_container_width=True):
+                    _start_new_chat_session(
+                        st.session_state.get("chat_mode", "General Chat"),
+                        st.session_state.get("chat_context_label", ""),
+                        st.session_state.get("chat_context", {})
+                    )
+                    st.rerun()
                 
             with btn_cols[1]:
                 # Attach Popover (Paperclip icon)

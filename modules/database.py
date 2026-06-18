@@ -2517,9 +2517,9 @@ def get_group_leaderboard(group_id):
             JOIN users u ON qr.user_id = u.id
             JOIN subjects s ON qr.subject_id = s.id
             JOIN study_group_members sgm ON u.id = sgm.user_id
-            WHERE sgm.group_id = ? AND s.group_id = ?
+            WHERE sgm.group_id = ?
             GROUP BY qr.user_id
             ORDER BY max_score DESC, avg_score DESC
             """,
-            (group_id, group_id)
+            (group_id,)
         ).fetchall()

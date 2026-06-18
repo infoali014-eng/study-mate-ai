@@ -1262,8 +1262,12 @@ Answer with clean, study-friendly Markdown. For non-trivial questions, use a nat
 ## Quick Revision Tip
 ## Follow-up Suggestions
 
-Do not force every section for simple questions. Use tables, formulas, ASCII diagrams,
-Mermaid flowcharts, or step-by-step layouts when they make the answer easier to study.
+Do not force every section for simple questions. Use tables, formulas, Mermaid flowcharts, or step-by-step layouts when they make the answer easier to study.
+
+CRITICAL FORMATTING RULES:
+1. Mathematical Problem Solving: If the user asks you to solve a math problem (like integration or algebra), ALWAYS present each step on a NEW LINE. NEVER write math steps in a single paragraph. Use LaTeX math delimiters for equations.
+2. Graphs and Diagrams: When creating a graph or diagram, DO NOT use ASCII art or characters. INSTEAD, ALWAYS use Mermaid code blocks (```mermaid ... ```).
+3. Mermaid Syntax: When writing Mermaid code blocks, do NOT include version strings like "mermaid version". Just start the block with ```mermaid.
 """
 
 
