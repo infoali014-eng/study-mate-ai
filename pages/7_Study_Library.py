@@ -399,7 +399,7 @@ if st.session_state.library_success:
 subjects = get_subjects(user_id=user_id)
 documents = get_all_documents(user_id=user_id)
 
-subject_names = ["All"] + [subject["name"] for subject in subjects]
+subject_names = ["All"] + list(dict.fromkeys(subject["name"] for subject in subjects))
 file_types = ["All types"] + sorted({(document["file_type"] or "PDF").upper() for document in documents})
 
 if subjects:
