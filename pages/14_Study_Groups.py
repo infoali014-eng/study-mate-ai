@@ -100,33 +100,34 @@ col_left, col_right = st.columns([0.7, 0.3])
 
 with col_right:
     with st.popover("➕ Options", use_container_width=True):
-        st.markdown("### Create a Study Group")
-        g_name = st.text_input("Group Name", placeholder="e.g. AP Calculus Study Group", key="new_group_name")
-        g_desc = st.text_area("Description", placeholder="We share notes and quiz each other on Math.", key="new_group_desc")
-        if st.button("Create Group", type="primary", use_container_width=True):
-            if g_name.strip():
-                group_id, invite_code = create_study_group(g_name, g_desc, user_id)
-                if group_id:
-                    st.success(f"Group created! Share Code: {invite_code}")
-                    st.rerun()
+        with st.container(height=450, border=False):
+            st.markdown("### Create a Study Group")
+            g_name = st.text_input("Group Name", placeholder="e.g. AP Calculus Study Group", key="new_group_name")
+            g_desc = st.text_area("Description", placeholder="We share notes and quiz each other on Math.", key="new_group_desc")
+            if st.button("Create Group", type="primary", use_container_width=True):
+                if g_name.strip():
+                    group_id, invite_code = create_study_group(g_name, g_desc, user_id)
+                    if group_id:
+                        st.success(f"Group created! Share Code: {invite_code}")
+                        st.rerun()
+                    else:
+                        st.error("Error creating group.")
                 else:
-                    st.error("Error creating group.")
-            else:
-                st.warning("Group Name is required.")
-
-        st.markdown("---")
-        st.markdown("### Join a Study Group")
-        join_code = st.text_input("Enter Invite Code", placeholder="e.g. ABCD-1234", key="join_group_code")
-        if st.button("Join Group", use_container_width=True):
-            if join_code.strip():
-                g_name_joined, error = join_study_group(join_code, user_id)
-                if error:
-                    st.warning(error)
+                    st.warning("Group Name is required.")
+    
+            st.markdown("---")
+            st.markdown("### Join a Study Group")
+            join_code = st.text_input("Enter Invite Code", placeholder="e.g. ABCD-1234", key="join_group_code")
+            if st.button("Join Group", use_container_width=True):
+                if join_code.strip():
+                    g_name_joined, error = join_study_group(join_code, user_id)
+                    if error:
+                        st.warning(error)
+                    else:
+                        st.success(f"Successfully joined: {g_name_joined}!")
+                        st.rerun()
                 else:
-                    st.success(f"Successfully joined: {g_name_joined}!")
-                    st.rerun()
-            else:
-                st.warning("Invite code is required.")
+                    st.warning("Invite code is required.")
 
 with col_left:
     if user_groups:
