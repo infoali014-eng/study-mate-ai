@@ -401,7 +401,7 @@ documents = get_all_documents(user_id=user_id)
 
 subject_options = {"All": "All"}
 for s in subjects:
-    if s.get("group_name"):
+    if s["group_name"]:
         display_name = f"👥 [{s['group_name']}] {s['name']}"
     else:
         display_name = f"👤 [Personal] {s['name']}"
@@ -411,8 +411,8 @@ subject_display_names = list(subject_options.keys())
 file_types = ["All types"] + sorted({(document["file_type"] or "PDF").upper() for document in documents})
 
 if subjects:
-    personal_subjects = [s for s in subjects if not s.get("group_name")]
-    group_subjects = [s for s in subjects if s.get("group_name")]
+    personal_subjects = [s for s in subjects if not s["group_name"]]
+    group_subjects = [s for s in subjects if s["group_name"]]
     
     if personal_subjects:
         section_title("Personal Subject Overview", "👤")
