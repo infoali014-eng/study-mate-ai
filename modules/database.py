@@ -208,6 +208,7 @@ def create_tables():
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 is_archived INTEGER DEFAULT 0,
+                is_pinned INTEGER DEFAULT 0,
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
                 FOREIGN KEY (subject_id) REFERENCES subjects (id) ON DELETE SET NULL
             )
@@ -299,6 +300,7 @@ def create_tables():
 
         _add_missing_column(conn, "subjects", "user_id", "INTEGER")
         _add_missing_column(conn, "subjects", "is_deleted", "INTEGER DEFAULT 0")
+        _add_missing_column(conn, "chat_sessions", "is_pinned", "INTEGER DEFAULT 0")
         _ensure_subjects_table_allows_per_user_names(conn)
         _run_migrations(conn)
         _repair_subject_foreign_keys(conn)
@@ -1796,7 +1798,7 @@ def get_chat_sessions(user_id, limit=30, include_archived=False, search="", subj
             SELECT *
             FROM chat_sessions
             WHERE {" AND ".join(clauses)}
-            ORDER BY updated_at DESC, id DESC
+            ORDER BY is_pinned DESC, updated_at DESC, id DESC
             LIMIT ?
             """,
             params,
@@ -1817,6 +1819,24 @@ def get_chat_session(user_id, session_id):
             """,
             (session_id, user_id),
         ).fetchone()
+
+
+def toggle_chat_session_pin(user_id, session_id, is_pinned):
+    """Pin or unpin one owned chat session."""
+    if not user_id or not session_id:
+        return False
+    pinned_value = 1 if is_pinned else 0
+    with closing(get_connection()) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE chat_sessions
+            SET is_pinned = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ? AND is_archived = 0
+            """,
+            (pinned_value, session_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 def update_chat_session_title(user_id, session_id, new_title):

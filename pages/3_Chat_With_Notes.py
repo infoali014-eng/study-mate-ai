@@ -1,6 +1,7 @@
 import html
 import json
 import mimetypes
+import re
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -224,6 +225,47 @@ def render_message_attachments(attachments):
             st.caption(attachment["warning"])
         if str(file_type).upper() in AUDIO_TYPES and attachment.get("transcript_preview"):
             st.caption(f"Transcript: {attachment['transcript_preview']}")
+
+
+def parse_assistant_response(content):
+    """
+    Parse the assistant response for Explanation, Exam Tip, and Common Mistake sections.
+    Removes these sections from the main body content.
+    """
+    explanation = ""
+    exam_tip = ""
+    common_mistake = ""
+    main_body = content or ""
+
+    explanation_regex = re.compile(
+        r"(?:\n|^)(?:###\s+Explanation|\*\*Explanation:\*\*|Explanation:)\s*([\s\S]*?)(?=\n(?:###\s*(?:Explanation|Exam\s+Tip|Common\s+Mistake)|\*\*|\n|$))",
+        re.IGNORECASE
+    )
+    exam_tip_regex = re.compile(
+        r"(?:\n|^)(?:###\s+Exam\s+Tip|\*\*Exam\s+Tip:\*\*|Exam\s+Tip:)\s*([\s\S]*?)(?=\n(?:###\s*(?:Explanation|Exam\s+Tip|Common\s+Mistake)|\*\*|\n|$))",
+        re.IGNORECASE
+    )
+    common_mistake_regex = re.compile(
+        r"(?:\n|^)(?:###\s+Common\s+Mistake|\*\*Common\s+Mistake:\*\*|Common\s+Mistake:)\s*([\s\S]*?)(?=\n(?:###\s*(?:Explanation|Exam\s+Tip|Common\s+Mistake)|\*\*|\n|$))",
+        re.IGNORECASE
+    )
+
+    exp_match = explanation_regex.search(content)
+    if exp_match:
+        explanation = exp_match.group(1).strip()
+        main_body = explanation_regex.sub("", main_body)
+
+    tip_match = exam_tip_regex.search(content)
+    if tip_match:
+        exam_tip = tip_match.group(1).strip()
+        main_body = exam_tip_regex.sub("", main_body)
+
+    mistake_match = common_mistake_regex.search(content)
+    if mistake_match:
+        common_mistake = mistake_match.group(1).strip()
+        main_body = common_mistake_regex.sub("", main_body)
+
+    return main_body.strip(), explanation, exam_tip, common_mistake
 
 
 def render_math_visualizations(visualizations):
@@ -889,6 +931,10 @@ def render_chat_history_panel():
             st.info("No saved chats yet.")
             return
 
+        # Fetch subjects to resolve subject badge names on cards
+        subjects_list = get_subjects(user_id=user_id)
+        subject_map = {sub["id"]: sub["name"] for sub in subjects_list}
+
         current_group = None
         for session in sessions:
             group = _chat_group_label(session["updated_at"])
@@ -909,6 +955,17 @@ def render_chat_history_panel():
                 "Chat with Multiple Notes": "Notes",
                 "Teach Me Mode": "Teach Me",
             }.get(mode, "Chat")
+
+            # Resolve subject name for badge if linked
+            sub_id = session.get("subject_id")
+            if sub_id and sub_id in subject_map:
+                badge_text = subject_map[sub_id]
+            else:
+                badge_text = mode_short
+
+            is_pinned = bool(session.get("is_pinned", 0))
+            pin_badge = "📌 " if is_pinned else ""
+
             active_class = " active" if is_active else ""
             updated_label = _format_chat_updated_at(session["updated_at"])
 
@@ -916,8 +973,8 @@ def render_chat_history_panel():
                 f"""
                 <div class="history-card{active_class}">
                     <div class="history-card-main">
-                        <span class="history-mode-badge">{html.escape(mode_short)}</span>
-                        <span class="history-title" title="{html.escape(title)}">{html.escape(title)}</span>
+                        <span class="history-mode-badge">{html.escape(badge_text)}</span>
+                        <span class="history-title" title="{html.escape(title)}">{pin_badge}{html.escape(title)}</span>
                     </div>
                     <div class="history-meta">Updated: {html.escape(updated_label)}</div>
                 </div>
@@ -939,6 +996,13 @@ def render_chat_history_panel():
             with more_col:
                 action_container = st.popover("⋮") if hasattr(st, "popover") else st.expander("⋮", expanded=False)
                 with action_container:
+                    pin_action_lbl = "Unpin Chat 📌" if is_pinned else "Pin Chat"
+                    if st.button(pin_action_lbl, key=f"pin_chat_{session['id']}", use_container_width=True):
+                        from modules.database import toggle_chat_session_pin
+                        if toggle_chat_session_pin(user_id, session["id"], not is_pinned):
+                            st.success("Pin status updated.")
+                            st.rerun()
+
                     new_title = st.text_input(
                         "Rename chat",
                         value=title,
@@ -1614,6 +1678,38 @@ st.markdown(
         div[data-testid="stChatMessage"] {
             border-radius: 18px;
         }
+        .explanation-card {
+            background-color: rgba(47, 125, 246, 0.04);
+            border-left: 4px solid #2f7df6;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin: 10px 0;
+        }
+        .tip-card {
+            background-color: rgba(16, 185, 129, 0.04);
+            border-left: 4px solid #10b981;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin: 10px 0;
+        }
+        .mistake-card {
+            background-color: rgba(239, 68, 68, 0.04);
+            border-left: 4px solid #ef4444;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin: 10px 0;
+        }
+        .card-title {
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .explanation-card .card-title { color: #1e3a8a; }
+        .tip-card .card-title { color: #064e3b; }
+        .mistake-card .card-title { color: #7f1d1d; }
         @media (max-width: 900px) {
             .chat-shell-title { align-items: flex-start; }
             .chat-shell-title h1 { font-size: 1.55rem; }
@@ -1704,37 +1800,36 @@ with chat_col:
             answer_style = st.selectbox("Answer style", ANSWER_STYLES)
 
         with top_col3:
-            st.markdown(
-                f"<span class='status-pill'>{MODE_BADGES[chat_mode]}</span>",
-                unsafe_allow_html=True,
-            )
-            st.caption(f"AI provider: {get_provider_label()}")
-            memory_label = "On" if _memory_enabled() else "Off"
-            st.caption(f"Memory: {memory_label}")
+            st.write("") # spacing
+            show_info = st.checkbox("Show Context Info", key="show_right_panel", value=False)
+            st.caption(f"AI: {get_provider_label()} | Memory: {'On' if _memory_enabled() else 'Off'}")
 
         selected_subject = None
         selected_documents = []
         subject_documents = []
 
         if chat_mode not in {"General Chat", "Teach Me Mode"}:
-            if not subjects:
-                st.warning("Create a subject or switch to General Chat.")
-            else:
-                subject_names = [subject["name"] for subject in subjects]
-                subject_index = get_subject_index(subjects, prefill_subject_id)
-                selected_subject_name = st.selectbox(
-                    "Subject",
-                    subject_names,
-                    index=subject_index,
-                )
-                selected_subject = next(
-                    subject for subject in subjects if subject["name"] == selected_subject_name
-                )
-                subject_documents = list(
-                    get_documents_by_subject(selected_subject["id"], user_id=user_id)
-                )
+            sub_col1, sub_col2 = st.columns(2)
+            with sub_col1:
+                if not subjects:
+                    st.warning("Create a subject or switch to General Chat.")
+                else:
+                    subject_names = [subject["name"] for subject in subjects]
+                    subject_index = get_subject_index(subjects, prefill_subject_id)
+                    selected_subject_name = st.selectbox(
+                        "Subject",
+                        subject_names,
+                        index=subject_index,
+                    )
+                    selected_subject = next(
+                        subject for subject in subjects if subject["name"] == selected_subject_name
+                    )
+                    subject_documents = list(
+                        get_documents_by_subject(selected_subject["id"], user_id=user_id)
+                    )
 
-                if chat_mode in {"Chat with Specific Notes", "Chat with Multiple Notes"}:
+            with sub_col2:
+                if selected_subject and chat_mode in {"Chat with Specific Notes", "Chat with Multiple Notes"}:
                     if not subject_documents:
                         st.warning("No uploaded documents found for this subject yet.")
                     else:
@@ -1978,214 +2073,273 @@ with chat_col:
             add_chat_pair(prefill_question, answer_data, context)
             st.rerun()
 
-    section_title("Conversation", "\U0001f4ac")
-    with st.container(height=540, border=True):
-        messages = _chat_messages()
-        if not messages:
-            render_empty_state(
-                "Ask anything about your notes, subjects, or studies.",
-                "Use General Chat or choose a subject/note above, then type at the bottom.",
-                "\U0001f4ad",
-            )
+    show_info = st.session_state.get("show_right_panel", False)
+    if show_info:
+        main_chat_col, right_info_col = st.columns([0.72, 0.28], gap="medium")
+    else:
+        main_chat_col = st.container()
+        right_info_col = None
 
-        for message_index, message in enumerate(messages):
-            avatar = "\U0001f468\u200d\U0001f393" if message["role"] == "user" else "\U0001f916"
-            with st.chat_message(message["role"], avatar=avatar):
-                message_context = message.get("context", {})
-                if message_context:
-                    st.caption(f"{message_context.get('badge', 'Chat')} | {message_context.get('label', '')}")
-                if message.get("created_at"):
-                    st.caption(message["created_at"])
-
-                if message.get("warning"):
-                    st.warning(message["warning"])
-
-                render_ai_markdown(message["content"])
-                render_math_visualizations(message.get("math_visualizations", []))
-                render_message_attachments(message.get("attachments", []))
-
-                if message["role"] == "assistant":
-                    source_count = message.get("source_count", 0)
-                    if source_count:
-                        st.caption(f"Using {source_count} relevant note chunks")
-                    render_sources(message.get("sources", []))
-                    if message_context.get("badge") == "Teach Me Mode":
-                        render_follow_up_suggestions(
-                            message_index,
-                            message.get("suggestions", []),
-                        )
-
-    if st.session_state.get("study_chat_regenerate"):
-        st.session_state.study_chat_regenerate = False
-        messages = _chat_messages()
-        if messages and messages[-1]["role"] == "assistant":
-            messages.pop()
-
-        last_request = st.session_state.study_chat_last_request
-        if last_request:
-            loading_slot = st.empty()
-            with loading_slot:
-                render_ai_loading("Regenerating a sharper answer")
-            try:
-                answer_data = generate_chat_answer(
-                    question=last_request["question"],
-                    answer_style=last_request["answer_style"],
-                    chat_mode=last_request["chat_mode"],
-                    context=last_request["context"],
-                    attachment_context=last_request.get("attachment_context", ""),
-                    image_paths=last_request.get("image_paths", []),
+    with main_chat_col:
+        section_title("Conversation", "\U0001f4ac")
+        with st.container(height=540, border=True):
+            messages = _chat_messages()
+            if not messages:
+                render_empty_state(
+                    "Ask anything about your notes, subjects, or studies.",
+                    "Use General Chat or choose a subject/note above, then type at the bottom.",
+                    "\U0001f4ad",
                 )
-            finally:
-                loading_slot.empty()
-            add_assistant_message(answer_data, last_request["context"])
-        st.rerun()
 
-    with st.expander("Voice Input", expanded=False):
-        st.caption(
-            "Speak clearly for 2-5 seconds, then click transcribe. Voice/audio may be sent to Gemini or OpenAI "
-            "for transcription when your key is available."
-        )
-        recorded_audio = None
-        if hasattr(st, "audio_input"):
-            recorded_audio = st.audio_input(
-                "Record voice",
-                key=f"voice_recording_{st.session_state.voice_audio_uploader_key}",
-                help="Short, clear recordings work best. Start with one sentence.",
-            )
-        else:
-            st.info("Browser voice recording is not available in this Streamlit version. Upload an audio file instead.")
+            for message_index, message in enumerate(messages):
+                avatar = "👨‍🎓" if message["role"] == "user" else "🤖"
+                with st.chat_message(message["role"], avatar=avatar):
+                    message_context = message.get("context", {})
+                    if message_context:
+                        st.caption(f"{message_context.get('badge', 'Chat')} | {message_context.get('label', '')}")
+                    if message.get("created_at"):
+                        st.caption(message["created_at"])
 
-        uploaded_audio = st.file_uploader(
-            "Upload audio file",
-            type=["mp3", "wav", "m4a", "ogg", "webm"],
-            key=f"voice_audio_upload_{st.session_state.voice_audio_uploader_key}",
-            help="Supported: MP3, WAV, M4A, OGG, WEBM. Max 10 MB.",
-        )
+                    if message.get("warning"):
+                        st.warning(message["warning"])
 
-        selected_audio = recorded_audio or uploaded_audio
-        if selected_audio:
-            selected_audio_name = getattr(selected_audio, "name", "voice_recording.wav")
-            selected_audio_type = getattr(selected_audio, "type", "") or mimetypes.guess_type(selected_audio_name)[0] or "audio/wav"
-            selected_audio_size = getattr(selected_audio, "size", 0) or 0
-            st.caption(
-                f"Ready: {_attachment_icon(Path(selected_audio_name).suffix.replace('.', '').upper())} "
-                f"{html.escape(selected_audio_name)} - {_format_size(selected_audio_size)}"
-            )
-            try:
-                st.audio(selected_audio.getvalue(), format=selected_audio_type)
-            except Exception:
-                st.info("Audio received, but browser playback is not available for this file.")
-            st.info(
-                f"Audio received: yes | File type: {Path(selected_audio_name).suffix.replace('.', '').upper() or 'AUDIO'} "
-                f"| File size: {_format_size(selected_audio_size)}"
-            )
-        else:
-            st.caption("Audio received: no")
+                    if message["role"] == "user":
+                        render_ai_markdown(message["content"])
+                    else:
+                        main_body, explanation, exam_tip, common_mistake = parse_assistant_response(message["content"])
+                        visuals = message.get("math_visualizations", [])
+                        has_graph = any(v.get("figure_json") for v in visuals)
 
-        voice_col1, voice_col2, voice_col3 = st.columns(3)
-        with voice_col1:
-            if st.button("Transcribe Audio", use_container_width=True):
-                if not selected_audio:
-                    st.warning("Record voice or upload an audio file first.")
-                else:
-                    active_session_id = _sync_active_chat_context(chat_mode, context)
-                    attachment, warning = _audio_upload_to_attachment(selected_audio, active_session_id)
-                    if attachment:
-                        st.session_state.voice_pending_audio = {
-                            "id": attachment["id"],
-                            "file_name": attachment["file_name"],
-                            "file_type": attachment["file_type"],
-                            "file_size": attachment["file_size"],
-                            "extracted_text": attachment.get("extracted_text", ""),
-                            "extraction_method": attachment.get("extraction_method", ""),
-                            "warning": attachment.get("warning", ""),
-                        }
-                        transcript_len = len(attachment.get("extracted_text", "") or "")
-                        st.session_state.voice_transcription_status = {
-                            "audio_received": "yes",
-                            "file_type": attachment["file_type"],
-                            "file_size": attachment["file_size"],
-                            "method": attachment.get("extraction_method", "unavailable"),
-                            "transcript_length": transcript_len,
-                        }
-                        st.session_state.voice_transcript_text = attachment.get("extracted_text", "")
-                        if st.session_state.voice_transcript_text:
-                            st.success("Transcription ready.")
+                        if has_graph:
+                            left_col, right_col = st.columns([1.1, 0.9])
+                            with left_col:
+                                render_math_visualizations(visuals)
+                            with right_col:
+                                st.markdown("##### Step-by-Step Solution")
+                                render_ai_markdown(main_body)
                         else:
-                            st.warning("No speech was detected. Please try again with clearer audio.")
-                    if warning:
-                        st.warning(warning)
+                            render_ai_markdown(main_body)
 
-        with voice_col2:
-            if st.button("Clear", use_container_width=True):
-                st.session_state.voice_pending_audio = None
-                st.session_state.voice_transcript_text = ""
-                st.session_state.voice_transcription_status = None
-                st.session_state.voice_audio_uploader_key += 1
-                st.rerun()
+                        if explanation:
+                            st.markdown(
+                                f"""
+                                <div class="explanation-card">
+                                    <div class="card-title">💡 Explanation</div>
+                                """,
+                                unsafe_allow_html=True
+                            )
+                            render_ai_markdown(explanation)
+                            st.markdown("</div>", unsafe_allow_html=True)
 
-        with voice_col3:
-            if st.button("Try Again", use_container_width=True):
-                st.session_state.voice_pending_audio = None
-                st.session_state.voice_transcript_text = ""
-                st.session_state.voice_transcription_status = None
-                st.session_state.voice_audio_uploader_key += 1
-                st.rerun()
+                        if exam_tip or common_mistake:
+                            tip_col, mistake_col = st.columns(2)
+                            with tip_col:
+                                if exam_tip:
+                                    st.markdown(
+                                        f"""
+                                        <div class="tip-card">
+                                            <div class="card-title">🎯 Exam Tip</div>
+                                        """,
+                                        unsafe_allow_html=True
+                                    )
+                                    render_ai_markdown(exam_tip)
+                                    st.markdown("</div>", unsafe_allow_html=True)
+                            with mistake_col:
+                                if common_mistake:
+                                    st.markdown(
+                                        f"""
+                                        <div class="mistake-card">
+                                            <div class="card-title">⚠️ Common Mistake</div>
+                                        """,
+                                        unsafe_allow_html=True
+                                    )
+                                    render_ai_markdown(common_mistake)
+                                    st.markdown("</div>", unsafe_allow_html=True)
 
-        if st.session_state.voice_transcription_status:
-            status = st.session_state.voice_transcription_status
-            st.info(
-                " | ".join(
-                    [
-                        f"Audio received: {status.get('audio_received', 'yes')}",
-                        f"File type: {status.get('file_type', 'AUDIO')}",
-                        f"File size: {_format_size(status.get('file_size', 0))}",
-                        f"Transcription method: {status.get('method', 'unavailable')}",
-                        f"Transcript length: {status.get('transcript_length', 0)} characters",
-                    ]
+                    render_message_attachments(message.get("attachments", []))
+
+                    if message["role"] == "assistant":
+                        source_count = message.get("source_count", 0)
+                        if source_count:
+                            st.caption(f"Using {source_count} relevant note chunks")
+                        render_sources(message.get("sources", []))
+                        if message_context.get("badge") == "Teach Me Mode":
+                            render_follow_up_suggestions(
+                                message_index,
+                                message.get("suggestions", []),
+                            )
+
+        if st.session_state.get("study_chat_regenerate"):
+            st.session_state.study_chat_regenerate = False
+            messages = _chat_messages()
+            if messages and messages[-1]["role"] == "assistant":
+                messages.pop()
+
+            last_request = st.session_state.study_chat_last_request
+            if last_request:
+                loading_slot = st.empty()
+                with loading_slot:
+                    render_ai_loading("Regenerating a sharper answer")
+                try:
+                    answer_data = generate_chat_answer(
+                        question=last_request["question"],
+                        answer_style=last_request["answer_style"],
+                        chat_mode=last_request["chat_mode"],
+                        context=last_request["context"],
+                        attachment_context=last_request.get("attachment_context", ""),
+                        image_paths=last_request.get("image_paths", []),
+                    )
+                finally:
+                    loading_slot.empty()
+                add_assistant_message(answer_data, last_request["context"])
+            st.rerun()
+
+        with st.expander("Voice Input", expanded=False):
+            st.caption(
+                "Speak clearly for 2-5 seconds, then click transcribe. Voice/audio may be sent to Gemini or OpenAI "
+                "for transcription when your key is available."
+            )
+            recorded_audio = None
+            if hasattr(st, "audio_input"):
+                recorded_audio = st.audio_input(
+                    "Record voice",
+                    key=f"voice_recording_{st.session_state.voice_audio_uploader_key}",
+                    help="Short, clear recordings work best. Start with one sentence.",
                 )
+            else:
+                st.info("Browser voice recording is not available in this Streamlit version. Upload an audio file instead.")
+
+            uploaded_audio = st.file_uploader(
+                "Upload audio file",
+                type=["mp3", "wav", "m4a", "ogg", "webm"],
+                key=f"voice_audio_upload_{st.session_state.voice_audio_uploader_key}",
+                help="Supported: MP3, WAV, M4A, OGG, WEBM. Max 10 MB.",
             )
 
-        if st.session_state.voice_pending_audio:
-            transcript = st.text_area(
-                "Edit transcribed text before sending",
-                key="voice_transcript_text",
-                height=120,
-                placeholder="Your transcribed voice message will appear here.",
-            )
-            if not (transcript or "").strip():
-                st.warning("No speech was detected. Please try again with clearer audio.")
-            if st.button("Send to Chat", type="primary", use_container_width=True):
-                clean_transcript, transcript_error = validate_chat_question(transcript, max_length=1200)
-                if transcript_error:
-                    st.warning(transcript_error)
-                else:
-                    st.session_state.study_chat_pending_prompt = clean_transcript
+            selected_audio = recorded_audio or uploaded_audio
+            if selected_audio:
+                selected_audio_name = getattr(selected_audio, "name", "voice_recording.wav")
+                selected_audio_type = getattr(selected_audio, "type", "") or mimetypes.guess_type(selected_audio_name)[0] or "audio/wav"
+                selected_audio_size = getattr(selected_audio, "size", 0) or 0
+                st.caption(
+                    f"Ready: {_attachment_icon(Path(selected_audio_name).suffix.replace('.', '').upper())} "
+                    f"{html.escape(selected_audio_name)} - {_format_size(selected_audio_size)}"
+                )
+                try:
+                    st.audio(selected_audio.getvalue(), format=selected_audio_type)
+                except Exception:
+                    st.info("Audio received, but browser playback is not available for this file.")
+                st.info(
+                    f"Audio received: yes | File type: {Path(selected_audio_name).suffix.replace('.', '').upper() or 'AUDIO'} "
+                    f"| File size: {_format_size(selected_audio_size)}"
+                )
+            else:
+                st.caption("Audio received: no")
+
+            voice_col1, voice_col2, voice_col3 = st.columns(3)
+            with voice_col1:
+                if st.button("Transcribe Audio", use_container_width=True):
+                    if not selected_audio:
+                        st.warning("Record voice or upload an audio file first.")
+                    else:
+                        active_session_id = _sync_active_chat_context(chat_mode, context)
+                        attachment, warning = _audio_upload_to_attachment(selected_audio, active_session_id)
+                        if attachment:
+                            st.session_state.voice_pending_audio = {
+                                "id": attachment["id"],
+                                "file_name": attachment["file_name"],
+                                "file_type": attachment["file_type"],
+                                "file_size": attachment["file_size"],
+                                "extracted_text": attachment.get("extracted_text", ""),
+                                "extraction_method": attachment.get("extraction_method", ""),
+                                "warning": attachment.get("warning", ""),
+                            }
+                            transcript_len = len(attachment.get("extracted_text", "") or "")
+                            st.session_state.voice_transcription_status = {
+                                "audio_received": "yes",
+                                "file_type": attachment["file_type"],
+                                "file_size": attachment["file_size"],
+                                "method": attachment.get("extraction_method", "unavailable"),
+                                "transcript_length": transcript_len,
+                            }
+                            st.session_state.voice_transcript_text = attachment.get("extracted_text", "")
+                            if st.session_state.voice_transcript_text:
+                                st.success("Transcription ready.")
+                            else:
+                                st.warning("No speech was detected. Please try again with clearer audio.")
+                        if warning:
+                            st.warning(warning)
+
+            with voice_col2:
+                if st.button("Clear", use_container_width=True):
+                    st.session_state.voice_pending_audio = None
+                    st.session_state.voice_transcript_text = ""
+                    st.session_state.voice_transcription_status = None
+                    st.session_state.voice_audio_uploader_key += 1
                     st.rerun()
 
-    with st.expander("Attach files to next message", expanded=False):
-        chat_uploaded_files = st.file_uploader(
-            "Attach images, PDFs, DOCX, PPTX, TXT, or Markdown files",
-            type=["png", "jpg", "jpeg", "webp", "pdf", "docx", "pptx", "txt", "md"],
-            accept_multiple_files=True,
-            key=f"chat_attachments_{st.session_state.chat_attachment_uploader_key}",
-            help=(
-                f"Up to {CHAT_MAX_ATTACHMENTS} files. Images up to 5 MB each; "
-                "documents/PDF/PPTX up to 20 MB each."
-            ),
-        )
-        if chat_uploaded_files:
-            st.caption("Files ready for your next message:")
-            for uploaded in chat_uploaded_files[:CHAT_MAX_ATTACHMENTS]:
-                file_type = Path(uploaded.name).suffix.replace(".", "").upper()
-                st.markdown(
-                    f"{_attachment_icon(file_type)} **{html.escape(uploaded.name)}** "
-                    f"`{html.escape(file_type)}` - {_format_size(getattr(uploaded, 'size', 0))}"
+            with voice_col3:
+                if st.button("Try Again", use_container_width=True):
+                    st.session_state.voice_pending_audio = None
+                    st.session_state.voice_transcript_text = ""
+                    st.session_state.voice_transcription_status = None
+                    st.session_state.voice_audio_uploader_key += 1
+                    st.rerun()
+
+            if st.session_state.voice_transcription_status:
+                status = st.session_state.voice_transcription_status
+                st.info(
+                    " | ".join(
+                        [
+                            f"Audio received: {status.get('audio_received', 'yes')}",
+                            f"File type: {status.get('file_type', 'AUDIO')}",
+                            f"File size: {_format_size(status.get('file_size', 0))}",
+                            f"Transcription method: {status.get('method', 'unavailable')}",
+                            f"Transcript length: {status.get('transcript_length', 0)} characters",
+                        ]
+                    )
                 )
-            if len(chat_uploaded_files) > CHAT_MAX_ATTACHMENTS:
-                st.warning(f"Only the first {CHAT_MAX_ATTACHMENTS} files will be sent.")
-        else:
-            st.caption("Upload Notes is for permanent Study Library files. Chat attachments are saved only with this chat.")
+
+            if st.session_state.voice_pending_audio:
+                transcript = st.text_area(
+                    "Edit transcribed text before sending",
+                    key="voice_transcript_text",
+                    height=120,
+                    placeholder="Your transcribed voice message will appear here.",
+                )
+                if not (transcript or "").strip():
+                    st.warning("No speech was detected. Please try again with clearer audio.")
+                if st.button("Send to Chat", type="primary", use_container_width=True):
+                    clean_transcript, transcript_error = validate_chat_question(transcript, max_length=1200)
+                    if transcript_error:
+                        st.warning(transcript_error)
+                    else:
+                        st.session_state.study_chat_pending_prompt = clean_transcript
+                        st.rerun()
+
+        with st.expander("Attach files to next message", expanded=False):
+            chat_uploaded_files = st.file_uploader(
+                "Attach images, PDFs, DOCX, PPTX, TXT, or Markdown files",
+                type=["png", "jpg", "jpeg", "webp", "pdf", "docx", "pptx", "txt", "md"],
+                accept_multiple_files=True,
+                key=f"chat_attachments_{st.session_state.chat_attachment_uploader_key}",
+                help=(
+                    f"Up to {CHAT_MAX_ATTACHMENTS} files. Images up to 5 MB each; "
+                    "documents/PDF/PPTX up to 20 MB each."
+                ),
+            )
+            if chat_uploaded_files:
+                st.caption("Files ready for your next message:")
+                for uploaded in chat_uploaded_files[:CHAT_MAX_ATTACHMENTS]:
+                    file_type = Path(uploaded.name).suffix.replace(".", "").upper()
+                    st.markdown(
+                        f"{_attachment_icon(file_type)} **{html.escape(uploaded.name)}** "
+                        f"`{html.escape(file_type)}` - {_format_size(getattr(uploaded, 'size', 0))}"
+                    )
+                if len(chat_uploaded_files) > CHAT_MAX_ATTACHMENTS:
+                    st.warning(f"Only the first {CHAT_MAX_ATTACHMENTS} files will be sent.")
+            else:
+                st.caption("Upload Notes is for permanent Study Library files. Chat attachments are saved only with this chat.")
 
     pending_prompt = st.session_state.pop("study_chat_pending_prompt", "")
     typed_prompt = st.chat_input("Ask StudyMate anything... Follow-up questions are welcome.")
@@ -2276,3 +2430,56 @@ with chat_col:
             st.session_state.voice_transcription_status = None
             st.session_state.voice_audio_uploader_key += 1
         st.rerun()
+
+    if show_info and right_info_col:
+        with right_info_col:
+            section_title("AI Context Details", "ℹ️")
+            with st.container(border=True):
+                # 1. Subject Details
+                if selected_subject:
+                    st.markdown(f"#### 📚 {selected_subject['name']}")
+                    if selected_subject.get('description'):
+                        st.markdown(f"*{selected_subject['description']}*")
+                else:
+                    st.markdown("#### 🌐 General Knowledge Mode")
+                    st.caption("Not linked to any specific subject notes.")
+
+                st.divider()
+
+                # 2. Attached Files
+                st.markdown("##### 📁 Attached Notes")
+                if chat_mode in {"Chat with Specific Notes", "Chat with Multiple Notes"} and selected_documents:
+                    for doc in selected_documents:
+                        st.caption(f"📄 {doc['file_name']} ({_format_size(doc.get('file_size', 0))})")
+                elif chat_mode == "Chat with Subject" and selected_subject:
+                    st.caption(f"All notes in {selected_subject['name']}:")
+                    subject_docs = list(get_documents_by_subject(selected_subject["id"], user_id=user_id))
+                    if subject_docs:
+                        for doc in subject_docs:
+                            st.caption(f"📄 {doc['file_name']}")
+                    else:
+                        st.caption("No notes uploaded yet.")
+                else:
+                    st.caption("No subject notes attached to this session.")
+
+                st.divider()
+
+                # 3. Quick Actions
+                st.markdown("##### ⚡ Quick Actions")
+                # Download Transcript
+                messages = _chat_messages()
+                if messages:
+                    transcript_text = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in messages])
+                    st.download_button(
+                        label="📥 Download Chat Transcript",
+                        data=transcript_text,
+                        file_name=f"chat_transcript_{_active_chat_session_id()}.txt",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+                
+                # Clear session
+                if st.button("🗑️ Clear Chat History", use_container_width=True):
+                    _set_chat_messages([])
+                    st.success("Chat display cleared.")
+                    st.rerun()
