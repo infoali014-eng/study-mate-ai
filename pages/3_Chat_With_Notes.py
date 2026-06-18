@@ -936,7 +936,8 @@ def render_chat_history_panel():
         subject_map = {sub["id"]: sub["name"] for sub in subjects_list}
 
         current_group = None
-        for session in sessions:
+        for session_row in sessions:
+            session = dict(session_row)
             group = _chat_group_label(session["updated_at"])
             if group != current_group:
                 current_group = group
