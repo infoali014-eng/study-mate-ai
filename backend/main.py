@@ -101,6 +101,9 @@ class SubjectCreate(BaseModel):
     name: str
     description: str = ""
 
+class RenameSessionRequest(BaseModel):
+    title: str
+
 class ChatRequest(BaseModel):
     question: str
     chat_mode: str = "General Chat"
@@ -360,6 +363,24 @@ def list_chat_sessions(subject_id: Optional[int] = None, user: dict = Depends(ge
 def list_chat_messages(session_id: int, user: dict = Depends(get_current_user)):
     messages = get_chat_messages(user_id=user["id"], session_id=session_id)
     return [dict(msg) for msg in messages]
+
+
+@app.delete("/api/chat/sessions/{session_id}")
+def remove_chat_session(session_id: int, user: dict = Depends(get_current_user)):
+    from modules.database import delete_chat_session
+    success = delete_chat_session(user["id"], session_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Could not delete chat session")
+    return {"success": True}
+
+
+@app.put("/api/chat/sessions/{session_id}")
+def rename_chat_session(session_id: int, req: RenameSessionRequest, user: dict = Depends(get_current_user)):
+    from modules.database import update_chat_session_title
+    success = update_chat_session_title(user["id"], session_id, req.title)
+    if not success:
+        raise HTTPException(status_code=400, detail="Could not rename chat session")
+    return {"success": True}
 
 
 @app.post("/api/chat")

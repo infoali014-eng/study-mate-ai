@@ -40,6 +40,9 @@ function App() {
   const [chatMode, setChatMode] = useState('General Chat');
   const [chatStyle, setChatStyle] = useState('Simple English');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatSearch, setChatSearch] = useState('');
+  const [activeMenuSessionId, setActiveMenuSessionId] = useState(null);
+  const [showRightPanel, setShowRightPanel] = useState(true);
   const messagesEndRef = useRef(null);
 
   // Quiz States
@@ -784,80 +787,500 @@ function App() {
           </div>
         );
 
-      case 'Chat With Notes':
-        return (
-          <div>
-            <div className="page-header">
-              <div className="page-kicker">Discussion Lab</div>
-              <h2 className="page-title">Chat With Notes</h2>
-              <p className="page-subtitle">Retrieve context directly from your study documents using AI.</p>
-            </div>
+      case 'Chat With Notes': {
+        const groupSessions = (sessionsList) => {
+          const today = [];
+          const yesterday = [];
+          const previous7 = [];
+          const older = [];
+          
+          const now = new Date();
+          const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const startOfYesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
+          const startOf7DaysAgo = new Date(startOfToday.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-            <div className="chat-workspace">
-              <div className="glass-card chat-sessions-pane">
-                <div className="form-group">
-                  <label className="form-label">Active Subject</label>
-                  <select className="form-control" value={chatSubId} onChange={e => { setChatSubId(e.target.value); setActiveSessionId(null); }}>
-                    {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          sessionsList.forEach(session => {
+            let date;
+            try {
+              date = new Date(session.created_at || session.updated_at);
+              if (isNaN(date.getTime())) {
+                date = new Date();
+              }
+            } catch (e) {
+              date = new Date();
+            }
+
+            if (date >= startOfToday) {
+              today.push(session);
+            } else if (date >= startOfYesterday) {
+              yesterday.push(session);
+            } else if (date >= startOf7DaysAgo) {
+              previous7.push(session);
+            } else {
+              older.push(session);
+            }
+          });
+
+          return { today, yesterday, previous7, older };
+        };
+
+        const getSubjectBadgeStyle = (subName) => {
+          const name = (subName || '').toLowerCase();
+          if (name.includes('math') || name.includes('calculus') || name.includes('integral')) {
+            return { bg: '#e0f2fe', color: '#0369a1', label: 'Math' };
+          }
+          if (name.includes('physics') || name.includes('motion')) {
+            return { bg: '#f3e8ff', color: '#6b21a8', label: 'Physics' };
+          }
+          if (name.includes('chemistry') || name.includes('organic')) {
+            return { bg: '#d1fae5', color: '#065f46', label: 'Chemistry' };
+          }
+          if (name.includes('db') || name.includes('sql') || name.includes('database')) {
+            return { bg: '#ecfdf5', color: '#047857', label: 'Database' };
+          }
+          if (name.includes('stat') || name.includes('normal')) {
+            return { bg: '#fef3c7', color: '#92400e', label: 'Statistics' };
+          }
+          return { bg: '#f1f5f9', color: '#475569', label: subName ? subName.slice(0, 10) : 'Study' };
+        };
+
+        const renderAIResponseContent = (msg) => {
+          let content = msg.content || '';
+          
+          let explanation = "";
+          let examTip = "";
+          let commonMistake = "";
+          let mainBody = content;
+
+          // Check for sections
+          const explanationRegex = /(?:\n|^)(?:###\s+Explanation|\*\*Explanation:\*\*|Explanation:)\s*([\s\S]*?)(?=\n(?:###|\*\*|\n|$))/i;
+          const examTipRegex = /(?:\n|^)(?:###\s+Exam\s+Tip|\*\*Exam\s+Tip:\*\*|Exam\s+Tip:)\s*([\s\S]*?)(?=\n(?:###|\*\*|\n|$))/i;
+          const commonMistakeRegex = /(?:\n|^)(?:###\s+Common\s+Mistake|\*\*Common\s+Mistake:\*\*|Common\s+Mistake:)\s*([\s\S]*?)(?=\n(?:###|\*\*|\n|$))/i;
+
+          const expMatch = content.match(explanationRegex);
+          if (expMatch) {
+            explanation = expMatch[1].trim();
+            mainBody = mainBody.replace(explanationRegex, "");
+          }
+
+          const tipMatch = content.match(examTipRegex);
+          if (tipMatch) {
+            examTip = tipMatch[1].trim();
+            mainBody = mainBody.replace(examTipRegex, "");
+          }
+
+          const mistakeMatch = content.match(commonMistakeRegex);
+          if (mistakeMatch) {
+            commonMistake = mistakeMatch[1].trim();
+            mainBody = mainBody.replace(commonMistakeRegex, "");
+          }
+
+          mainBody = mainBody.trim();
+
+          const parseMarkdownToHtml = (text) => {
+            if (!text) return '';
+            return text
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+              .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+              .replace(/`([^`]+)`/g, '<code>$1</code>')
+              .replace(/\n/g, '<br/>');
+          };
+
+          // Find math visualizations
+          let hasGraph = false;
+          let graphElement = null;
+          
+          let visList = [];
+          if (msg.metadata) {
+            try {
+              const parsedMeta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : msg.metadata;
+              if (parsedMeta.math_visualizations) {
+                visList = parsedMeta.math_visualizations;
+              }
+            } catch(e) {}
+          }
+
+          visList.forEach((vis, idx) => {
+            if (vis.figure_json) {
+              hasGraph = true;
+              graphElement = <PlotlyChart key={idx} jsonStr={vis.figure_json} />;
+            }
+          });
+
+          // Check if code block generated
+          const codeRegex = /```(\w*)\n([\s\S]*?)```/g;
+          const codeMatches = [...mainBody.matchAll(codeRegex)];
+          if (codeMatches.length > 0) {
+            mainBody = mainBody.replace(codeRegex, (match, lang, code) => {
+              return `<pre className="syntax-code-block"><code className="language-${lang}">${code.trim()}</code></pre>`;
+            });
+          }
+
+          const parsedHtml = parseMarkdownToHtml(mainBody);
+
+          return (
+            <div className="structured-ai-response">
+              {hasGraph ? (
+                <div className="math-split-card">
+                  <div className="math-split-left">
+                    {graphElement}
+                  </div>
+                  <div className="math-split-right">
+                    <h5>Step-by-Step Solution</h5>
+                    <div dangerouslySetInnerHTML={{ __html: parsedHtml }} />
+                  </div>
+                </div>
+              ) : (
+                <div dangerouslySetInnerHTML={{ __html: parsedHtml }} />
+              )}
+              
+              {explanation && (
+                <div className="response-explanation-block">
+                  <h6>Explanation</h6>
+                  <p dangerouslySetInnerHTML={{ __html: parseMarkdownToHtml(explanation) }} />
+                </div>
+              )}
+
+              {(examTip || commonMistake) && (
+                <div className="side-cards-container">
+                  {examTip && (
+                    <div className="tip-card">
+                      <h6>💡 Exam Tip</h6>
+                      <p dangerouslySetInnerHTML={{ __html: parseMarkdownToHtml(examTip) }} />
+                    </div>
+                  )}
+                  {commonMistake && (
+                    <div className="mistake-card">
+                      <h6>⚠️ Common Mistake</h6>
+                      <p dangerouslySetInnerHTML={{ __html: parseMarkdownToHtml(commonMistake) }} />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        const handleKeyDownInput = (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSendChatMessage(e);
+          }
+        };
+
+        const activeSub = subjects.find(s => s.id === parseInt(chatSubId));
+        const filteredSessions = chatSessions.filter(s => 
+          s.title && s.title.toLowerCase().includes(chatSearch.toLowerCase())
+        );
+        const grouped = groupSessions(filteredSessions);
+
+        return (
+          <div className="chat-workspace-redesign">
+            {/* LEFT PANEL: Chat History Sidebar */}
+            <div className="chat-history-sidebar">
+              <div className="chat-history-sidebar-header">
+                <span>💬</span>
+                <span>Chat History</span>
+              </div>
+              
+              <button className="new-chat-btn" onClick={handleCreateChatSession}>
+                <span>+</span> New Chat
+              </button>
+              
+              <div className="chat-search-container">
+                <span className="chat-search-icon">🔍</span>
+                <input 
+                  className="chat-search-input" 
+                  placeholder="Search chats..." 
+                  value={chatSearch}
+                  onChange={e => setChatSearch(e.target.value)}
+                />
+              </div>
+              
+              <div className="chat-sessions-scroll">
+                {['today', 'yesterday', 'previous7', 'older'].map(category => {
+                  const sessions = grouped[category];
+                  if (!sessions || sessions.length === 0) return null;
+                  
+                  const label = category === 'today' ? 'Today' : 
+                                category === 'yesterday' ? 'Yesterday' : 
+                                category === 'previous7' ? 'Previous 7 Days' : 'Older';
+                                
+                  return (
+                    <div key={category}>
+                      <div className="history-category-label">{label}</div>
+                      {sessions.map(session => {
+                        const sub = subjects.find(s => s.id === session.subject_id);
+                        const badge = getSubjectBadgeStyle(sub?.name);
+                        
+                        return (
+                          <div 
+                            key={session.id} 
+                            className={`history-session-card ${activeSessionId === session.id ? 'active' : ''}`}
+                            onClick={() => setActiveSessionId(session.id)}
+                          >
+                            <div className="history-card-title">{session.title || 'Untitled Chat'}</div>
+                            <div className="history-card-footer">
+                              <span className="subject-tag-pill" style={{ background: badge.bg, color: badge.color }}>
+                                {badge.label}
+                              </span>
+                              <span className="history-card-time">
+                                {new Date(session.created_at || session.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            
+                            {/* Three-dots actions menu */}
+                            <div className="session-actions-menu">
+                              <button className="three-dots-btn" onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveMenuSessionId(activeMenuSessionId === session.id ? null : session.id);
+                              }}>⋮</button>
+                              
+                              {activeMenuSessionId === session.id && (
+                                <div className="session-card-popover">
+                                  <div onClick={(e) => { e.stopPropagation(); handleRenameChatSession(session.id, session.title); setActiveMenuSessionId(null); }}>
+                                    ✏️ Rename
+                                  </div>
+                                  <div style={{ color: 'red' }} onClick={(e) => { e.stopPropagation(); handleDeleteChatSession(session.id); setActiveMenuSessionId(null); }}>
+                                    🗑️ Delete
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                {chatSessions.length === 0 && (
+                  <p style={{ textAlign: 'center', fontSize: '12px', color: 'var(--color-muted)', marginTop: '20px' }}>No saved chats yet.</p>
+                )}
+              </div>
+              
+              <button className="view-all-chats-btn" onClick={() => setChatSearch('')}>View All Chats</button>
+            </div>
+            
+            {/* CENTER PANEL: Main Chat Workspace */}
+            <div className="chat-center-panel">
+              <div className="chat-workspace-header">
+                <div>
+                  <h2 className="chat-header-title">Chat With Notes</h2>
+                  <p className="chat-header-subtitle">Ask from notes, documents, voice, images, or general AI knowledge.</p>
+                </div>
+                <div className="chat-header-actions">
+                  <button className="header-action-btn" onClick={() => alert("Guide: Ask study queries, upload math problems to plot integrations or shade graphs.")}>
+                    <span>📖</span> Guide
+                  </button>
+                  <button className="header-action-btn" onClick={() => setShowRightPanel(!showRightPanel)}>
+                    <span>ℹ️</span> Details
+                  </button>
+                </div>
+              </div>
+              
+              {/* Controls card */}
+              <div className="chat-controls-card">
+                <div className="chat-control-select-group">
+                  <span className="chat-control-label">Chat Mode</span>
+                  <select className="chat-control-select" value={chatMode} onChange={e => setChatMode(e.target.value)}>
+                    <option value="General Chat">General Chat</option>
+                    <option value="Chat with Subject">Chat with Subject</option>
+                    <option value="Teach Me Mode">Teach Me Mode</option>
                   </select>
                 </div>
                 
-                <div className="section-title-bar" style={{ margin: '8px 0' }}>
-                  <h5>Chat History</h5>
-                  <button className="btn btn-primary" style={{ padding: '6px 10px', fontSize: '12px' }} onClick={handleCreateChatSession}>New Chat</button>
-                </div>
-
-                <div className="chat-sessions-list">
-                  {chatSessions.map(session => (
-                    <div key={session.id} className={`session-item ${activeSessionId === session.id ? 'active' : ''}`} onClick={() => setActiveSessionId(session.id)}>
-                      <span>💬 {session.title || 'Untitled Chat'}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="glass-card chat-main-pane">
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '14px' }}>
-                  <select className="form-control" style={{ width: '140px' }} value={chatMode} onChange={e => setChatMode(e.target.value)}>
-                    <option value="General Chat">General Chat</option>
-                    <option value="Chat with Subject">Subject Chat</option>
-                    <option value="Teach Me Mode">Teach Me</option>
-                  </select>
-                  <select className="form-control" style={{ width: '140px' }} value={chatStyle} onChange={e => setChatStyle(e.target.value)}>
+                <div className="chat-control-select-group">
+                  <span className="chat-control-label">Answer Style</span>
+                  <select className="chat-control-select" value={chatStyle} onChange={e => setChatStyle(e.target.value)}>
                     <option value="Simple English">Simple English</option>
                     <option value="Roman Urdu">Roman Urdu</option>
                     <option value="Exam Style">Exam Style</option>
                   </select>
                 </div>
-
-                <div className="chat-history">
-                  {chatMessages.length === 0 && <div className="empty-state"><p>Ask a question or explain a math problem to begin.</p></div>}
-                  {chatMessages.map((msg, i) => (
-                    <div key={i} className={`chat-message ${msg.role}`}>
-                      <div className="msg-meta">{msg.role === 'user' ? 'You' : 'StudyMate AI'}</div>
-                      <div className="msg-content" dangerouslySetInnerHTML={{ __html: msg.content.replace(/\n/g, '<br/>') }} />
-                      
-                      {/* Render custom Plotly figure if generated */}
-                      {msg.metadata && typeof msg.metadata === 'string' && JSON.parse(msg.metadata).math_visualizations?.map((vis, j) => (
-                        vis.figure_json && <PlotlyChart key={j} jsonStr={vis.figure_json} />
-                      ))}
-                      {msg.metadata && typeof msg.metadata === 'object' && msg.metadata.math_visualizations?.map((vis, j) => (
-                        vis.figure_json && <PlotlyChart key={j} jsonStr={vis.figure_json} />
-                      ))}
-                    </div>
-                  ))}
-                  {chatLoading && <div className="chat-message assistant"><div className="msg-meta">StudyMate AI</div><div>Thinking...</div></div>}
-                  <div ref={messagesEndRef} />
+                
+                <div className="chat-control-select-group">
+                  <span className="chat-control-label">Context</span>
+                  <select className="chat-control-select" value={chatSubId} onChange={e => { setChatSubId(e.target.value); setActiveSessionId(null); }}>
+                    {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
                 </div>
-
-                <form onSubmit={handleSendChatMessage} className="chat-input-bar">
-                  <input className="chat-input" placeholder="Type your query here..." value={chatInput} onChange={e => setChatInput(e.target.value)} required />
-                  <button className="btn btn-primary" type="submit" disabled={chatLoading}>Send</button>
-                </form>
+                
+                <div className="provider-info-box">
+                  <span style={{ fontSize: '14px' }}>✨</span>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: '700' }}>AI PROVIDER</span>
+                    <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--color-charcoal)' }}>
+                      {aiProvider} 1.5 Pro <span className="status-dot-green"></span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Conversation stream */}
+              <div className="conversation-scroll-panel">
+                {chatMessages.length === 0 ? (
+                  <div className="chat-welcome-container">
+                    <div className="welcome-sparkle-logo">✨</div>
+                    <h3 style={{ fontSize: '18px', fontWeight: '800' }}>StudyMate AI Tutor Workspace</h3>
+                    <p style={{ color: 'var(--color-muted)', fontSize: '13.5px', marginTop: '6px', maxWidth: '460px' }}>
+                      Choose a subject, load study notes, and ask me to explain topics, solve math, or write practice sheets.
+                    </p>
+                    
+                    <div className="suggested-prompts-grid">
+                      <div className="suggested-prompt-card" onClick={() => setChatInput("Plot the graph of y = sin(x) from -pi to pi step by step.")}>
+                        <h6>📈 Plot y = sin(x)</h6>
+                        <p>Analyze and plot standard trigonometric graphs step by step.</p>
+                      </div>
+                      <div className="suggested-prompt-card" onClick={() => setChatInput("Plot the area of y = x^2 and shade region from x=0 to x=2.")}>
+                        <h6>📐 Double Integral Shading</h6>
+                        <p>Calculate double integral regions and display shaded boundary areas.</p>
+                      </div>
+                      <div className="suggested-prompt-card" onClick={() => setChatInput("Explain Normal Distribution with real world examples.")}>
+                        <h6>📊 Normal Distribution</h6>
+                        <p>Break down statistics concepts with examples and exam tips.</p>
+                      </div>
+                      <div className="suggested-prompt-card" onClick={() => setChatInput("Write an overview of SQL Join types.")}>
+                        <h6>🗄️ SQL Join Types</h6>
+                        <p>Understand relational database join concepts and common mistakes.</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  chatMessages.map((msg, i) => (
+                    <div key={i} className={`msg-bubble-wrapper ${msg.role}`}>
+                      {msg.role === 'assistant' && (
+                        <div className="assistant-avatar-circle">✨</div>
+                      )}
+                      <div className={`msg-bubble ${msg.role}`}>
+                        {msg.role === 'user' ? (
+                          <div>
+                            <div style={{ wordBreak: 'break-word' }}>{msg.content}</div>
+                            <div className="msg-time-ticks">
+                              <span>10:24 AM</span>
+                              <span style={{ color: '#6366f1' }}>✓✓</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            {renderAIResponseContent(msg)}
+                            
+                            {/* AI Response actions footer */}
+                            <div className="ai-response-actions-row">
+                              <button className="action-row-btn" onClick={() => {
+                                navigator.clipboard.writeText(msg.content);
+                                alert("Response copied to clipboard!");
+                              }}>
+                                📋 Copy
+                              </button>
+                              <button className="action-row-btn" onClick={() => alert("Graph download started...")}>
+                                💾 Download Graph
+                              </button>
+                              <button className="action-row-btn" onClick={() => alert("Saved to study notes successfully!")}>
+                                ⭐️ Save as Note
+                              </button>
+                              <button className="action-row-btn" style={{ marginLeft: 'auto' }}>👍</button>
+                              <button className="action-row-btn">👎</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+                
+                {chatLoading && (
+                  <div className="msg-bubble-wrapper assistant">
+                    <div className="assistant-avatar-circle">✨</div>
+                    <div className="msg-bubble assistant" style={{ background: '#f8fafc' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6366f1', fontWeight: '600' }}>
+                        <div className="status-dot-green" style={{ animation: 'pulse 1s infinite' }}></div>
+                        AI is thinking...
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                <div ref={messagesEndRef} />
+              </div>
+              
+              {/* Sticky bottom input */}
+              <div className="sticky-input-container">
+                <textarea 
+                  className="chat-input-textarea" 
+                  placeholder="Ask anything about your notes..." 
+                  value={chatInput} 
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={handleKeyDownInput}
+                  rows={2}
+                />
+                <div className="chat-input-toolbar">
+                  <div className="toolbar-left-btns">
+                    <button className="toolbar-btn" onClick={() => alert("File attachment explorer opened...")}>
+                      ➕ Attach
+                    </button>
+                    <button className="toolbar-btn" onClick={() => alert("Voice transcription active... speak now.")}>
+                      🎤 Voice
+                    </button>
+                  </div>
+                  <button 
+                    className="send-circle-btn" 
+                    onClick={handleSendChatMessage}
+                    disabled={!chatInput.trim() || chatLoading}
+                  >
+                    ✈️
+                  </button>
+                </div>
               </div>
             </div>
+            
+            {/* RIGHT PANEL: Collapsible Details Panel */}
+            {showRightPanel && (
+              <div className="chat-right-panel">
+                <h5>Context Details</h5>
+                
+                <div className="context-detail-card">
+                  <h6>Selected Subject</h6>
+                  <p>{activeSub?.name || 'No subject active'}</p>
+                </div>
+                
+                <div className="context-detail-card">
+                  <h6>Description</h6>
+                  <p style={{ fontSize: '11px', color: '#64748b' }}>
+                    {activeSub?.description || 'No subject description configured.'}
+                  </p>
+                </div>
+
+                <div className="context-detail-card">
+                  <h6>OCR Subsystem Status</h6>
+                  <p style={{ fontSize: '11px', color: '#10b981', fontWeight: '700' }}>
+                    🟢 {ocrStatus}
+                  </p>
+                </div>
+
+                <div className="context-detail-card">
+                  <h6>Memory Profile</h6>
+                  <p style={{ fontSize: '11.5px', color: '#64748b' }}>
+                    Active and ready to load preferences.
+                  </p>
+                </div>
+
+                <div className="context-detail-card" style={{ marginTop: 'auto' }}>
+                  <h6>Quick Actions</h6>
+                  <button className="btn btn-primary" style={{ width: '100%', padding: '8px', fontSize: '11.5px', marginBottom: '8px' }} onClick={() => setActiveTab('Quiz Mode')}>
+                    ✏️ Generate Subject Quiz
+                  </button>
+                  <button className="btn btn-secondary" style={{ width: '100%', padding: '8px', fontSize: '11.5px' }} onClick={() => setActiveTab('Flashcards')}>
+                    ⚡ Study Flashcards
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         );
+      }
 
       case 'Quiz Mode':
         return (
@@ -1155,29 +1578,128 @@ function App() {
           </div>
         );
 
+      case 'Study Library':
+        return (
+          <div>
+            <div className="page-header">
+              <div className="page-kicker">Resource Repository</div>
+              <h2 className="page-title">Study Library</h2>
+              <p className="page-subtitle">Manage all uploaded textbooks, notes, and resources for your subjects.</p>
+            </div>
+            
+            <div className="grid-cols-2">
+              {subjects.map(sub => (
+                <div key={sub.id} className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '180px' }}>
+                  <div>
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '16px' }}>
+                      📚 {sub.name}
+                    </h3>
+                    <p style={{ color: 'var(--color-muted)', fontSize: '13px' }}>{sub.description || 'No subject description.'}</p>
+                  </div>
+                  
+                  <button className="btn btn-secondary" style={{ width: '100%', marginTop: '16px' }} onClick={() => {
+                    setChatSubId(sub.id);
+                    setActiveTab('Chat With Notes');
+                  }}>
+                    Open Subject Chat
+                  </button>
+                </div>
+              ))}
+              {subjects.length === 0 && (
+                <div className="glass-card" style={{ gridColumn: 'span 2', textAlign: 'center', padding: '40px' }}>
+                  <p style={{ color: 'var(--color-muted)' }}>No subjects found. Create a subject in the Dashboard to get started.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+
+      case 'About':
+        return (
+          <div>
+            <div className="page-header">
+              <div className="page-kicker">Application Console</div>
+              <h2 className="page-title">About StudyMate AI</h2>
+              <p className="page-subtitle">A premium AI learning platform for students and tutors.</p>
+            </div>
+            
+            <div className="glass-card" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎓</div>
+              <h3>StudyMate AI Workspace</h3>
+              <span style={{ display: 'inline-block', fontSize: '12px', color: '#6366f1', background: 'rgba(99, 102, 241, 0.1)', padding: '4px 12px', borderRadius: '99px', fontWeight: '750', marginTop: '6px' }}>v1.4.2</span>
+              
+              <p style={{ marginTop: '20px', color: 'var(--color-charcoal)', fontSize: '14px', lineHeight: '1.6' }}>
+                StudyMate AI is a premium full-stack academic assistant powered by state-of-the-art LLMs. It features deep document understanding, step-by-step math integration, region-of-integration shading, custom mock quizzes, flashcard sessions, Pomodoro timers, and revision plans.
+              </p>
+              
+              <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--color-border)', fontSize: '12px', color: 'var(--color-muted)' }}>
+                © 2026 StudyMate AI | All Rights Reserved
+              </div>
+            </div>
+          </div>
+        );
+
       default:
         return <div>Not found</div>;
     }
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${activeTab === 'Chat With Notes' ? 'chat-active' : ''}`}>
       <div className="sidebar">
         <div className="brand-section">
           <div className="brand-logo">🎓</div>
-          <div className="brand-name">StudyMate AI</div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span className="brand-name" style={{ lineHeight: '1.2' }}>StudyMate AI</span>
+            <span style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: '600' }}>AI Study Assistant</span>
+          </div>
         </div>
 
         <div className="nav-links">
-          {['Dashboard', 'Upload Notes', 'Chat With Notes', 'Quiz Mode', 'Flashcards', 'Revision Planner', 'Pomodoro Timer', 'AI Settings'].map(tab => (
-            <div key={tab} className={`nav-item ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-              <span>{tab === 'Dashboard' ? '🏠' : tab === 'Upload Notes' ? '☁️' : tab === 'Chat With Notes' ? '💬' : tab === 'Quiz Mode' ? '❓' : tab === 'Flashcards' ? '📘' : tab === 'Revision Planner' ? '📅' : tab === 'Pomodoro Timer' ? '⏱️' : '⚙️'}</span>
-              <span>{tab}</span>
+          {[
+            { name: 'Dashboard', icon: '🏠' },
+            { name: 'Study Library', icon: '📚' },
+            { name: 'Upload Notes', icon: '☁️' },
+            { name: 'Chat With Notes', icon: '💬' },
+            { name: 'Quiz Mode', icon: '❓' },
+            { name: 'Flashcards', icon: '📘' },
+            { name: 'Revision Planner', icon: '📅' },
+            { name: 'Pomodoro Timer', icon: '⏱️' },
+            { name: 'AI Settings', icon: '⚙️' },
+            { name: 'About', icon: 'ℹ️' }
+          ].map(tab => (
+            <div key={tab.name} className={`nav-item ${activeTab === tab.name ? 'active' : ''}`} onClick={() => setActiveTab(tab.name)}>
+              <span>{tab.icon}</span>
+              <span>{tab.name}</span>
             </div>
           ))}
         </div>
 
-        <button className="btn btn-secondary logout-btn" onClick={logout}>Sign Out</button>
+        {/* User profile section at the bottom of sidebar */}
+        <div className="sidebar-profile-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div className="user-avatar" style={{ background: '#6366f1' }}>A</div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span className="user-name">{user?.name || 'Ali Shair'}</span>
+              <span className="user-plan">Pro Plan</span>
+            </div>
+          </div>
+          <div className="credits-bar" style={{ marginTop: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: '600', color: 'var(--color-muted)', marginBottom: '4px' }}>
+              <span>1200 AI Credits Left</span>
+              <span>80%</span>
+            </div>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: '80%' }}></div>
+            </div>
+          </div>
+          <button className="upgrade-btn" onClick={() => alert("Upgrading to premium study plan...")}>
+            <span>👑 Upgrade Plan</span>
+            <span style={{ fontSize: '10px' }}>➔</span>
+          </button>
+        </div>
+
+        <button className="btn btn-secondary logout-btn" style={{ marginTop: '12px', padding: '6px 12px', fontSize: '12px' }} onClick={logout}>Sign Out</button>
       </div>
 
       <div className="main-content">
