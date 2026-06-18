@@ -399,20 +399,42 @@ if st.session_state.library_success:
 subjects = get_subjects(user_id=user_id)
 documents = get_all_documents(user_id=user_id)
 
-subject_names = ["All"] + list(dict.fromkeys(subject["name"] for subject in subjects))
+subject_options = {"All": "All"}
+for s in subjects:
+    if s.get("group_name"):
+        display_name = f"👥 [{s['group_name']}] {s['name']}"
+    else:
+        display_name = f"👤 [Personal] {s['name']}"
+    subject_options[display_name] = s["name"]
+
+subject_display_names = list(subject_options.keys())
 file_types = ["All types"] + sorted({(document["file_type"] or "PDF").upper() for document in documents})
 
 if subjects:
-    section_title("Subject Overview", "\U0001f4da")
-    overview_cols = st.columns(min(3, len(subjects)))
-    for index, subject in enumerate(subjects[:6]):
-        document_count = sum(
-            1 for document in documents if int(document["subject_id"]) == int(subject["id"])
-        )
-        with overview_cols[index % len(overview_cols)]:
-            render_subject_card(subject, document_count=document_count)
+    personal_subjects = [s for s in subjects if not s.get("group_name")]
+    group_subjects = [s for s in subjects if s.get("group_name")]
+    
+    if personal_subjects:
+        section_title("Personal Subject Overview", "👤")
+        overview_cols = st.columns(min(3, len(personal_subjects)))
+        for index, subject in enumerate(personal_subjects[:6]):
+            document_count = sum(
+                1 for document in documents if int(document["subject_id"]) == int(subject["id"])
+            )
+            with overview_cols[index % len(overview_cols)]:
+                render_subject_card(subject, document_count=document_count)
 
-if st.session_state.library_subject_filter not in subject_names:
+    if group_subjects:
+        section_title("Study Group Subject Overview", "👥")
+        overview_cols = st.columns(min(3, len(group_subjects)))
+        for index, subject in enumerate(group_subjects[:6]):
+            document_count = sum(
+                1 for document in documents if int(document["subject_id"]) == int(subject["id"])
+            )
+            with overview_cols[index % len(overview_cols)]:
+                render_subject_card(subject, document_count=document_count)
+
+if st.session_state.library_subject_filter not in subject_display_names:
     st.session_state.library_subject_filter = "All"
 if st.session_state.library_file_type_filter not in file_types:
     st.session_state.library_file_type_filter = "All types"
@@ -429,7 +451,7 @@ with st.container(border=True):
     with subject_col:
         selected_subject = st.selectbox(
             "Subject",
-            subject_names,
+            subject_display_names,
             key="library_subject_filter",
         )
     with type_col:
@@ -442,25 +464,27 @@ with st.container(border=True):
         st.write("")
         st.button("Clear", use_container_width=True, on_click=clear_filters)
 
-section_title("Subject Filters", "\U0001f4da")
-chip_count = max(1, min(6, len(subject_names)))
+section_title("Subject Filters", "📚")
+chip_count = max(1, min(6, len(subject_display_names)))
 chip_cols = st.columns(chip_count)
-for index, subject_name in enumerate(subject_names):
+for index, display_name in enumerate(subject_display_names):
     with chip_cols[index % chip_count]:
-        is_active = st.session_state.library_subject_filter == subject_name
-        label = subject_name if subject_name == "All" else subject_name[:18]
+        is_active = st.session_state.library_subject_filter == display_name
+        label = display_name if display_name == "All" else display_name[:20]
         button_label = f"{'* ' if is_active else ''}{label}"
         st.button(
             button_label,
-            key=f"subject_chip_{subject_name}",
+            key=f"subject_chip_{display_name}",
             use_container_width=True,
             on_click=set_subject_filter,
-            args=(subject_name,),
+            args=(display_name,),
         )
+
+actual_subject_name = subject_options.get(st.session_state.library_subject_filter, "All")
 
 filtered_documents = apply_filters(
     documents=documents,
-    selected_subject=st.session_state.library_subject_filter,
+    selected_subject=actual_subject_name,
     selected_file_type=st.session_state.library_file_type_filter,
     search_text=st.session_state.library_search,
 )
