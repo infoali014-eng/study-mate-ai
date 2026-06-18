@@ -6,7 +6,7 @@ import fitz
 
 IMAGE_TYPES = {"PNG", "JPG", "JPEG", "WEBP"}
 TEXT_TYPES = {"TXT", "MD", "CSV", "JSON"}
-SUPPORTED_FILE_TYPES = {"PDF", *IMAGE_TYPES, "DOCX", "PPTX", "XLSX", *TEXT_TYPES}
+SUPPORTED_FILE_TYPES = {"PDF", *IMAGE_TYPES, "DOCX", "PPTX", "PPT", "XLSX", *TEXT_TYPES}
 MAX_PDF_OCR_PAGES = int(os.getenv("STUDYMATE_MAX_PDF_OCR_PAGES", "3"))
 PDF_OCR_ZOOM = float(os.getenv("STUDYMATE_PDF_OCR_ZOOM", "1.4"))
 OCR_UNAVAILABLE_MESSAGE = (
@@ -179,7 +179,10 @@ def _extract_pptx(file_path):
     except Exception:
         return "", 0, "pptx_unavailable", ["PPTX support is not available on this deployment."]
 
-    presentation = Presentation(file_path)
+    try:
+        presentation = Presentation(file_path)
+    except Exception as e:
+        return "", 0, "pptx_error", [f"Could not read presentation: {e}. Only newer .pptx files are supported."]
     parts = []
     warnings = []
     image_only_slides = 0
@@ -266,7 +269,7 @@ def process_uploaded_file(file_path, file_type):
         text, count, method, warnings = _extract_image(path)
     elif clean_type == "DOCX":
         text, count, method, warnings = _extract_docx(path)
-    elif clean_type == "PPTX":
+    elif clean_type in {"PPTX", "PPT"}:
         text, count, method, warnings = _extract_pptx(path)
     elif clean_type == "XLSX":
         text, count, method, warnings = _extract_xlsx(path)

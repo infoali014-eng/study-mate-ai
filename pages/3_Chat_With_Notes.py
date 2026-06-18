@@ -2309,7 +2309,7 @@ with chat_col:
                 with st.popover("📎 Attach", use_container_width=True):
                     chat_uploaded_files = st.file_uploader(
                         "Attach images, PDFs, DOCX, PPTX, TXT, or Markdown files",
-                        type=["png", "jpg", "jpeg", "webp", "pdf", "docx", "pptx", "txt", "md"],
+                        type=["png", "jpg", "jpeg", "webp", "pdf", "docx", "pptx", "ppt", "txt", "md"],
                         accept_multiple_files=True,
                         key=f"chat_attachments_{st.session_state.chat_attachment_uploader_key}",
                         help=(

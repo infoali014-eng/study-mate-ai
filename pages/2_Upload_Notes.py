@@ -81,7 +81,7 @@ with st.container(border=True):
     st.info(f"OCR status: {ocr_status()}. Image/scanned notes may be limited if OCR is unavailable.")
     uploaded_file = st.file_uploader(
         "Upload study material",
-        type=["pdf", "png", "jpg", "jpeg", "webp", "docx", "pptx", "xlsx", "txt", "md", "csv", "json"],
+        type=["pdf", "png", "jpg", "jpeg", "webp", "docx", "pptx", "ppt", "xlsx", "txt", "md", "csv", "json"],
     )
 
 if uploaded_file:
