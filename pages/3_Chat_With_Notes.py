@@ -2296,13 +2296,26 @@ with chat_col:
             btn_cols = st.columns([0.08, 0.16, 0.16, 0.44, 0.16])
             
             with btn_cols[0]:
-                if st.button("+", key="chat_plus_btn", use_container_width=True):
-                    _start_new_chat_session(
-                        st.session_state.get("chat_mode", "General Chat"),
-                        st.session_state.get("chat_context_label", ""),
-                        st.session_state.get("chat_context", {})
-                    )
-                    st.rerun()
+                with st.popover("+", use_container_width=True):
+                    st.markdown("**Options**")
+                    if st.button("📝 New Chat", use_container_width=True, key="plus_new_chat"):
+                        _start_new_chat_session(
+                            st.session_state.get("chat_mode", "General Chat"),
+                            st.session_state.get("chat_context_label", ""),
+                            st.session_state.get("chat_context", {})
+                        )
+                        st.rerun()
+                    if st.button("🗑️ Clear History", use_container_width=True, key="plus_clear_chat"):
+                        _set_chat_messages([])
+                        st.rerun()
+                    
+                    st.markdown("**Quick Actions**")
+                    if st.button("💡 Summarize Notes", use_container_width=True, key="plus_summarize"):
+                        st.session_state.study_chat_pending_prompt = "Summarize the key points from these notes."
+                        st.rerun()
+                    if st.button("❓ Practice Quiz", use_container_width=True, key="plus_quiz"):
+                        st.session_state.study_chat_pending_prompt = "Generate 3 practice questions based on these notes to test my knowledge."
+                        st.rerun()
                 
             with btn_cols[1]:
                 # Attach Popover (Paperclip icon)
