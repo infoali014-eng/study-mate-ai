@@ -1567,6 +1567,14 @@ st.set_page_config(page_title="Chat With Notes - StudyMate AI", layout="wide")
 user_id = require_login()
 init_db()
 apply_theme()
+
+if "show_chat_history_panel" not in st.session_state:
+    st.session_state.show_chat_history_panel = True
+
+if st.session_state.show_chat_history_panel:
+    with st.sidebar:
+        render_chat_history_panel()
+
 sidebar_nav()
 
 st.markdown(
@@ -1740,8 +1748,6 @@ if "voice_pending_audio" not in st.session_state:
     st.session_state.voice_pending_audio = None
 if "voice_transcription_status" not in st.session_state:
     st.session_state.voice_transcription_status = None
-if "show_chat_history_panel" not in st.session_state:
-    st.session_state.show_chat_history_panel = True
 
 pending_session_load = st.session_state.pop("study_chat_pending_session_load", None)
 loaded_session_from_history = False
@@ -1754,17 +1760,14 @@ prefill_document_id = st.session_state.pop("chat_prefill_document_id", None)
 prefill_document_ids = st.session_state.pop("chat_prefill_document_ids", [])
 prefill_question = st.session_state.pop("chat_prefill_question", "")
 
-if st.session_state.show_chat_history_panel:
-    with st.sidebar:
-        render_chat_history_panel()
-
 chat_col = st.container()
 
 with chat_col:
-    if not st.session_state.show_chat_history_panel:
-        if st.button("Open Chat History", key="open_chat_history_btn"):
-            st.session_state.show_chat_history_panel = True
-            st.rerun()
+    # Always render Toggle button at the top of the chat area to easily open/close the sidebar
+    btn_label = "Hide Chat History ⬅️" if st.session_state.show_chat_history_panel else "Open Chat History ➡️"
+    if st.button(btn_label, key="toggle_chat_history_btn"):
+        st.session_state.show_chat_history_panel = not st.session_state.show_chat_history_panel
+        st.rerun()
 
     st.markdown(
         """
