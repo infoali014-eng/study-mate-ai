@@ -321,7 +321,7 @@ def _login_form():
         st.error("Invalid email or password.")
         return
 
-    user = verify_user_login(clean_email, password, verify_password)
+    user = verify_user_login(clean_email, password, verify_password, hash_password)
     if not user:
         _record_failed_login()
         st.error("Invalid email or password.")

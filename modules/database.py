@@ -709,7 +709,7 @@ def get_user_by_email(email):
         ).fetchone()
 
 
-def verify_user_login(email, password, verify_password_callback):
+def verify_user_login(email, password, verify_password_callback, hash_password_callback=None):
     """Return the user when an email/password pair is valid."""
     clean_email = (email or "").strip().lower()
     if not clean_email or not password:
@@ -721,6 +721,18 @@ def verify_user_login(email, password, verify_password_callback):
 
     if int(user["is_active"] if "is_active" in user.keys() else 1) != 1:
         return None
+
+    # Transparently upgrade plain-text passwords
+    if user["password_hash"] == password:
+        if hash_password_callback:
+            new_hash = hash_password_callback(password)
+            with closing(get_connection()) as conn:
+                conn.execute(
+                    "UPDATE users SET password_hash = ? WHERE id = ?",
+                    (new_hash, user["id"]),
+                )
+                conn.commit()
+        return user
 
     if verify_password_callback(password, user["password_hash"]):
         return user
