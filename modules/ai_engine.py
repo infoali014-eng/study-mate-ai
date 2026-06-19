@@ -20,7 +20,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
-DEFAULT_AI_PROVIDER = os.getenv("AI_PROVIDER", "Gemini")
+DEFAULT_AI_PROVIDER = os.getenv("AI_PROVIDER", "Groq")
 REQUIRE_USER_API_KEYS = os.getenv("REQUIRE_USER_API_KEYS", "true").lower() != "false"
 OPENAI_MODEL_OPTIONS = [
     model.strip()
@@ -539,15 +539,14 @@ def get_groq_api_key():
     """Return the Groq key without printing or persisting it."""
     try:
         import streamlit as st
-
         session_key = st.session_state.get("groq_api_key", "")
     except Exception:
         session_key = ""
 
-    if REQUIRE_USER_API_KEYS:
-        return session_key
-
-    return session_key or os.getenv("GROQ_API_KEY", "") or _get_streamlit_secret("GROQ_API_KEY")
+    key = session_key or os.getenv("GROQ_API_KEY", "") or _get_streamlit_secret("GROQ_API_KEY")
+    if not key or key == "your_groq_api_key_here":
+        return ""
+    return key
 
 
 def get_openai_api_key():

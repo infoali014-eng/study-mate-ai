@@ -369,9 +369,8 @@ def _sync_google_user_to_local_session():
 
 def _google_login_button(key="google_login_btn"):
     """Render the optional Google login button."""
-    if not hasattr(st, "login"):
-        st.info("Google login needs a newer Streamlit version.")
-        return
+    # Google login is temporarily disabled by admin.
+    return
 
     provider_name = _get_google_provider_name()
     if provider_name is None:
