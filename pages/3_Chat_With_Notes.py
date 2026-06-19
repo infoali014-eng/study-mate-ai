@@ -2189,12 +2189,9 @@ with chat_col:
                         has_graph = any(v.get("figure_json") for v in visuals)
 
                         if has_graph:
-                            left_col, right_col = st.columns([1.1, 0.9])
-                            with left_col:
-                                render_math_visualizations(visuals)
-                            with right_col:
-                                st.markdown("##### Step-by-Step Solution")
-                                render_ai_markdown(main_body)
+                            render_math_visualizations(visuals)
+                            st.markdown("##### Step-by-Step Solution")
+                            render_ai_markdown(main_body)
                         else:
                             render_ai_markdown(main_body)
 

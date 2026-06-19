@@ -1857,13 +1857,17 @@ def render_ai_markdown(content):
         diagram = match.group(1).strip()
         if diagram:
             found_mermaid = True
-            escaped_diagram = html.escape(diagram)
+            import json
+            safe_diagram_json = json.dumps(diagram)
             components.html(
                 f"""
-                <div class="mermaid">{escaped_diagram}</div>
+                <div class="mermaid" id="mermaid-div"></div>
                 <script type="module">
                     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-                    mermaid.initialize({{ startOnLoad: true, theme: 'base' }});
+                    mermaid.initialize({{ startOnLoad: false, theme: 'base' }});
+                    const mermaidDiv = document.getElementById('mermaid-div');
+                    mermaidDiv.textContent = {safe_diagram_json};
+                    mermaid.run({{ querySelector: '.mermaid' }});
                 </script>
                 """,
                 height=360,
