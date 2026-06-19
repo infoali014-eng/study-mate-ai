@@ -241,8 +241,6 @@ def render_document_details(document):
 
         if document["description"]:
             st.write(document["description"])
-        if document["warning_message"]:
-            st.warning(document["warning_message"])
 
         original_path = document["file_path"]
         file_type = (document["file_type"] or Path(document["file_name"]).suffix.replace(".", "") or "PDF").upper()

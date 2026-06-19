@@ -76,30 +76,10 @@ def _extract_pdf(file_path):
                     if ocr_text:
                         text_parts.append(f"\n--- Page {page_number} OCR ---\n{ocr_text}")
                         ocr_used = True
-                    elif warning and not ocr_warning_added:
-                        warnings.append(
-                            "This PDF appears to be scanned/image-based. "
-                            f"{warning}"
-                        )
-                        ocr_warning_added = True
                 except Exception:
-                    if not ocr_warning_added:
-                        warnings.append(
-                            "This PDF appears to be scanned/image-based. "
-                            f"{OCR_UNAVAILABLE_MESSAGE}"
-                        )
-                        ocr_warning_added = True
+                    pass
 
     method = "pdf_ocr" if ocr_used else "pdf_text"
-    if scanned_pages > MAX_PDF_OCR_PAGES:
-        warnings.append(
-            "Long or scanned PDF detected. To keep upload fast, OCR was limited to "
-            f"{MAX_PDF_OCR_PAGES} page(s). Selectable text was still extracted from all pages."
-        )
-    if scanned_pages and not ocr_used and not warnings:
-        warnings.append(
-            "Some PDF pages appear scanned/image-based, but no OCR text was extracted."
-        )
     return "\n".join(text_parts).strip(), page_count, method, warnings
 
 
@@ -113,12 +93,6 @@ def _extract_image(file_path):
             text, warning = _ocr_image(image)
     except Exception:
         text, warning = "", OCR_UNAVAILABLE_MESSAGE
-
-    if warning:
-        warnings.append(
-            "Image uploaded, but text extraction failed. You can still preview/download it. "
-            f"{warning}"
-        )
 
     return text.strip(), 1, "image_ocr" if text else "ocr_unavailable", warnings
 
