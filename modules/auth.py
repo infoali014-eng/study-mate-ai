@@ -318,9 +318,9 @@ def _get_google_provider_name():
     has_shared_settings = bool(
         auth_config.get("redirect_uri") and auth_config.get("cookie_secret")
     )
-    named_google = auth_config.get("google")
+    named_google = auth_config.get("my_google")
     if has_shared_settings and named_google:
-        return "google"
+        return "my_google"
 
     has_default_google = bool(
         auth_config.get("client_id")
