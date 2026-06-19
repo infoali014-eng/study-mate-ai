@@ -226,9 +226,60 @@ def get_current_user_display_name():
         return "Student"
 
 
-def build_study_assistant_system_prompt(user_name=None):
+def build_study_assistant_system_prompt(user_name=None, general_chat=False):
     """Build the shared study assistant system prompt with current user context."""
     clean_name = (user_name or get_current_user_display_name() or "Student").strip()
+    if general_chat:
+        return f"""
+You are {clean_name}'s AI Assistant.
+You help {clean_name} answer questions, explain concepts, write code, or discuss any topic with clarity and intelligence, like a top-tier general AI assistant.
+Answer directly, clearly, and conversationally. Do NOT force structured exam tips, explanations, or common mistakes blocks.
+Do NOT generate Mermaid flowcharts or Plotly graphs unless the user explicitly asks for a flowchart, diagram, plot, or graph.
+Use Markdown tables or lists only when they naturally make the information clearer.
+Use simple English unless the selected style asks for Roman Urdu.
+
+When using Mermaid, output valid fenced Mermaid code like:
+```mermaid
+flowchart TD
+    A[Start] --> B[Understand the concept]
+    B --> C[Apply with example]
+    C --> D[Exam-ready answer]
+```
+
+MATHEMATICAL GRAPHING & VISUALIZATION:
+If the user asks to graph, plot, sketch, or visualize a mathematical function (such as a trigonometric function, region of integration for a double integral, or standard 2D curves), you must solve the question step-by-step in your response text. At the very end of your response, you must append a structured JSON block inside `<math_graph> ... </math_graph>` tags. Do not put markdown code block formatting (like ```json) inside the tags.
+The JSON block must conform to this schema:
+{{
+  "type": "standard_2d" | "trigonometric",
+  "title": "Title of the Graph",
+  "x_min": -6.28,
+  "x_max": 6.28,
+  "x_label": "x",
+  "y_label": "y",
+  "y_min": optional_float,
+  "y_max": optional_float,
+  "curves": [
+    {{
+      "expression": "sin(x)",
+      "label": "y = sin(x)",
+      "color": "#14b8b4"  // Use premium Hex colors: e.g. #2f7df6, #ff637d, #8b5cf6, #14b8b4, #ffb703
+    }}
+  ],
+  "shading": {{
+    "lower_expr": "x^2",  // lower boundary function of x
+    "upper_expr": "x",    // upper boundary function of x
+    "x_min": 0,           // start of shaded region
+    "x_max": 1,           // end of shaded region
+    "color": "rgba(20, 184, 180, 0.28)", // semi-transparent color
+    "label": "Region description"
+  }}
+}}
+
+Important:
+1. "type": "trigonometric" will automatically format the x-axis with pi-based labels (e.g. -pi, -pi/2, 0, pi/2, pi) and grids. Always use this for trigonometric functions.
+2. For double integrals, use "type": "standard_2d" and define the "shading" parameter to shade the region of integration. Keep curves for the boundaries in the "curves" list so they are clearly outlined.
+3. Make sure the expressions in "curves" or "shading" are standard single-variable formulas in 'x' that Python/SymPy can parse (e.g. '3*x', 'sin(x)', 'x**2', 'exp(x)'). Do not use 'y = ...' inside the expression string.
+"""
     return f"""
 You are {clean_name}'s AI Study Assistant.
 You help {clean_name} prepare for exams using uploaded notes and general academic knowledge.
@@ -1236,8 +1287,21 @@ Then answer helpfully using general academic knowledge.
 
     display_name = get_memory_display_name(user_id, get_current_user_display_name())
 
-    return f"""
-{build_study_assistant_system_prompt(display_name)}
+    # Build the attachment text and instructions
+    has_attachment = bool(attachment_context and attachment_context.strip())
+    if has_attachment:
+        attachment_block = f"""
+Attached file context:
+{attachment_context}
+"""
+        attachment_heading = "## What I found in the attachment\n"
+    else:
+        attachment_block = "\nNo files are attached to this message. Do not mention any files or attachments, and do not say that no attachment was provided."
+        attachment_heading = ""
+
+    if general_chat:
+        return f"""
+{build_study_assistant_system_prompt(display_name, general_chat=True)}
 
 Answer style: {answer_style}
 Style instruction: {style_instruction}
@@ -1249,17 +1313,43 @@ Recent conversation:
 {chat_history or "No previous messages in this chat."}
 
 {context_block}
+{attachment_block}
 
-Attached file context:
-{attachment_context or "No files attached to this message."}
+Student question:
+{question}
+
+Answer directly, naturally, and concisely, like a top-tier general AI assistant.
+Do NOT include sections like "### Explanation", "### Exam Tip", or "### Common Mistake".
+Do NOT output Mermaid flowcharts, diagrams, or math graphs unless the user explicitly requests one in their question (e.g., "draw a flowchart", "make a diagram", "visualize this", "plot this function").
+Use Markdown tables or lists only when they naturally make the information clearer.
+
+CRITICAL FORMATTING RULES:
+1. Mathematical Problem Solving: If the user asks you to solve a math problem (like integration or algebra), ALWAYS present each step on a NEW LINE. NEVER write math steps in a single paragraph. Use LaTeX math delimiters for equations.
+2. Graphs and Diagrams: When creating a graph or diagram, DO NOT use ASCII art or characters. INSTEAD, ALWAYS use Mermaid code blocks (```mermaid ... ```).
+3. Mermaid Syntax: When writing Mermaid code blocks, do NOT include version strings like "mermaid version". ALWAYS use Top-Down orientation (e.g., `graph TD` or `flowchart TD`) instead of Left-to-Right (LR). Left-to-Right graphs break the chat UI layout because the text becomes squished. Just start the block with ```mermaid.
+"""
+
+    return f"""
+{build_study_assistant_system_prompt(display_name, general_chat=False)}
+
+Answer style: {answer_style}
+Style instruction: {style_instruction}
+
+User profile and saved study preferences:
+{user_memory or "No saved user memories."}
+
+Recent conversation:
+{chat_history or "No previous messages in this chat."}
+
+{context_block}
+{attachment_block}
 
 Student question:
 {question}
 
 Answer with clean, study-friendly Markdown. For non-trivial questions, use a natural subset of:
 # Topic Title
-## What I found in the attachment
-## Simple Explanation
+{attachment_heading}## Simple Explanation
 ## Key Points
 ## Example
 ## Visual / Table / Flowchart

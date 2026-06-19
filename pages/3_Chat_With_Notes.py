@@ -817,7 +817,7 @@ def add_assistant_message(answer_data, context):
     _persist_chat_message(assistant_message)
 
 
-def _compact_chat_history(limit=8):
+def _compact_chat_history(limit=20):
     """Return a compact recent chat history for tutor continuity."""
     recent_messages = st.session_state.get(_chat_messages_key(), [])[-limit:]
     lines = []
@@ -825,7 +825,7 @@ def _compact_chat_history(limit=8):
         role = "Student" if message.get("role") == "user" else "Tutor"
         content = str(message.get("content", "")).strip()
         if content:
-            lines.append(f"{role}: {content[:900]}")
+            lines.append(f"{role}: {content[:2500]}")
     return "\n".join(lines)
 
 
@@ -1324,7 +1324,7 @@ Connect Gemini or Ollama to get a full multimodal tutor response.
             teaching_depth=context.get("teaching_depth", "Balanced"),
             notes_context=notes_context,
             attachment_context=attachment_context,
-            chat_history=_compact_chat_history(10),
+            chat_history=_compact_chat_history(20),
             user_memory=_memory_profile_text(),
             user_message=question,
             context_label=context.get("source_label", context.get("label", "Teach Me Mode")),
@@ -1428,7 +1428,7 @@ def generate_chat_answer(question, answer_style, chat_mode, context, attachment_
             document_ids=context["document_ids"],
             context_label=context["label"],
             user_id=st.session_state.get("user_id"),
-            chat_history=_compact_chat_history(10),
+            chat_history=_compact_chat_history(20),
             user_memory=_memory_profile_text(),
             attachment_context=attachment_context,
             image_paths=image_paths,
@@ -1451,7 +1451,7 @@ Saved student memory and preferences:
 {_memory_profile_text()}
 
 Recent conversation:
-{_compact_chat_history(10) or "No previous messages in this chat."}
+{_compact_chat_history(20) or "No previous messages in this chat."}
 
 Attached file context:
 {attachment_context or "No files attached to this message."}
