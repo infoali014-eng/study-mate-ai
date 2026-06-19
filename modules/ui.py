@@ -1857,6 +1857,12 @@ def render_ai_markdown(content):
         diagram = match.group(1).strip()
         if diagram:
             found_mermaid = True
+            
+            # Clean up AI artifacts like "mermaid version X.X.X"
+            lines = diagram.split("\n")
+            if lines and "mermaid" in lines[0].lower() and "version" in lines[0].lower():
+                diagram = "\n".join(lines[1:]).strip()
+                
             import json
             safe_diagram_json = json.dumps(diagram)
             components.html(

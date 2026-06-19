@@ -1273,7 +1273,7 @@ Do not force every section for simple questions. Use tables, formulas, Mermaid f
 CRITICAL FORMATTING RULES:
 1. Mathematical Problem Solving: If the user asks you to solve a math problem (like integration or algebra), ALWAYS present each step on a NEW LINE. NEVER write math steps in a single paragraph. Use LaTeX math delimiters for equations.
 2. Graphs and Diagrams: When creating a graph or diagram, DO NOT use ASCII art or characters. INSTEAD, ALWAYS use Mermaid code blocks (```mermaid ... ```).
-3. Mermaid Syntax: When writing Mermaid code blocks, do NOT include version strings like "mermaid version". Just start the block with ```mermaid.
+3. Mermaid Syntax: When writing Mermaid code blocks, do NOT include version strings like "mermaid version". ALWAYS use Top-Down orientation (e.g., `graph TD` or `flowchart TD`) instead of Left-to-Right (LR). Left-to-Right graphs break the chat UI layout because the text becomes squished. Just start the block with ```mermaid.
 """
 
 
