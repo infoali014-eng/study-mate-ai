@@ -374,6 +374,7 @@ section_title("Groq Key", "\U0001f511")
 with st.container(border=True):
     entered_groq_key = st.text_input(
         "Groq API key",
+        value=st.session_state.get("groq_api_key", ""),
         type="password",
         placeholder="Paste Groq key for this browser session only",
         help="This is stored only in Streamlit session state and is never printed.",

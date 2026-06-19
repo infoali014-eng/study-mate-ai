@@ -1046,10 +1046,9 @@ def ask_ollama(prompt, model=OLLAMA_MODEL):
 def ask_groq(prompt, model=None):
     """Send a prompt to Groq's OpenAI-compatible chat completions API."""
     key = get_groq_api_key()
-    if not key:
+    if not key or key == "your_groq_api_key_here":
         raise AIProviderError(
-            "Groq API key is missing. Add it in .env, Streamlit secrets, "
-            "environment variable, or enter it in AI Settings."
+            "Groq API key is missing or invalid. Please add your real Groq key in AI Settings or Streamlit secrets."
         )
 
     selected_model = model or get_session_ai_settings().get("groq_model") or GROQ_MODEL
@@ -1070,6 +1069,14 @@ def ask_groq(prompt, model=None):
         response.raise_for_status()
     except requests.exceptions.RequestException as exc:
         status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        if status_code == 429:
+            raise AIProviderError(
+                "Groq API rate limit exceeded (Status 429). Free Groq keys have a strict limit of 6,000 tokens per minute. Your notes might be too long for Groq's free tier. Please try using Gemini instead."
+            ) from exc
+        elif status_code in (400, 413):
+            raise AIProviderError(
+                f"Groq API rejected the request (Status {status_code}). The context might exceed the model's token limit. Please ask a shorter question or use Gemini."
+            ) from exc
         raise AIProviderError(
             f"Groq request failed with status {status_code or 'unknown'}. "
             "Check your Groq API key, model name, or network connection."
