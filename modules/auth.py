@@ -367,7 +367,7 @@ def _sync_google_user_to_local_session():
 
     return bool(local_user)
 
-def _google_login_button():
+def _google_login_button(key="google_login_btn"):
     """Render the optional Google login button."""
     if not hasattr(st, "login"):
         st.info("Google login needs a newer Streamlit version.")
@@ -378,7 +378,7 @@ def _google_login_button():
         st.info("Google login is not configured yet. Email/password login is available.")
         return
 
-    if st.button("Continue with Google", type="primary", use_container_width=True):
+    if st.button("Continue with Google", type="primary", use_container_width=True, key=key):
         if provider_name:
             st.login(provider_name)
         else:
@@ -387,7 +387,7 @@ def _google_login_button():
 
 def _login_form():
     """Render and process manual email/password login."""
-    _google_login_button()
+    _google_login_button(key="google_login_from_login_tab")
     st.divider()
 
     with st.form("login_form"):
@@ -433,7 +433,7 @@ def _signup_form():
         st.info("Public signup is currently disabled.")
         return
 
-    _google_login_button()
+    _google_login_button(key="google_login_from_signup_tab")
     st.divider()
 
     with st.form("signup_form"):
