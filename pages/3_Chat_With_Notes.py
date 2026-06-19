@@ -1818,14 +1818,6 @@ if "study_chat_pending_prompt" not in st.session_state:
     st.session_state.study_chat_pending_prompt = ""
 if "chat_attachment_uploader_key" not in st.session_state:
     st.session_state.chat_attachment_uploader_key = 0
-if "voice_audio_uploader_key" not in st.session_state:
-    st.session_state.voice_audio_uploader_key = 0
-if "voice_transcript_text" not in st.session_state:
-    st.session_state.voice_transcript_text = ""
-if "voice_pending_audio" not in st.session_state:
-    st.session_state.voice_pending_audio = None
-if "voice_transcription_status" not in st.session_state:
-    st.session_state.voice_transcription_status = None
 
 pending_session_load = st.session_state.pop("study_chat_pending_session_load", None)
 loaded_session_from_history = False
@@ -1861,7 +1853,7 @@ with chat_col:
             <div class="chat-shell-icon">AI</div>
             <div>
                 <h1>Chat With Notes</h1>
-                <p>Ask from your notes, attachments, voice, or general study knowledge.</p>
+                <p>Ask from your notes, attachments, or general study knowledge.</p>
             </div>
         </div>
         """,
@@ -2297,7 +2289,7 @@ with chat_col:
             )
             
             # Horizontal action bar at the bottom
-            btn_cols = st.columns([0.08, 0.16, 0.16, 0.44, 0.16])
+            btn_cols = st.columns([0.08, 0.16, 0.60, 0.16])
             
             with btn_cols[0]:
                 with st.popover("+", use_container_width=True):
@@ -2346,100 +2338,8 @@ with chat_col:
                             st.warning(f"Only the first {CHAT_MAX_ATTACHMENTS} files will be sent.")
                     else:
                         st.caption("Attach files to send with your next message.")
-                        
-            with btn_cols[2]:
-                # Voice Popover (Mic icon)
-                with st.popover("🎤 Voice", use_container_width=True):
-                    st.caption(
-                        "Speak clearly for 2-5 seconds, then click transcribe. Voice/audio will be transcribed "
-                        "using Gemini, Groq, or OpenAI."
-                    )
-                    recorded_audio = None
-                    if hasattr(st, "audio_input"):
-                        recorded_audio = st.audio_input(
-                            "Record voice",
-                            key=f"voice_recording_{st.session_state.voice_audio_uploader_key}",
-                            help="Short, clear recordings work best. Start with one sentence.",
-                        )
-                    else:
-                        st.info("Browser voice recording is not available in this Streamlit version. Upload an audio file instead.")
-
-                    uploaded_audio = st.file_uploader(
-                        "Upload audio file",
-                        type=["mp3", "wav", "m4a", "ogg", "webm"],
-                        key=f"voice_audio_upload_{st.session_state.voice_audio_uploader_key}",
-                        help="Supported: MP3, WAV, M4A, OGG, WEBM. Max 10 MB.",
-                    )
-
-                    selected_audio = recorded_audio or uploaded_audio
-                    if selected_audio:
-                        selected_audio_name = getattr(selected_audio, "name", "voice_recording.wav")
-                        selected_audio_type = getattr(selected_audio, "type", "") or mimetypes.guess_type(selected_audio_name)[0] or "audio/wav"
-                        selected_audio_size = getattr(selected_audio, "size", 0) or 0
-                        st.caption(
-                            f"Ready: {_attachment_icon(Path(selected_audio_name).suffix.replace('.', '').upper())} "
-                            f"{html.escape(selected_audio_name)} - {_format_size(selected_audio_size)}"
-                        )
-                        try:
-                            st.audio(selected_audio.getvalue(), format=selected_audio_type)
-                        except Exception:
-                            st.info("Audio received, but browser playback is not available for this file.")
-                            
-                        # Transcription Button
-                        if st.button("Transcribe Audio", key="transcribe_voice_action", use_container_width=True):
-                            active_session_id = _sync_active_chat_context(chat_mode, context)
-                            attachment, warning = _audio_upload_to_attachment(selected_audio, active_session_id)
-                            if attachment:
-                                st.session_state.voice_pending_audio = {
-                                    "id": attachment["id"],
-                                    "file_name": attachment["file_name"],
-                                    "file_type": attachment["file_type"],
-                                    "file_size": attachment["file_size"],
-                                    "extracted_text": attachment.get("extracted_text", ""),
-                                    "extraction_method": attachment.get("extraction_method", ""),
-                                    "warning": attachment.get("warning", ""),
-                                }
-                                transcript_len = len(attachment.get("extracted_text", "") or "")
-                                st.session_state.voice_transcription_status = {
-                                    "audio_received": "yes",
-                                    "file_type": attachment["file_type"],
-                                    "file_size": attachment["file_size"],
-                                    "method": attachment.get("extraction_method", "unavailable"),
-                                    "transcript_length": transcript_len,
-                                }
-                                st.session_state.voice_transcript_text = attachment.get("extracted_text", "")
-                            if warning:
-                                st.warning(warning)
-                                
-                    # Show status if transcribed
-                    if st.session_state.voice_transcription_status:
-                        status = st.session_state.voice_transcription_status
-                        st.info(f"Method: {status.get('method', 'unavailable')} | Length: {status.get('transcript_length', 0)} chars")
-                        
-                    if st.session_state.voice_pending_audio:
-                        transcript_val = st.text_area(
-                            "Edit transcribed text before sending",
-                            value=st.session_state.voice_transcript_text,
-                            key="voice_transcript_edit_area",
-                            height=100,
-                        )
-                        
-                        v_col1, v_col2 = st.columns(2)
-                        with v_col1:
-                            if st.button("Apply to Chat Input", key="apply_voice_to_chat", use_container_width=True):
-                                st.session_state.chat_textarea = transcript_val
-                                # Keep voice pending audio for the attachments list so it gets sent with the message!
-                                st.session_state.voice_pending_audio["extracted_text"] = transcript_val
-                                st.rerun()
-                        with v_col2:
-                            if st.button("Clear", key="clear_voice_popup", use_container_width=True):
-                                st.session_state.voice_pending_audio = None
-                                st.session_state.voice_transcript_text = ""
-                                st.session_state.voice_transcription_status = None
-                                st.session_state.voice_audio_uploader_key += 1
-                                st.rerun()
             
-            with btn_cols[4]:
+            with btn_cols[3]:
                 # Send button (Paper airplane icon)
                 send_clicked = st.button("✈ Send", type="primary", use_container_width=True, key="chat_send_btn")
 
@@ -2499,9 +2399,6 @@ with chat_col:
             chat_uploaded_files,
             active_session_id,
         )
-        pending_audio_attachment = st.session_state.get("voice_pending_audio")
-        if pending_audio_attachment:
-            processed_attachments.append(pending_audio_attachment)
         for attachment_warning in attachment_warnings:
             st.warning(attachment_warning)
         attachment_context, image_paths = _chat_attachment_context(processed_attachments)
@@ -2532,11 +2429,6 @@ with chat_col:
 
         add_chat_pair(clean_prompt, answer_data, context, attachments=processed_attachments)
         st.session_state.chat_attachment_uploader_key += 1
-        if pending_audio_attachment:
-            st.session_state.voice_pending_audio = None
-            st.session_state.voice_transcript_text = ""
-            st.session_state.voice_transcription_status = None
-            st.session_state.voice_audio_uploader_key += 1
         st.rerun()
 
     if show_info and right_info_col:
