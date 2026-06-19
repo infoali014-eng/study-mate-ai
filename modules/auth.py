@@ -15,6 +15,7 @@ from modules.database import (
     get_user_by_remember_token,
     init_db,
     verify_user_login,
+    get_or_create_oauth_user,
 )
 from modules.security import validate_email, validate_full_name, validate_password
 from modules.ui import apply_theme
@@ -255,7 +256,20 @@ def logout_user():
 
 def logout():
     """Compatibility helper used by the sidebar logout button."""
-    logout_user()
+    _clear_remember_cookie()
+    _clear_user_session_state()
+    st.session_state.auth_message = "You have been logged out safely."
+    
+    google_logged_in = False
+    try:
+        google_logged_in = bool(st.user.get("is_logged_in", False))
+    except Exception:
+        pass
+
+    if google_logged_in and hasattr(st, "logout"):
+        st.logout()
+    else:
+        st.rerun()
 
 
 def _record_failed_login():
@@ -284,14 +298,96 @@ def _login_is_rate_limited():
     return len(attempts) >= FAILED_LOGIN_LIMIT
 
 
-def _disabled_google_note():
-    """Show the current temporary Google login status."""
-    st.info(GOOGLE_DISABLED_MESSAGE)
+def _streamlit_user_is_logged_in():
+    """Return True when Streamlit OIDC login has authenticated a user."""
+    try:
+        return bool(st.user.get("is_logged_in", False))
+    except Exception:
+        return False
+
+def _get_google_provider_name():
+    """Return the configured Streamlit OIDC provider name."""
+    try:
+        auth_config = st.secrets.get("auth", {})
+    except Exception:
+        return None
+
+    if not auth_config:
+        return None
+
+    has_shared_settings = bool(
+        auth_config.get("redirect_uri") and auth_config.get("cookie_secret")
+    )
+    named_google = auth_config.get("google")
+    if has_shared_settings and named_google:
+        return "google"
+
+    has_default_google = bool(
+        auth_config.get("client_id")
+        and auth_config.get("client_secret")
+        and auth_config.get("server_metadata_url")
+    )
+    if has_default_google:
+        return ""
+
+    return None
+
+def _sync_google_user_to_local_session():
+    """Create or fetch a local SQLite user for the Google-authenticated email."""
+    if not _streamlit_user_is_logged_in():
+        return False
+
+    google_user = st.user.to_dict()
+    email = (google_user.get("email") or "").strip().lower()
+    email_verified = bool(google_user.get("email_verified", False))
+    if not email or not email_verified:
+        st.warning("Google login did not return a verified email address.")
+        return False
+
+    local_user = get_user_by_email(email)
+    if not local_user:
+        display_name = (
+            google_user.get("name")
+            or google_user.get("given_name")
+            or email.split("@")[0]
+        )
+        import secrets
+        random_password_marker = secrets.token_urlsafe(48)
+        create_user(
+            name=display_name[:80],
+            email=email,
+            password_hash=hash_password(random_password_marker),
+            auth_provider="google"
+        )
+        local_user = get_user_by_email(email)
+
+    if local_user:
+        login_user(local_user, message="Logged in with Google.")
+        st.rerun()
+
+    return bool(local_user)
+
+def _google_login_button():
+    """Render the optional Google login button."""
+    if not hasattr(st, "login"):
+        st.info("Google login needs a newer Streamlit version.")
+        return
+
+    provider_name = _get_google_provider_name()
+    if provider_name is None:
+        st.info("Google login is not configured yet. Email/password login is available.")
+        return
+
+    if st.button("Continue with Google", type="primary", use_container_width=True):
+        if provider_name:
+            st.login(provider_name)
+        else:
+            st.login()
 
 
 def _login_form():
     """Render and process manual email/password login."""
-    _disabled_google_note()
+    _google_login_button()
     st.divider()
 
     with st.form("login_form"):
@@ -337,7 +433,7 @@ def _signup_form():
         st.info("Public signup is currently disabled.")
         return
 
-    _disabled_google_note()
+    _google_login_button()
     st.divider()
 
     with st.form("signup_form"):
@@ -439,6 +535,9 @@ def require_login():
     ensure_admin_user(hash_password)
 
     _restore_login_from_cookie()
+
+    if _sync_google_user_to_local_session():
+        return get_current_user_id()
 
     if is_authenticated():
         if st.session_state.get("auth_message"):
