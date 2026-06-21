@@ -30,7 +30,8 @@ from modules.database import (
     get_branding_settings,
     save_user_api_key,
     get_user_api_key_status,
-    delete_user_api_key,
+    get_user_setting,
+    set_user_setting,
 )
 from modules import ai_engine
 from modules.security import validate_email, validate_password, validate_full_name, sanitize_filename
@@ -415,6 +416,9 @@ def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     # Fetch user memory profile
     from modules.ai_engine import format_user_memory_profile
     user_memory = format_user_memory_profile(user["id"])
+    provider = ai_engine.normalize_provider(
+        get_user_setting(user["id"], "ai_provider", ai_engine.DEFAULT_AI_PROVIDER)
+    )
 
     # Call AI response builder
     answer_data = ai_engine.generate_study_chat_response(
@@ -427,6 +431,7 @@ def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
         user_id=user["id"],
         chat_history=chat_history,
         user_memory=user_memory,
+        provider=provider,
     )
 
     # Save assistant message in DB
@@ -438,6 +443,7 @@ def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
         metadata={
             "mode": req.chat_mode,
             "subject_id": req.subject_id,
+            "provider": provider,
             "math_visualizations": answer_data.get("math_visualizations", []),
         },
         sources_json=json.dumps(answer_data.get("sources", [])),
@@ -578,9 +584,12 @@ def pomodoro_list(user: dict = Depends(get_current_user)):
 def get_ai_settings(user: dict = Depends(get_current_user)):
     gemini_status = get_user_api_key_status(user["id"], "gemini")
     openai_status = get_user_api_key_status(user["id"], "openai")
+    provider = ai_engine.normalize_provider(
+        get_user_setting(user["id"], "ai_provider", ai_engine.DEFAULT_AI_PROVIDER)
+    )
     
     return {
-        "provider": ai_engine.get_selected_provider(),
+        "provider": provider,
         "gemini_configured": bool(gemini_status and gemini_status.get("key_suffix")),
         "openai_configured": bool(openai_status and openai_status.get("key_suffix")),
         "gemini_suffix": gemini_status.get("key_suffix", "") if gemini_status else "",
@@ -595,20 +604,17 @@ def get_ocr_status():
 
 @app.post("/api/settings/ai")
 def save_ai_settings(req: AISettingsSave, user: dict = Depends(get_current_user)):
-    # Save active provider to session (in web app we can also allow user-level DB settings)
-    # Here we update the global provider setup
-    # If the user sends a new key, we encrypt and save it in SQLite DB
-    if req.gemini_api_key:
-        save_user_api_key(user["id"], "gemini", req.gemini_api_key)
-    elif req.gemini_api_key == "":
-        delete_user_api_key(user["id"], "gemini")
+    provider = ai_engine.normalize_provider(req.provider)
+    set_user_setting(user["id"], "ai_provider", provider)
 
-    if req.openai_api_key:
-        save_user_api_key(user["id"], "openai", req.openai_api_key)
-    elif req.openai_api_key == "":
-        delete_user_api_key(user["id"], "openai")
+    # Blank password fields mean "keep the existing saved key".
+    if req.gemini_api_key and req.gemini_api_key.strip():
+        save_user_api_key(user["id"], "gemini", req.gemini_api_key.strip())
 
-    return {"success": True}
+    if req.openai_api_key and req.openai_api_key.strip():
+        save_user_api_key(user["id"], "openai", req.openai_api_key.strip())
+
+    return {"success": True, "provider": provider}
 
 
 # --- Static Files / Single Port Mounting ---

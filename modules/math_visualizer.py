@@ -106,7 +106,14 @@ def _extract_expression(text):
     for pattern in patterns:
         match = re.search(pattern, normalized, flags=re.IGNORECASE)
         if match:
-            return match.group(1).strip()
+            expression_text = match.group(1).strip()
+            expression_text = re.split(
+                r"\s+(?:from|for|on|over|between)\s+",
+                expression_text,
+                maxsplit=1,
+                flags=re.IGNORECASE,
+            )[0]
+            return expression_text.strip()
 
     after_keywords = re.sub(
         r"\b(plot|graph|sketch|visualize|visualise|draw|explain graphically|this|the|of)\b",

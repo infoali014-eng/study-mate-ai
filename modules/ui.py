@@ -1,5 +1,6 @@
 import html
 import re
+import uuid
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -1842,6 +1843,46 @@ def render_ai_loading(label="StudyMate is thinking"):
     )
 
 
+def _clean_mermaid_diagram(diagram):
+    """Remove common AI wrapper text before Mermaid parses a diagram."""
+    allowed_starts = (
+        "graph ",
+        "flowchart ",
+        "sequenceDiagram",
+        "classDiagram",
+        "stateDiagram",
+        "stateDiagram-v2",
+        "erDiagram",
+        "journey",
+        "gantt",
+        "pie",
+        "mindmap",
+        "timeline",
+        "quadrantChart",
+        "gitGraph",
+    )
+    cleaned_lines = []
+    for raw_line in str(diagram or "").splitlines():
+        line = raw_line.strip()
+        lower = line.lower()
+        if not line:
+            cleaned_lines.append(raw_line)
+            continue
+        if "mermaid" in lower and ("version" in lower or "code block" in lower):
+            continue
+        if lower.startswith(("here's", "here is", "syntax error", "error in text")):
+            continue
+        cleaned_lines.append(raw_line)
+
+    cleaned = "\n".join(cleaned_lines).strip()
+    lines = cleaned.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if any(stripped.startswith(start) for start in allowed_starts):
+            return "\n".join(lines[index:]).strip()
+    return cleaned
+
+
 def render_ai_markdown(content):
     """Render AI Markdown and Mermaid flowcharts when the response includes them."""
     text = content or ""
@@ -1858,22 +1899,26 @@ def render_ai_markdown(content):
         if diagram:
             found_mermaid = True
             
-            # Clean up AI artifacts like "mermaid version X.X.X"
-            lines = diagram.split("\n")
-            if lines and "mermaid" in lines[0].lower() and "version" in lines[0].lower():
-                diagram = "\n".join(lines[1:]).strip()
+            diagram = _clean_mermaid_diagram(diagram)
                 
             import json
             safe_diagram_json = json.dumps(diagram)
+            mermaid_id = f"mermaid-{uuid.uuid4().hex}"
             components.html(
                 f"""
-                <div class="mermaid" id="mermaid-div"></div>
+                <div class="mermaid" id="{mermaid_id}"></div>
+                <pre id="{mermaid_id}-fallback" style="display:none; white-space:pre-wrap; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px;"></pre>
                 <script type="module">
                     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-                    mermaid.initialize({{ startOnLoad: false, theme: 'base' }});
-                    const mermaidDiv = document.getElementById('mermaid-div');
+                    mermaid.initialize({{ startOnLoad: false, theme: 'base', securityLevel: 'loose' }});
+                    const mermaidDiv = document.getElementById('{mermaid_id}');
+                    const fallback = document.getElementById('{mermaid_id}-fallback');
                     mermaidDiv.textContent = {safe_diagram_json};
-                    mermaid.run({{ querySelector: '.mermaid' }});
+                    mermaid.run({{ nodes: [mermaidDiv] }}).catch((error) => {{
+                        mermaidDiv.style.display = 'none';
+                        fallback.style.display = 'block';
+                        fallback.textContent = {safe_diagram_json};
+                    }});
                 </script>
                 """,
                 height=360,

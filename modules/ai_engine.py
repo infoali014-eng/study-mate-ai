@@ -20,7 +20,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
-DEFAULT_AI_PROVIDER = os.getenv("AI_PROVIDER", "Groq")
+DEFAULT_AI_PROVIDER = os.getenv("AI_PROVIDER", "Gemini")
 REQUIRE_USER_API_KEYS = os.getenv("REQUIRE_USER_API_KEYS", "true").lower() != "false"
 OPENAI_MODEL_OPTIONS = [
     model.strip()
@@ -1156,17 +1156,19 @@ def ask_demo(prompt):
     )
 
 
-def ask_ai(prompt, provider=None, model=None):
+def ask_ai(prompt, provider=None, model=None, user_id=None):
     """Ask the selected AI provider. Gemini is the default provider."""
     _check_ai_rate_limit()
     selected_provider = normalize_provider(provider or get_selected_provider())
 
     if selected_provider == "Gemini":
-        return ask_gemini(prompt, model=model)
+        api_key = get_user_api_key(user_id, "gemini") if user_id else None
+        return ask_gemini(prompt, model=model, api_key=api_key)
 
     if selected_provider == "OpenAI":
         selected_model = model or get_session_ai_settings().get("openai_model") or OPENAI_MODEL
-        return generate_with_openai(prompt, model=selected_model)
+        api_key = get_user_api_key(user_id, "openai") if user_id else None
+        return generate_with_openai(prompt, api_key=api_key, model=selected_model)
 
     if selected_provider == "Ollama":
         selected_model = model or get_session_ai_settings().get("ollama_model") or OLLAMA_MODEL
@@ -1434,6 +1436,7 @@ def generate_study_chat_response(
     user_memory="",
     attachment_context="",
     image_paths=None,
+    provider=None,
 ):
     """Generate a chatbot answer with optional RAG context and sources."""
     sources = []
@@ -1476,7 +1479,7 @@ def generate_study_chat_response(
         user_id=user_id,
     )
 
-    selected_provider = normalize_provider(get_selected_provider())
+    selected_provider = normalize_provider(provider or get_selected_provider())
     attachment_has_text = _attachment_context_has_text(attachment_context)
 
     try:
@@ -1486,29 +1489,35 @@ def generate_study_chat_response(
             answer = _provider_cannot_read_attachment_response()
         elif image_paths and selected_provider == "Gemini":
             try:
-                answer = ask_gemini_multimodal(prompt, image_paths=image_paths)
+                api_key = get_user_api_key(user_id, "gemini") if user_id else None
+                answer = ask_gemini_multimodal(prompt, image_paths=image_paths, api_key=api_key)
             except Exception:
                 if attachment_has_text:
-                    answer = ask_ai(prompt)
+                    answer = ask_ai(prompt, provider=selected_provider, user_id=user_id)
                 else:
                     raise
         elif image_paths and selected_provider == "OpenAI":
             try:
-                answer = generate_with_openai_multimodal(prompt, image_paths=image_paths)
+                api_key = get_user_api_key(user_id, "openai") if user_id else None
+                answer = generate_with_openai_multimodal(prompt, image_paths=image_paths, api_key=api_key)
             except Exception:
                 if attachment_has_text:
-                    answer = ask_ai(prompt)
+                    answer = ask_ai(prompt, provider=selected_provider, user_id=user_id)
                 else:
                     raise
         elif image_paths and not attachment_has_text:
             answer = _provider_cannot_read_attachment_response()
         else:
-            answer = ask_ai(prompt)
+            answer = ask_ai(prompt, provider=selected_provider, user_id=user_id)
     except Exception as exc:
         answer = safe_ai_error_message(exc)
 
-    from modules.math_visualizer import parse_and_build_math_graphs
+    from modules.math_visualizer import generate_math_visualization, parse_and_build_math_graphs
     clean_answer, math_visualizations = parse_and_build_math_graphs(answer)
+    if not math_visualizations:
+        fallback_visualization = generate_math_visualization(question)
+        if fallback_visualization:
+            math_visualizations = [fallback_visualization]
     answer = clean_answer
 
     return {

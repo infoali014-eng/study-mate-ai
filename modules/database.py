@@ -831,6 +831,20 @@ def set_app_setting(key, value):
     return True
 
 
+def get_user_setting(user_id, key, default=None):
+    """Return one lightweight per-user setting stored in app_settings."""
+    if not user_id or not key:
+        return default
+    return get_app_setting(f"user:{int(user_id)}:{key}", default)
+
+
+def set_user_setting(user_id, key, value):
+    """Save one lightweight per-user setting stored in app_settings."""
+    if not user_id or not key:
+        return False
+    return set_app_setting(f"user:{int(user_id)}:{key}", value)
+
+
 def get_branding_settings():
     """Return all branding settings with defaults filled in."""
     settings = dict(BRANDING_DEFAULTS)
