@@ -19,7 +19,6 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 DEFAULT_AI_PROVIDER = os.getenv("AI_PROVIDER", "Gemini")
 REQUIRE_USER_API_KEYS = os.getenv("REQUIRE_USER_API_KEYS", "true").lower() != "false"
 OPENAI_MODEL_OPTIONS = [
@@ -42,7 +41,6 @@ MISSING_GEMINI_KEY_MESSAGE = (
     "Gemini API key is missing. Add it in AI Settings, save it securely for your account, "
     "or enter a temporary session key."
 )
-MISSING_OPENAI_KEY_MESSAGE = "OpenAI API key is missing. Add it in AI Settings."
 
 ANSWER_STYLE_INSTRUCTIONS = {
     "Simple English": "Use short, clear sentences and explain the idea like a friendly tutor.",
@@ -101,7 +99,7 @@ def safe_ai_error_message(exc):
     """Return a user-safe AI error without leaking URLs, keys, or stack details."""
     if isinstance(exc, AIProviderError):
         return str(exc)
-    return "The selected AI provider could not complete the request. Please try again or switch provider."
+    return "Gemini could not complete the request. Please try again or check your Gemini API key."
 
 
 def _check_ai_rate_limit():
@@ -154,18 +152,8 @@ def normalize_provider(provider):
         "gemini": "Gemini",
         "gemini api": "Gemini",
         "google gemini": "Gemini",
-        "openai": "OpenAI",
-        "openai api": "OpenAI",
-        "chatgpt": "OpenAI",
-        "chatgpt/openai": "OpenAI",
-        "groq": "Groq",
-        "groq api": "Groq",
-        "ollama": "Ollama",
-        "ollama local": "Ollama",
-        "demo": "Demo Mode",
-        "demo mode": "Demo Mode",
     }
-    return aliases.get(clean, provider or DEFAULT_AI_PROVIDER)
+    return aliases.get(clean, "Gemini")
 
 
 def provider_display_name(provider=None):
@@ -173,10 +161,6 @@ def provider_display_name(provider=None):
     canonical = normalize_provider(provider or get_selected_provider())
     labels = {
         "Gemini": "Gemini API",
-        "OpenAI": "OpenAI API",
-        "Groq": "Groq API",
-        "Ollama": "Ollama Local",
-        "Demo Mode": "Demo Mode",
     }
     return labels.get(canonical, str(provider or canonical))
 
@@ -193,7 +177,7 @@ def is_openai_provider(provider=None):
 
 def provider_supports_vision(provider=None):
     """Return whether the provider path can receive image attachments directly."""
-    return normalize_provider(provider or get_selected_provider()) in {"Gemini", "OpenAI"}
+    return normalize_provider(provider or get_selected_provider()) == "Gemini"
 
 
 def _get_streamlit_secret(name):
@@ -548,7 +532,6 @@ def get_session_ai_settings():
             "openai_api_key": st.session_state.get("openai_api_key", ""),
             "openai_model": st.session_state.get("openai_model", OPENAI_MODEL),
             "ollama_model": st.session_state.get("ollama_model", OLLAMA_MODEL),
-            "groq_model": st.session_state.get("groq_model", GROQ_MODEL),
         }
     except Exception:
         return {
@@ -558,7 +541,6 @@ def get_session_ai_settings():
             "openai_api_key": "",
             "openai_model": OPENAI_MODEL,
             "ollama_model": OLLAMA_MODEL,
-            "groq_model": GROQ_MODEL,
         }
 
 
@@ -584,20 +566,6 @@ def get_gemini_api_key():
         or os.getenv("GEMINI_API_KEY", "")
         or _get_streamlit_secret("GEMINI_API_KEY")
     )
-
-
-def get_groq_api_key():
-    """Return the Groq key without printing or persisting it."""
-    try:
-        import streamlit as st
-        session_key = st.session_state.get("groq_api_key", "")
-    except Exception:
-        session_key = ""
-
-    key = session_key or os.getenv("GROQ_API_KEY", "") or _get_streamlit_secret("GROQ_API_KEY")
-    if not key or key == "your_groq_api_key_here":
-        return ""
-    return key
 
 
 def get_openai_api_key():
@@ -923,9 +891,9 @@ def _safe_openai_error_message(exc, selected_model=None):
     model_hint = f" Model: {selected_model}." if selected_model else ""
 
     if status_code in {401, 403} or "api key" in message or "authentication" in message:
-        return "OpenAI rejected the API key. Please check your OpenAI API key in AI Settings."
+        return "OpenAI rejected the API key."
     if status_code == 404 or "model" in message and "not found" in message:
-        return f"OpenAI model is not available for this key.{model_hint} Select another model in AI Settings."
+        return f"OpenAI model is not available for this key.{model_hint}"
     if status_code == 429 or "rate limit" in message or "quota" in message or "billing" in message:
         return "OpenAI request was blocked by rate limit, quota, or billing. Check your OpenAI account usage."
     if status_code and status_code >= 500:
@@ -1093,52 +1061,6 @@ def ask_ollama(prompt, model=OLLAMA_MODEL):
     return response.json().get("response", "").strip()
 
 
-def ask_groq(prompt, model=None):
-    """Send a prompt to Groq's OpenAI-compatible chat completions API."""
-    key = get_groq_api_key()
-    if not key or key == "your_groq_api_key_here":
-        raise AIProviderError(
-            "Groq API key is missing or invalid. Please add your real Groq key in AI Settings or Streamlit secrets."
-        )
-
-    selected_model = model or get_session_ai_settings().get("groq_model") or GROQ_MODEL
-    try:
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": selected_model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-            },
-            timeout=120,
-        )
-        response.raise_for_status()
-    except requests.exceptions.RequestException as exc:
-        status_code = getattr(getattr(exc, "response", None), "status_code", None)
-        if status_code == 429:
-            raise AIProviderError(
-                "Groq API rate limit exceeded (Status 429). Free Groq keys have a strict limit of 6,000 tokens per minute. Your notes might be too long for Groq's free tier. Please try using Gemini instead."
-            ) from exc
-        elif status_code in (400, 413):
-            raise AIProviderError(
-                f"Groq API rejected the request (Status {status_code}). The context might exceed the model's token limit. Please ask a shorter question or use Gemini."
-            ) from exc
-        raise AIProviderError(
-            f"Groq request failed with status {status_code or 'unknown'}. "
-            "Check your Groq API key, model name, or network connection."
-        ) from exc
-
-    data = response.json()
-    try:
-        return data["choices"][0]["message"]["content"].strip()
-    except (KeyError, IndexError, TypeError) as exc:
-        raise AIProviderError("Groq returned an unexpected response format.") from exc
-
-
 def ask_demo(prompt):
     """Return a simple demo response when no AI provider is available."""
     try:
@@ -1157,35 +1079,14 @@ def ask_demo(prompt):
 
 
 def ask_ai(prompt, provider=None, model=None, user_id=None):
-    """Ask the selected AI provider. Gemini is the default provider."""
+    """Ask Gemini, the only enabled AI provider for this app."""
     _check_ai_rate_limit()
-    selected_provider = normalize_provider(provider or get_selected_provider())
-
-    if selected_provider == "Gemini":
-        api_key = get_user_api_key(user_id, "gemini") if user_id else None
-        return ask_gemini(prompt, model=model, api_key=api_key)
-
-    if selected_provider == "OpenAI":
-        selected_model = model or get_session_ai_settings().get("openai_model") or OPENAI_MODEL
-        api_key = get_user_api_key(user_id, "openai") if user_id else None
-        return generate_with_openai(prompt, api_key=api_key, model=selected_model)
-
-    if selected_provider == "Ollama":
-        selected_model = model or get_session_ai_settings().get("ollama_model") or OLLAMA_MODEL
-        return ask_ollama(prompt, model=selected_model)
-
-    if selected_provider == "Groq":
-        selected_model = model or get_session_ai_settings().get("groq_model") or GROQ_MODEL
-        return ask_groq(prompt, model=selected_model)
-
-    return ask_demo(prompt)
+    api_key = get_user_api_key(user_id, "gemini") if user_id else None
+    return ask_gemini(prompt, model=model, api_key=api_key)
 
 
 def get_missing_key_message():
     """Expose the missing-key copy for pages that want to show it directly."""
-    provider = normalize_provider(get_selected_provider())
-    if provider == "OpenAI":
-        return MISSING_OPENAI_KEY_MESSAGE
     return MISSING_GEMINI_KEY_MESSAGE
 
 
@@ -1411,15 +1312,15 @@ Demo Mode response: I received your attachment(s).
 {preview}
 
 ## Placeholder answer
-Connect Gemini for image understanding, or use Ollama/Groq when readable text was extracted from the file.
+Connect Gemini for image understanding, or upload a file with readable extracted text.
 """
 
 
 def _provider_cannot_read_attachment_response():
     """Explain why a non-vision provider cannot answer from an unreadable attachment."""
     return (
-        "This provider cannot directly read this attachment, and no readable text was extracted. "
-        "Try Gemini vision, OpenAI vision, upload clearer text, or use a transcription provider for audio."
+        "Gemini could not read this attachment, and no readable text was extracted. "
+        "Upload a clearer image/file or add readable text with your question."
     )
 
 
@@ -1479,36 +1380,22 @@ def generate_study_chat_response(
         user_id=user_id,
     )
 
-    selected_provider = normalize_provider(provider or get_selected_provider())
     attachment_has_text = _attachment_context_has_text(attachment_context)
 
     try:
-        if attachment_context and selected_provider == "Demo Mode":
-            answer = _demo_attachment_response(attachment_context)
-        elif attachment_context and not attachment_has_text and not image_paths:
+        if attachment_context and not attachment_has_text and not image_paths:
             answer = _provider_cannot_read_attachment_response()
-        elif image_paths and selected_provider == "Gemini":
+        elif image_paths:
             try:
                 api_key = get_user_api_key(user_id, "gemini") if user_id else None
                 answer = ask_gemini_multimodal(prompt, image_paths=image_paths, api_key=api_key)
             except Exception:
                 if attachment_has_text:
-                    answer = ask_ai(prompt, provider=selected_provider, user_id=user_id)
+                    answer = ask_ai(prompt, user_id=user_id)
                 else:
                     raise
-        elif image_paths and selected_provider == "OpenAI":
-            try:
-                api_key = get_user_api_key(user_id, "openai") if user_id else None
-                answer = generate_with_openai_multimodal(prompt, image_paths=image_paths, api_key=api_key)
-            except Exception:
-                if attachment_has_text:
-                    answer = ask_ai(prompt, provider=selected_provider, user_id=user_id)
-                else:
-                    raise
-        elif image_paths and not attachment_has_text:
-            answer = _provider_cannot_read_attachment_response()
         else:
-            answer = ask_ai(prompt, provider=selected_provider, user_id=user_id)
+            answer = ask_ai(prompt, user_id=user_id)
     except Exception as exc:
         answer = safe_ai_error_message(exc)
 

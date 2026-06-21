@@ -86,7 +86,6 @@ function App() {
   // AI Settings States
   const [aiProvider, setAIProvider] = useState('Gemini');
   const [geminiKey, setGeminiKey] = useState('');
-  const [openaiKey, setOpenaiKey] = useState('');
   const [settingsStatus, setSettingsStatus] = useState(null);
   const [ocrStatus, setOcrStatus] = useState('Checking...');
 
@@ -603,14 +602,13 @@ function App() {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          provider: aiProvider,
-          gemini_api_key: geminiKey,
-          openai_api_key: openaiKey
+          provider: 'Gemini',
+          gemini_api_key: geminiKey
         })
       });
       if (res.ok) {
         setGeminiKey('');
-        setOpenaiKey('');
+        setAIProvider('Gemini');
         fetchAISettings();
         alert("AI Configuration saved securely!");
       }
@@ -1546,30 +1544,21 @@ function App() {
             <div className="page-header">
               <div className="page-kicker">Configuration Console</div>
               <h2 className="page-title">AI Settings</h2>
-              <p className="page-subtitle">Manage secure API keys and select your preferred LLM provider.</p>
+              <p className="page-subtitle">Manage the secure Gemini API key used by StudyMate AI.</p>
             </div>
 
             <div className="glass-card" style={{ maxWidth: '600px', margin: '0 auto' }}>
               <form onSubmit={handleSaveAISettings}>
                 <div className="form-group">
-                  <label className="form-label">Selected AI Provider</label>
+                  <label className="form-label">AI Provider</label>
                   <select className="form-control" value={aiProvider} onChange={e => setAIProvider(e.target.value)}>
                     <option value="Gemini">Gemini (Google)</option>
-                    <option value="OpenAI">OpenAI (ChatGPT)</option>
-                    <option value="Groq">Groq Cloud</option>
-                    <option value="Ollama">Ollama (Local Mode)</option>
-                    <option value="Demo Mode">Demo Mode (Offline)</option>
                   </select>
                 </div>
 
                 <div className="form-group">
                   <label className="form-label">Gemini API Key</label>
                   <input className="form-control" type="password" placeholder={settingsStatus?.gemini_configured ? "•••••••• saved" : "Paste your Gemini API key"} value={geminiKey} onChange={e => setGeminiKey(e.target.value)} />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">OpenAI API Key</label>
-                  <input className="form-control" type="password" placeholder={settingsStatus?.openai_configured ? "•••••••• saved" : "Paste your OpenAI API key"} value={openaiKey} onChange={e => setOpenaiKey(e.target.value)} />
                 </div>
 
                 <button className="btn btn-primary" type="submit" style={{ width: '100%' }}>Save Configuration</button>

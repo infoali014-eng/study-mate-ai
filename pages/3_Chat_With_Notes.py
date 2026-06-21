@@ -106,7 +106,7 @@ def get_provider_label():
     """Return the selected provider, even if Streamlit is holding an older module."""
     if hasattr(ai_engine, "get_selected_provider"):
         return ai_engine.get_selected_provider()
-    return "Ollama"
+    return "Gemini"
 
 
 def _provider_supports_vision(provider=None):
@@ -121,13 +121,6 @@ def _is_gemini_provider(provider=None):
     if hasattr(ai_engine, "is_gemini_provider"):
         return ai_engine.is_gemini_provider(provider or get_provider_label())
     return (provider or get_provider_label()) == "Gemini"
-
-
-def _is_openai_provider(provider=None):
-    """Return True when the selected provider is OpenAI."""
-    if hasattr(ai_engine, "is_openai_provider"):
-        return ai_engine.is_openai_provider(provider or get_provider_label())
-    return (provider or get_provider_label()) == "OpenAI"
 
 
 def get_subject_index(subjects, subject_id):
@@ -345,51 +338,15 @@ def _audio_upload_to_attachment(uploaded_file, session_id):
     if save_error:
         return None, f"{safe_name}: {save_error}"
 
-    provider = get_provider_label()
-    if provider == "Demo Mode":
-        transcript_result = {
-            "success": False,
-            "transcript": "",
-            "method": "unavailable",
-            "error": "Voice transcription needs Gemini API key or local transcription support.",
-            "warnings": ["Voice transcription is not available in Demo Mode."],
-            "status": {},
-        }
-    else:
-        with st.spinner("Transcribing audio..."):
-            gemini_api_key = ai_engine.get_gemini_api_key()
-            gemini_model = ai_engine.get_session_ai_settings().get("gemini_model")
-            transcript_result = transcribe_audio(
-                saved_audio["file_path"],
-                provider="auto",
-                api_key=gemini_api_key,
-                model=gemini_model,
-            )
-            if (
-                not transcript_result.get("transcript")
-                and _is_openai_provider(provider)
-                and hasattr(ai_engine, "transcribe_with_openai_audio")
-            ):
-                openai_result = ai_engine.transcribe_with_openai_audio(
-                    saved_audio["file_path"],
-                    api_key=ai_engine.get_openai_api_key() if hasattr(ai_engine, "get_openai_api_key") else None,
-                )
-                if openai_result.get("success"):
-                    transcript_result = {
-                        "success": True,
-                        "transcript": openai_result.get("transcript", ""),
-                        "method": openai_result.get("method", "openai_audio"),
-                        "error": "",
-                        "warnings": transcript_result.get("warnings", []),
-                        "status": transcript_result.get("status", {}),
-                    }
-                else:
-                    transcript_result.setdefault("warnings", []).append(
-                        openai_result.get(
-                            "error",
-                            "OpenAI audio transcription is not configured yet. Using available transcription fallback.",
-                        )
-                    )
+    with st.spinner("Transcribing audio..."):
+        gemini_api_key = ai_engine.get_gemini_api_key()
+        gemini_model = ai_engine.get_session_ai_settings().get("gemini_model")
+        transcript_result = transcribe_audio(
+            saved_audio["file_path"],
+            provider="gemini",
+            api_key=gemini_api_key,
+            model=gemini_model,
+        )
 
     transcript = (transcript_result.get("transcript") or "").strip()
     warnings = transcript_result.get("warnings", [])
@@ -437,7 +394,7 @@ def _provider_cannot_read_attachment_response():
     """Friendly message for providers that cannot inspect unreadable images directly."""
     return (
         "This provider cannot directly read this attachment, and no readable text was extracted. "
-        "Try Gemini vision, OpenAI vision, upload clearer text, or use a transcription provider for audio."
+        "Try a clearer file/image or include readable text with your question."
     )
 
 
@@ -1293,73 +1250,39 @@ def generate_teach_me_answer(question, context, first_lesson=False, attachment_c
             "so I'm teaching it using general academic knowledge."
         )
 
-    provider = get_provider_label()
-    if provider == "Demo Mode":
-        if attachment_context:
-            answer = f"""
-Demo Mode response: I received your attachment(s).
-
-## What I found in the attachment
-{attachment_context[:1400]}
-
-## Placeholder answer
-Connect Gemini or Ollama to get a full multimodal tutor response.
-"""
+    prompt = build_teach_me_prompt(
+        user_name=_memory_display_name(),
+        topic=context.get("topic", "this topic"),
+        learning_level=context.get("learning_level", "Normal"),
+        language_style=context.get("language_style", "Simple English"),
+        teaching_depth=context.get("teaching_depth", "Balanced"),
+        notes_context=notes_context,
+        attachment_context=attachment_context,
+        chat_history=_compact_chat_history(20),
+        user_memory=_memory_profile_text(),
+        user_message=question,
+        context_label=context.get("source_label", context.get("label", "Teach Me Mode")),
+        first_lesson=first_lesson,
+    )
+    try:
+        attachment_has_text = _attachment_context_has_text(attachment_context)
+        if attachment_context and not attachment_has_text and not image_paths:
+            answer = _provider_cannot_read_attachment_response()
+        elif image_paths:
+            try:
+                answer = ai_engine.ask_gemini_multimodal(prompt, image_paths=image_paths)
+            except Exception:
+                if attachment_has_text:
+                    answer = ai_engine.ask_ai(prompt)
+                else:
+                    raise
         else:
-            answer = _demo_teach_response(
-                context.get("topic", "this topic"),
-                context.get("learning_level", "Normal"),
-                context.get("language_style", "Simple English"),
-                context.get("teaching_depth", "Balanced"),
-                notes_context=notes_context,
-                user_message=question,
-                first_lesson=first_lesson,
-            )
-    else:
-        prompt = build_teach_me_prompt(
-            user_name=_memory_display_name(),
-            topic=context.get("topic", "this topic"),
-            learning_level=context.get("learning_level", "Normal"),
-            language_style=context.get("language_style", "Simple English"),
-            teaching_depth=context.get("teaching_depth", "Balanced"),
-            notes_context=notes_context,
-            attachment_context=attachment_context,
-            chat_history=_compact_chat_history(20),
-            user_memory=_memory_profile_text(),
-            user_message=question,
-            context_label=context.get("source_label", context.get("label", "Teach Me Mode")),
-            first_lesson=first_lesson,
-        )
-        try:
-            attachment_has_text = _attachment_context_has_text(attachment_context)
-            provider_label = get_provider_label()
-            if attachment_context and not attachment_has_text and not image_paths:
-                answer = _provider_cannot_read_attachment_response()
-            elif image_paths and _is_gemini_provider(provider_label):
-                try:
-                    answer = ai_engine.ask_gemini_multimodal(prompt, image_paths=image_paths)
-                except Exception:
-                    if attachment_has_text:
-                        answer = ai_engine.ask_ai(prompt)
-                    else:
-                        raise
-            elif image_paths and _is_openai_provider(provider_label):
-                try:
-                    answer = ai_engine.generate_with_openai_multimodal(prompt, image_paths=image_paths)
-                except Exception:
-                    if attachment_has_text:
-                        answer = ai_engine.ask_ai(prompt)
-                    else:
-                        raise
-            elif image_paths and not _provider_supports_vision(provider_label) and not attachment_has_text:
-                answer = _provider_cannot_read_attachment_response()
-            else:
-                answer = ai_engine.ask_ai(prompt)
-        except Exception as exc:
-            if hasattr(ai_engine, "safe_ai_error_message"):
-                answer = ai_engine.safe_ai_error_message(exc)
-            else:
-                answer = "The selected AI provider could not complete the lesson."
+            answer = ai_engine.ask_ai(prompt)
+    except Exception as exc:
+        if hasattr(ai_engine, "safe_ai_error_message"):
+            answer = ai_engine.safe_ai_error_message(exc)
+        else:
+            answer = "Gemini could not complete the lesson."
 
     return {
         "answer": answer,
@@ -1381,12 +1304,6 @@ def generate_chat_answer(question, answer_style, chat_mode, context, attachment_
     has_api_key = False
     if provider == "Gemini":
         has_api_key = bool(ai_engine.get_gemini_api_key())
-    elif provider == "OpenAI":
-        has_api_key = bool(ai_engine.get_openai_api_key())
-    elif provider == "Groq":
-        has_api_key = bool(ai_engine.get_groq_api_key())
-    elif provider == "Ollama":
-        has_api_key = True
 
     if not has_api_key and should_visualize_math(question):
         math_visualization = generate_math_visualization(question)
@@ -1461,10 +1378,9 @@ Question:
 """
     try:
         attachment_has_text = _attachment_context_has_text(attachment_context)
-        provider_label = get_provider_label()
         if attachment_context and not attachment_has_text and not image_paths:
             answer = _provider_cannot_read_attachment_response()
-        elif image_paths and _is_gemini_provider(provider_label):
+        elif image_paths:
             try:
                 answer = ai_engine.ask_gemini_multimodal(prompt, image_paths=image_paths)
             except Exception:
@@ -1472,16 +1388,6 @@ Question:
                     answer = ai_engine.ask_ai(prompt)
                 else:
                     raise
-        elif image_paths and _is_openai_provider(provider_label):
-            try:
-                answer = ai_engine.generate_with_openai_multimodal(prompt, image_paths=image_paths)
-            except Exception:
-                if attachment_has_text:
-                    answer = ai_engine.ask_ai(prompt)
-                else:
-                    raise
-        elif image_paths and not _provider_supports_vision(provider_label) and not attachment_has_text:
-            answer = _provider_cannot_read_attachment_response()
         else:
             answer = ai_engine.ask_ai(prompt)
     except Exception as exc:

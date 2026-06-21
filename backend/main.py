@@ -30,7 +30,6 @@ from modules.database import (
     get_branding_settings,
     save_user_api_key,
     get_user_api_key_status,
-    get_user_setting,
     set_user_setting,
 )
 from modules import ai_engine
@@ -146,7 +145,6 @@ class PomodoroSaveRequest(BaseModel):
 class AISettingsSave(BaseModel):
     provider: str
     gemini_api_key: Optional[str] = None
-    openai_api_key: Optional[str] = None
 
 
 # --- Authentication Endpoints ---
@@ -416,9 +414,7 @@ def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     # Fetch user memory profile
     from modules.ai_engine import format_user_memory_profile
     user_memory = format_user_memory_profile(user["id"])
-    provider = ai_engine.normalize_provider(
-        get_user_setting(user["id"], "ai_provider", ai_engine.DEFAULT_AI_PROVIDER)
-    )
+    provider = "Gemini"
 
     # Call AI response builder
     answer_data = ai_engine.generate_study_chat_response(
@@ -583,17 +579,11 @@ def pomodoro_list(user: dict = Depends(get_current_user)):
 @app.get("/api/settings/ai")
 def get_ai_settings(user: dict = Depends(get_current_user)):
     gemini_status = get_user_api_key_status(user["id"], "gemini")
-    openai_status = get_user_api_key_status(user["id"], "openai")
-    provider = ai_engine.normalize_provider(
-        get_user_setting(user["id"], "ai_provider", ai_engine.DEFAULT_AI_PROVIDER)
-    )
     
     return {
-        "provider": provider,
+        "provider": "Gemini",
         "gemini_configured": bool(gemini_status and gemini_status.get("key_suffix")),
-        "openai_configured": bool(openai_status and openai_status.get("key_suffix")),
         "gemini_suffix": gemini_status.get("key_suffix", "") if gemini_status else "",
-        "openai_suffix": openai_status.get("key_suffix", "") if openai_status else "",
     }
 
 
@@ -604,15 +594,12 @@ def get_ocr_status():
 
 @app.post("/api/settings/ai")
 def save_ai_settings(req: AISettingsSave, user: dict = Depends(get_current_user)):
-    provider = ai_engine.normalize_provider(req.provider)
+    provider = "Gemini"
     set_user_setting(user["id"], "ai_provider", provider)
 
     # Blank password fields mean "keep the existing saved key".
     if req.gemini_api_key and req.gemini_api_key.strip():
         save_user_api_key(user["id"], "gemini", req.gemini_api_key.strip())
-
-    if req.openai_api_key and req.openai_api_key.strip():
-        save_user_api_key(user["id"], "openai", req.openai_api_key.strip())
 
     return {"success": True, "provider": provider}
 
