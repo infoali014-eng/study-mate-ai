@@ -142,6 +142,12 @@ def create_user(name: str, email: str, password_hash: str, auth_provider: str = 
     clean_email = (email or "").strip().lower()
     clean_name = (name or "").strip()
     
+    # Check if user already exists to prevent duplicate signup
+    existing = get_user_by_email(clean_email)
+    if existing:
+        logger.warning(f"Registration rejected: user with email {clean_email} already exists.")
+        return None
+        
     if not is_supabase_online():
         logger.error("Cannot create user: Supabase is offline.")
         return None

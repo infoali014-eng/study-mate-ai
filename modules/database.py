@@ -685,6 +685,7 @@ def init_db():
 
 def create_user(name, email, password_hash, auth_provider="email", role="student", is_active=1):
     """Create a user account. Returns the id or None if the email is taken."""
+    clean_email = (email or "").strip().lower()
     try:
         with closing(get_connection()) as conn:
             cursor = conn.execute(
@@ -692,7 +693,7 @@ def create_user(name, email, password_hash, auth_provider="email", role="student
                 INSERT INTO users (name, email, password_hash, auth_provider, role, is_active)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (name, email, password_hash, auth_provider, role, int(is_active)),
+                (name, clean_email, password_hash, auth_provider, role, int(is_active)),
             )
             conn.commit()
             return cursor.lastrowid
@@ -702,10 +703,11 @@ def create_user(name, email, password_hash, auth_provider="email", role="student
 
 def get_user_by_email(email):
     """Return one user by normalized email."""
+    clean_email = (email or "").strip().lower()
     with closing(get_connection()) as conn:
         return conn.execute(
             "SELECT * FROM users WHERE email = ?",
-            (email,),
+            (clean_email,),
         ).fetchone()
 
 

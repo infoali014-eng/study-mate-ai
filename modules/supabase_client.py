@@ -184,28 +184,11 @@ def health_check() -> bool:
 
     try:
         logger.info("Performing Supabase connection health check query...")
-        # Query a dummy table '_connection_test'. Since the table does not exist,
-        # a successful database connection will return a "relation does not exist" API error.
-        # This confirms that authentication succeeded and Postgres responded.
-        client.table("_connection_test").select("*").limit(1).execute()
-        logger.info("Supabase connection health check passed.")
+        client.table("users").select("id").limit(1).execute()
+        logger.info("Supabase connection health check passed (database connection active).")
         return True
     except Exception as e:
-        err_msg = str(e)
-        # If the database responded that the relation (table) doesn't exist,
-        # or it could not find it in the schema cache, it means we authenticated
-        # successfully and reached PostgreSQL/PostgREST.
-        if ("relation" in err_msg and "does not exist" in err_msg) or "PGRST205" in err_msg or "schema cache" in err_msg:
-            logger.info("Supabase connection health check passed (database connection active).")
-            return True
-
-        if "401" in err_msg or "Unauthorized" in err_msg:
-            logger.error("Supabase connection test failed: Invalid credentials (401 Unauthorized).")
-        elif "timeout" in err_msg.lower():
-            logger.error("Supabase connection test failed: Timeout during connection test.")
-        else:
-            logger.error(f"Supabase connection test failed: {err_msg}")
-
+        logger.error(f"Supabase connection test failed: {e}")
         logger.warning("Supabase unavailable (falling back to local SQLite).")
         return False
 
