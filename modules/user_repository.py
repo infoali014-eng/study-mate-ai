@@ -85,7 +85,7 @@ def log_audit_event(user_id: Optional[str], action: str, resource: str, resource
         logger.warning(f"[OFFLINE AUDIT] User: {user_id} | Action: {action} | Resource: {resource} ({resource_id})")
         return
         
-    client = _get_client()
+    client = _get_admin_client()
     if not client:
         return
         
