@@ -1,4 +1,4 @@
--- Migration: 003_Indexes
+-- Migration: 004_Indexes
 -- Created: 2026-06-27
 -- Description: Create indexes on foreign keys, soft-delete columns, and vector embeddings.
 

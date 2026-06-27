@@ -1,4 +1,4 @@
--- Migration: 004_Functions
+-- Migration: 002_Functions
 -- Created: 2026-06-27
 -- Description: Define helper functions and automatic triggers for updated_at tracking.
 

@@ -1,9 +1,6 @@
--- Migration: 002_RLS
+-- Migration: 003_RLS
 -- Created: 2026-06-27
 -- Description: Enable Row Level Security (RLS) on all tables and create secure policies.
-
--- Note: We assume the is_admin() function is defined in migrations/004_functions.sql.
--- Because RLS policies are evaluated at runtime, they can reference functions created later.
 
 -- =====================================================================
 -- 1. USERS TABLE
