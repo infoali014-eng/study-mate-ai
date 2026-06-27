@@ -5,17 +5,19 @@ import streamlit as st
 from passlib.hash import pbkdf2_sha256
 
 from modules.database import (
+    get_app_setting,
+    init_db,
+    get_or_create_oauth_user,
+)
+from modules.user_repository import (
     create_remember_session,
     create_user,
     delete_remember_session,
     ensure_admin_user,
-    get_app_setting,
     get_user_by_email,
     get_user_by_id,
     get_user_by_remember_token,
-    init_db,
     verify_user_login,
-    get_or_create_oauth_user,
 )
 from modules.security import validate_email, validate_full_name, validate_password
 from modules.ui import apply_theme

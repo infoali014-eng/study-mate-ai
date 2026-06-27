@@ -14,9 +14,6 @@ from pydantic import BaseModel
 
 from modules.database import (
     init_db,
-    create_user,
-    get_user_by_email,
-    verify_user_login,
     get_subjects,
     add_subject as db_add_subject,
     delete_subject,
@@ -31,6 +28,11 @@ from modules.database import (
     save_user_api_key,
     get_user_api_key_status,
     set_user_setting,
+)
+from modules.user_repository import (
+    create_user,
+    get_user_by_email,
+    verify_user_login,
 )
 from modules import ai_engine
 from modules.security import validate_email, validate_password, validate_full_name, sanitize_filename

@@ -103,7 +103,15 @@ DROP POLICY IF EXISTS write_admin_settings ON public.admin_settings;
 DROP POLICY IF EXISTS select_document_embeddings ON public.document_embeddings;
 DROP POLICY IF EXISTS write_document_embeddings ON public.document_embeddings;
 
+-- remember_sessions
+DROP POLICY IF EXISTS select_remember_sessions ON public.remember_sessions;
+DROP POLICY IF EXISTS insert_remember_sessions ON public.remember_sessions;
+DROP POLICY IF EXISTS update_remember_sessions ON public.remember_sessions;
+DROP POLICY IF EXISTS delete_remember_sessions ON public.remember_sessions;
+
+
 -- Disable RLS on tables
+ALTER TABLE IF EXISTS public.remember_sessions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.document_embeddings DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.admin_settings DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.user_api_keys DISABLE ROW LEVEL SECURITY;
@@ -123,6 +131,8 @@ ALTER TABLE IF EXISTS public.users DISABLE ROW LEVEL SECURITY;
 -- =====================================================================
 -- 3. DROP INDEXES
 -- =====================================================================
+DROP INDEX IF EXISTS public.idx_remember_sessions_token_hash;
+DROP INDEX IF EXISTS public.idx_remember_sessions_user_id;
 DROP INDEX IF EXISTS public.idx_document_embeddings_vector;
 DROP INDEX IF EXISTS public.idx_study_library_tags;
 DROP INDEX IF EXISTS public.idx_subjects_deleted_at;
@@ -162,6 +172,7 @@ DROP TRIGGER IF EXISTS set_admin_settings_updated_at ON public.admin_settings;
 -- =====================================================================
 -- 5. DROP TABLES (Reverse Dependency Order)
 -- =====================================================================
+DROP TABLE IF EXISTS public.remember_sessions;
 DROP TABLE IF EXISTS public.document_embeddings;
 DROP TABLE IF EXISTS public.admin_settings;
 DROP TABLE IF EXISTS public.user_api_keys;

@@ -394,3 +394,25 @@ CREATE POLICY "Allow owner select on private buckets" ON storage.objects FOR SEL
 CREATE POLICY "Allow owner insert on private buckets" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id IN ('user-uploads', 'extracted-images', 'voice-recordings', 'exports', 'temporary-files') AND (storage.foldername(name))[1] = auth.uid()::text);
 CREATE POLICY "Allow owner update on private buckets" ON storage.objects FOR UPDATE TO authenticated USING (bucket_id IN ('user-uploads', 'extracted-images', 'voice-recordings', 'exports', 'temporary-files') AND (storage.foldername(name))[1] = auth.uid()::text);
 CREATE POLICY "Allow owner delete on private buckets" ON storage.objects FOR DELETE TO authenticated USING (bucket_id IN ('user-uploads', 'extracted-images', 'voice-recordings', 'exports', 'temporary-files') AND ((storage.foldername(name))[1] = auth.uid()::text OR public.is_admin(auth.uid())));
+
+-- =====================================================================
+-- 7. REMEMBER SESSIONS SCHEMA, INDEXES, AND RLS POLICIES
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.remember_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    token_hash TEXT UNIQUE NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.remember_sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY select_remember_sessions ON public.remember_sessions FOR SELECT TO authenticated USING (user_id = auth.uid() OR public.is_admin(auth.uid()));
+CREATE POLICY insert_remember_sessions ON public.remember_sessions FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+CREATE POLICY update_remember_sessions ON public.remember_sessions FOR UPDATE TO authenticated USING (user_id = auth.uid() OR public.is_admin(auth.uid())) WITH CHECK (user_id = auth.uid() OR public.is_admin(auth.uid()));
+CREATE POLICY delete_remember_sessions ON public.remember_sessions FOR DELETE TO authenticated USING (user_id = auth.uid() OR public.is_admin(auth.uid()));
+
+CREATE INDEX IF NOT EXISTS idx_remember_sessions_user_id ON public.remember_sessions (user_id);
+CREATE INDEX IF NOT EXISTS idx_remember_sessions_token_hash ON public.remember_sessions (token_hash);

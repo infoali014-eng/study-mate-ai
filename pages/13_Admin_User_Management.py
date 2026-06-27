@@ -2,8 +2,10 @@ import streamlit as st
 
 from modules.auth import require_admin
 from modules.database import (
-    get_all_users_with_stats,
     init_db,
+)
+from modules.user_repository import (
+    get_all_users_with_stats,
     set_user_active,
     update_user_role,
 )
