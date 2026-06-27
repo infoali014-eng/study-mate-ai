@@ -1647,6 +1647,9 @@ def sidebar_nav():
 
             logout()
 
+    from modules.debug import render_supabase_status
+    render_supabase_status()
+
 
 def page_header(title, subtitle, kicker="StudyMate AI"):
     """Render a consistent colorful page hero."""
