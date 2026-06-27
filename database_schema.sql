@@ -383,8 +383,6 @@ VALUES
 ON CONFLICT (id) DO UPDATE 
 SET public = EXCLUDED.public, file_size_limit = EXCLUDED.file_size_limit, allowed_mime_types = EXCLUDED.allowed_mime_types;
 
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
-
 -- profile-pictures policies
 CREATE POLICY "Allow public read access to profile pictures" ON storage.objects FOR SELECT USING (bucket_id = 'profile-pictures');
 CREATE POLICY "Allow owners to upload profile pictures" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'profile-pictures' AND (storage.foldername(name))[1] = auth.uid()::text);

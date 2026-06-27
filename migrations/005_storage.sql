@@ -21,8 +21,7 @@ SET public = EXCLUDED.public,
 -- =====================================================================
 -- 2. CREATE STORAGE RLS POLICIES
 -- =====================================================================
--- Ensure RLS is enabled on storage.objects
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+-- Note: Row Level Security is already enabled by default on storage.objects.
 
 -- 2.1 Profile Pictures (Public Read, Owner Write)
 CREATE POLICY "Allow public read access to profile pictures"
