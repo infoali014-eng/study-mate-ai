@@ -108,7 +108,17 @@ def subject_visual(subject_name: str) -> dict:
 def file_type_visual(file_type: str) -> dict:
     """Return color/icon data for a file type."""
     clean = (file_type or "PDF").upper()
-    return FILE_TYPE_COLORS.get(
+    val = FILE_TYPE_COLORS.get(
         clean,
         {"accent": "#6B7280", "bg": "#F9FAFB", "icon_key": "file-text"},
     )
+    from modules.icons import icon as _icon
+    svg = _icon(val["icon_key"], size=16, color=val["accent"])
+    return {
+        "accent": val["accent"],
+        "bg": val["bg"],
+        "icon_key": val["icon_key"],
+        "icon": svg,
+        "soft": val["bg"],
+        "label": clean,
+    }
