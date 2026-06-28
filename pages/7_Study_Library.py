@@ -449,7 +449,7 @@ if subjects:
         overview_cols = st.columns(min(3, len(personal_subjects)))
         for index, subject in enumerate(personal_subjects[:6]):
             document_count = sum(
-                1 for document in documents if int(document["subject_id"]) == int(subject["id"])
+                1 for document in documents if str(document["subject_id"]) == str(subject["id"])
             )
             with overview_cols[index % len(overview_cols)]:
                 render_subject_card(subject, document_count=document_count)
@@ -459,7 +459,7 @@ if subjects:
         overview_cols = st.columns(min(3, len(group_subjects)))
         for index, subject in enumerate(group_subjects[:6]):
             document_count = sum(
-                1 for document in documents if int(document["subject_id"]) == int(subject["id"])
+                1 for document in documents if str(document["subject_id"]) == str(subject["id"])
             )
             with overview_cols[index % len(overview_cols)]:
                 render_subject_card(subject, document_count=document_count)
