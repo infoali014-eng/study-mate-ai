@@ -163,12 +163,6 @@ def material_row(document):
                     <div class="material-row-meta">
                         Subject: {html.escape(document['subject_name'])}
                         <span>|</span> Type: {html.escape(file_type)}
-                        <span>|</span> Chunks: {int(document['chunk_count'] or 0)}
-                        <span>|</span> Status: {html.escape(extraction_status)}
-                        <span>|</span> Uploaded: {html.escape(document['uploaded_at'])}
-                    </div>
-                    <div class="material-row-description" title="{html.escape(description)}">
-                        {html.escape(description)} Method: {html.escape(extraction_method)}.
                     </div>
                 </div>
                 """,
