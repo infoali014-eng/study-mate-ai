@@ -26,6 +26,9 @@ from modules.file_preview import (
     preview_image,
     preview_pdf,
     preview_text_file,
+    preview_docx,
+    preview_pptx,
+    preview_xlsx,
 )
 from modules.security import is_path_inside
 from modules.ui import (
@@ -285,9 +288,12 @@ def render_document_details(document):
                     preview_extracted_text(extracted_text)
                 elif file_type in {"TXT", "MD", "CSV", "JSON"}:
                     preview_text_file(temp_local_path)
-                elif file_type in {"DOCX", "PPTX", "XLSX"}:
-                    st.info("Preview uses extracted text. Download the original file for full formatting.")
-                    preview_extracted_text(extracted_text)
+                elif file_type == "DOCX":
+                    preview_docx(temp_local_path)
+                elif file_type == "PPTX":
+                    preview_pptx(temp_local_path)
+                elif file_type == "XLSX":
+                    preview_xlsx(temp_local_path)
                 else:
                     st.info("Preview is not available for this file type, but you can open or download the file.")
 
