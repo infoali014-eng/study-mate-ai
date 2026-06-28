@@ -22,8 +22,6 @@ ON CONFLICT (id) DO UPDATE SET
     file_size_limit = 5242880,
     allowed_mime_types = ARRAY['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 
--- 4. Enable Row Level Security (RLS) on storage.objects if not already enabled
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
 -- 5. Drop existing policies on profile-images bucket to avoid duplicates
 DROP POLICY IF EXISTS "Public Read Access" ON storage.objects;
