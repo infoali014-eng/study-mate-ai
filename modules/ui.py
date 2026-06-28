@@ -431,10 +431,10 @@ def apply_theme():
 
             .hero h1 {
                 margin: 0;
-                font-size: clamp(2.3rem, 6vw, 4.25rem);
-                line-height: 0.96;
+                font-size: clamp(1.8rem, 4.5vw, 2.6rem);
+                line-height: 1.15;
                 color: #101832;
-                font-weight: 900;
+                font-weight: 850;
             }
 
             .hero p {
