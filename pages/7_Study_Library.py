@@ -60,7 +60,8 @@ def read_extracted_text(document):
     if not client:
         return ""
     try:
-        resp = client.table("document_embeddings").select("text_chunk").eq("uploaded_file_id", document["id"]).order("chunk_index").execute()
+        uploaded_file_id = document.get("uploaded_file_id") or document.get("id")
+        resp = client.table("document_embeddings").select("text_chunk").eq("uploaded_file_id", uploaded_file_id).order("chunk_index").execute()
         if resp.data:
             return "\n\n".join([r["text_chunk"] for r in resp.data])
     except Exception:
