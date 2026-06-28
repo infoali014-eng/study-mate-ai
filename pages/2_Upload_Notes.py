@@ -110,93 +110,46 @@ if uploaded_file:
             st.stop()
 
         clean_description = validate_description(document_description)
-        subject_folder = UPLOAD_DIR / str(user_id) / str(selected_subject["id"])
-        text_subject_folder = EXTRACTED_TEXT_DIR / str(user_id) / str(selected_subject["id"])
-        subject_folder.mkdir(parents=True, exist_ok=True)
-        text_subject_folder.mkdir(parents=True, exist_ok=True)
-
-        file_path = build_unique_file_path(subject_folder, safe_name)
-        text_path = text_subject_folder / file_path.with_suffix(".txt").name
         file_type = Path(safe_name).suffix.replace(".", "").upper() or "PDF"
 
-        progress = st.progress(0, text="Saving uploaded document...")
-        file_path.write_bytes(uploaded_file.getbuffer())
-
-        progress.progress(25, text="Extracting readable text...")
-        process_result = process_uploaded_file(file_path, file_type)
-        extracted_text = process_result["text"]
-        warning_message = " ".join(process_result.get("warnings", []))
-
-        text_path.write_text(extracted_text, encoding="utf-8")
-
-        progress.progress(50, text="Splitting text into chunks...")
-        chunks = split_text(extracted_text)
-        warnings = list(process_result.get("warnings", []))
-        if len(chunks) >= MAX_CHUNKS_PER_DOCUMENT:
-            warnings.append(
-                "This is a long document. To keep upload fast, StudyMate indexed the first "
-                f"{MAX_CHUNKS_PER_DOCUMENT} searchable chunks. The original file and extracted "
-                "text preview are still saved."
-            )
-        warning_message = " ".join(warnings)
-
-        progress.progress(70, text="Saving document metadata in SQLite...")
-        document_id = save_uploaded_document_metadata(
+        progress = st.progress(0, text="Uploading file to Supabase Storage...")
+        from modules.file_repository import upload_file, process_document_pipeline, get_file, update_metadata
+        
+        file_uuid = upload_file(
+            owner_id=user_id,
             subject_id=selected_subject["id"],
             file_name=safe_name,
-            file_path=str(file_path),
-            file_type=file_type,
-            extracted_text_path=str(text_path),
-            chunk_count=len(chunks),
-            description=clean_description,
-            extraction_method=process_result.get("method", ""),
-            extraction_status=process_result.get("status", ""),
-            warning_message=warning_message,
-            page_count=process_result.get("page_count", 0),
-            user_id=user_id,
+            file_data=uploaded_file.getvalue(),
+            mime_type=uploaded_file.type
         )
-
-        if not document_id:
+        
+        if not file_uuid:
             progress.empty()
-            st.error("Access denied. This subject does not belong to your account.")
+            st.error("Failed to upload file to Supabase storage. Check file size limits or connection status.")
             st.stop()
 
-        progress.progress(85, text="Saving chunks into ChromaDB...")
-        saved_count = 0
-        if chunks:
-            try:
-                saved_count = add_text_chunks(
-                    subject_id=selected_subject["id"],
-                    subject_name=selected_subject["name"],
-                    document_id=document_id,
-                    file_name=safe_name,
-                    chunks=chunks,
-                    user_id=user_id,
-                    file_type=file_type,
-                    extraction_method=process_result.get("method", ""),
-                )
-            except VectorStoreError as exc:
-                saved_count = 0
-                st.warning("Search storage is unavailable right now. The document was still saved.")
-                st.info(
-                    "The document metadata and extracted text were saved, but searchable "
-                    "chat/quiz/flashcard features need ChromaDB to be available."
-                )
+        # Update description in metadata
+        update_metadata(file_uuid, user_id, {"description": clean_description})
+
+        progress.progress(40, text="Processing document and running OCR if needed...")
+        success = process_document_pipeline(file_uuid, user_id)
+        
+        if not success:
+            progress.empty()
+            st.error("Document processing failed. You can delete and retry.")
+            st.stop()
+
+        # Fetch finalized file info
+        file_info = get_file(file_uuid, user_id) or {}
+        chunk_count = file_info.get("chunk_count", 0)
 
         progress.progress(100, text="Upload complete.")
         render_success_state(
             "Upload complete",
-            f"{safe_name} is stored under {selected_subject['name']} with its original file and extracted text.",
+            f"{safe_name} has been processed under {selected_subject['name']} and is ready for AI features."
         )
-        if chunks:
-            st.success(f"Saved {saved_count} searchable chunks into ChromaDB.")
+        
+        if chunk_count > 0:
+            st.success(f"Generated {chunk_count} searchable chunks and stored embeddings in Supabase.")
         else:
-            st.warning(
-                "File uploaded, but no readable text was extracted. You can still preview it, "
-                "but AI chat may not use its content."
-            )
-        for warning in warnings:
-            st.warning(warning)
-
-        with st.expander("Preview extracted text"):
-            st.write(extracted_text[:3000] if extracted_text else "No extracted text available.")
+            st.warning("File uploaded, but no readable text could be extracted.")

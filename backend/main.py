@@ -267,7 +267,7 @@ def list_documents(subject_id: int, user: dict = Depends(get_current_user)):
 
 @app.post("/api/documents/upload")
 def upload_document(
-    subject_id: int = Form(...),
+    subject_id: str = Form(...),
     description: str = Form(""),
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user)
@@ -276,81 +276,36 @@ def upload_document(
     if error:
         raise HTTPException(status_code=400, detail=error)
 
-    # Resolve directories
-    subject_folder = UPLOAD_DIR / str(user["id"]) / str(subject_id)
-    text_subject_folder = EXTRACTED_TEXT_DIR / str(user["id"]) / str(subject_id)
-    subject_folder.mkdir(parents=True, exist_ok=True)
-    text_subject_folder.mkdir(parents=True, exist_ok=True)
-
-    # Unique path
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_path = subject_folder / f"{timestamp}_{safe_name}"
-    text_path = text_subject_folder / f"{timestamp}_{Path(safe_name).stem}.txt"
-    file_type = Path(safe_name).suffix.replace(".", "").upper() or "PDF"
-
-    # Save original file
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    # Process file and extract text
-    process_result = process_uploaded_file(file_path, file_type)
-    extracted_text = process_result["text"]
-    text_path.write_text(extracted_text, encoding="utf-8")
-
-    # Split and index text chunks
-    chunks = split_text(extracted_text)
-    warnings = list(process_result.get("warnings", []))
-    warning_message = " ".join(warnings)
-
-    # Save document metadata in DB
-    document_id = save_uploaded_document_metadata(
+    from modules.file_repository import upload_file, process_document_pipeline, get_file, update_metadata
+    
+    # Read file content
+    file_data = file.file.read()
+    
+    file_uuid = upload_file(
+        owner_id=user["id"],
         subject_id=subject_id,
         file_name=safe_name,
-        file_path=str(file_path),
-        file_type=file_type,
-        extracted_text_path=str(text_path),
-        chunk_count=len(chunks),
-        description=description,
-        extraction_method=process_result.get("method", ""),
-        extraction_status=process_result.get("status", ""),
-        warning_message=warning_message,
-        page_count=process_result.get("page_count", 0),
-        user_id=user["id"],
+        file_data=file_data,
+        mime_type=file.content_type
     )
+    if not file_uuid:
+        raise HTTPException(status_code=500, detail="Failed to upload file to Supabase storage")
 
-    if not document_id:
-        # Cleanup file if failed
-        if file_path.exists():
-            file_path.unlink()
-        raise HTTPException(status_code=403, detail="Access denied to this subject")
+    if description:
+        update_metadata(file_uuid, user["id"], {"description": description})
 
-    # Add text chunks to ChromaDB
-    saved_chunks = 0
-    if chunks:
-        try:
-            # Look up subject info to fetch name
-            subjects = get_subjects(user_id=user["id"])
-            subject_name = next((sub["name"] for sub in subjects if sub["id"] == subject_id), "Subject")
-            saved_chunks = add_text_chunks(
-                subject_id=subject_id,
-                subject_name=subject_name,
-                document_id=document_id,
-                file_name=safe_name,
-                chunks=chunks,
-                user_id=user["id"],
-                file_type=file_type,
-                extraction_method=process_result.get("method", ""),
-            )
-        except Exception:
-            pass
+    # Trigger processing pipeline
+    success = process_document_pipeline(file_uuid, user["id"])
+    if not success:
+         raise HTTPException(status_code=500, detail="Document processing pipeline failed")
+
+    file_info = get_file(file_uuid, user["id"]) or {}
 
     return {
-        "id": document_id,
+        "id": file_uuid,
         "file_name": safe_name,
-        "chunk_count": len(chunks),
-        "saved_chunks": saved_chunks,
-        "warning": warning_message,
-        "status": process_result.get("status", "")
+        "chunk_count": file_info.get("chunk_count", 0),
+        "status": "READY"
     }
 
 

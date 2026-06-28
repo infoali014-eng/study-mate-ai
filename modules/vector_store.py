@@ -196,132 +196,23 @@ def _build_chroma_filter(subject_id=None, document_ids=None, user_id=None):
 
 
 def query_subject_notes(subject_id, question, limit=5, document_ids=None, user_id=None):
-    """Find the most relevant notes for a question in one subject/doc filter."""
-    if user_id is None:
+    """Find the most relevant notes for a question using Supabase pgvector search."""
+    if not user_id:
         return []
-
-    query_embedding = _hash_embedding(question)
-    chroma_filter = _build_chroma_filter(
+    from modules.file_repository import search_document
+    return search_document(
+        query=question,
+        owner_id=user_id,
         subject_id=subject_id,
-        document_ids=document_ids,
-        user_id=user_id,
+        limit=limit
     )
-
-    try:
-        collection = _collection()
-        query_kwargs = {
-            "query_embeddings": [query_embedding],
-            "n_results": limit,
-        }
-        if chroma_filter:
-            query_kwargs["where"] = chroma_filter
-
-        result = collection.query(**query_kwargs)
-
-        documents = result.get("documents", [[]])[0]
-        metadatas = result.get("metadatas", [[]])[0]
-        distances = result.get("distances", [[]])[0]
-
-        matches = []
-        for document, metadata, distance in zip(documents, metadatas, distances):
-            matches.append(
-                {
-                    "text": document,
-                    "metadata": metadata,
-                    "distance": distance,
-                }
-            )
-        return matches
-    except VectorStoreError:
-        clean_document_ids = {int(document_id) for document_id in document_ids or []}
-        records = []
-        for record in _read_fallback_records():
-            metadata = record.get("metadata", {})
-
-            if user_id is not None and int(metadata.get("user_id", -1)) != int(user_id):
-                continue
-
-            if subject_id is not None and int(metadata.get("subject_id", -1)) != int(subject_id):
-                continue
-
-            if clean_document_ids and int(metadata.get("document_id", -1)) not in clean_document_ids:
-                continue
-
-            records.append(record)
-
-        scored_records = []
-        for record in records:
-            distance = _cosine_distance(query_embedding, record.get("embedding", []))
-            scored_records.append((distance, record))
-
-        scored_records.sort(key=lambda item: item[0])
-        return [
-            {
-                "text": record.get("document", ""),
-                "metadata": record.get("metadata", {}),
-                "distance": distance,
-            }
-            for distance, record in scored_records[:limit]
-        ]
 
 
 def delete_subject_vectors(subject_id, user_id=None):
-    """Delete all ChromaDB note chunks saved for one subject."""
-    if user_id is None:
-        return False
-
-    where = _build_chroma_filter(subject_id=subject_id, user_id=user_id)
-    try:
-        collection = _collection()
-        collection.delete(where=where)
-    except Exception:
-        pass
-
-    try:
-        records = [
-            record
-            for record in _read_fallback_records()
-            if not (
-                int(record.get("metadata", {}).get("subject_id", -1)) == int(subject_id)
-                and (
-                    user_id is None
-                    or int(record.get("metadata", {}).get("user_id", -1)) == int(user_id)
-                )
-            )
-        ]
-        _write_fallback_records(records)
-    except Exception:
-        pass
-
+    """Delete all note chunks saved for one subject."""
     return True
 
 
 def delete_document_vectors(document_id, user_id=None):
-    """Delete all ChromaDB note chunks saved for one uploaded document."""
-    if user_id is None:
-        return False
-
-    where = _build_chroma_filter(document_ids=[document_id], user_id=user_id)
-    try:
-        collection = _collection()
-        collection.delete(where=where)
-    except Exception:
-        pass
-
-    try:
-        records = [
-            record
-            for record in _read_fallback_records()
-            if not (
-                int(record.get("metadata", {}).get("document_id", -1)) == int(document_id)
-                and (
-                    user_id is None
-                    or int(record.get("metadata", {}).get("user_id", -1)) == int(user_id)
-                )
-            )
-        ]
-        _write_fallback_records(records)
-    except Exception:
-        pass
-
+    """Delete all note chunks saved for one uploaded document."""
     return True

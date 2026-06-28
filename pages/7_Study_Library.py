@@ -51,13 +51,20 @@ def ask_selected_ai(prompt):
 
 
 def read_extracted_text(document):
-    """Return extracted text for a document when it is available."""
-    text_path = document["extracted_text_path"]
+    """Return extracted text for a document from Supabase document_embeddings."""
     user_id = st.session_state.get("user_id")
-    allowed_root = DATA_DIR / "extracted_text"
-    from modules.database import document_belongs_to_user
-    if text_path and document_belongs_to_user(document["id"], user_id) and is_path_inside(allowed_root, text_path) and Path(text_path).exists():
-        return Path(text_path).read_text(encoding="utf-8", errors="ignore")
+    if not user_id:
+        return ""
+    from modules.file_repository import _get_client
+    client = _get_client()
+    if not client:
+        return ""
+    try:
+        resp = client.table("document_embeddings").select("text_chunk").eq("uploaded_file_id", document["id"]).order("chunk_index").execute()
+        if resp.data:
+            return "\n\n".join([r["text_chunk"] for r in resp.data])
+    except Exception:
+        pass
     return ""
 
 
@@ -96,13 +103,8 @@ def request_delete(document):
 
 def confirm_delete_document(document):
     """Delete one document after ownership has already been checked."""
-    vector_cleanup_failed = False
-    try:
-        delete_document_vectors(document["id"], user_id=st.session_state.get("user_id"))
-    except Exception:
-        vector_cleanup_failed = True
-
-    deleted = delete_document(document["id"], user_id=st.session_state.get("user_id"))
+    from modules.file_repository import delete_file
+    deleted = delete_file(document["id"], owner_id=st.session_state.get("user_id"))
     if not deleted:
         st.error("Document was not found or was already deleted.")
         return
@@ -114,8 +116,6 @@ def confirm_delete_document(document):
         st.session_state.library_auto_summary = None
     st.session_state.library_summary.pop(document["id"], None)
     st.session_state.library_success = "Document deleted successfully."
-    if vector_cleanup_failed:
-        st.session_state.library_success += " Some old search chunks may remain, but this document is removed."
     st.rerun()
 
 
@@ -247,35 +247,55 @@ def render_document_details(document):
         if document["description"]:
             st.write(document["description"])
 
-        original_path = document["file_path"]
         file_type = (document["file_type"] or Path(document["file_name"]).suffix.replace(".", "") or "PDF").upper()
-        allowed_root = DATA_DIR / "uploads"
-        from modules.database import document_belongs_to_user
-        if not document_belongs_to_user(document["id"], st.session_state.get("user_id")):
-            st.error("Access denied. This file does not belong to your account or your study groups.")
-        elif not is_path_inside(allowed_root, original_path):
-            st.error("Access denied. Invalid file path.")
-        elif not file_exists(original_path):
-            st.error("Original file not found. Please re-upload this document.")
+        user_uuid = st.session_state.get("user_id")
+        from modules.file_repository import download_file
+        
+        # 1. Fetch file bytes from Supabase Storage
+        file_bytes = download_file(document["id"], user_uuid)
+        
+        if not file_bytes:
+            st.error("Could not retrieve original file from Supabase storage.")
         else:
+            # 2. Write to a temporary file for local preview rendering
+            import tempfile
+            suffix = f".{file_type.lower()}"
             if file_type == "PDF":
-                st.info("PDF preview is embedded below. If your browser blocks it, use the download button.")
-                preview_pdf(original_path)
-                with st.expander("Extracted text preview", expanded=False):
-                    preview_extracted_text(extracted_text)
+                suffix = ".pdf"
             elif file_type in {"PNG", "JPG", "JPEG", "WEBP"}:
-                preview_image(original_path)
-                st.markdown("**Extracted OCR text**")
-                preview_extracted_text(extracted_text)
+                suffix = f".{file_type.lower()}"
             elif file_type in {"TXT", "MD", "CSV", "JSON"}:
-                preview_text_file(original_path)
-            elif file_type in {"DOCX", "PPTX", "XLSX"}:
-                st.info("Preview uses extracted text. Download the original file for full formatting.")
-                preview_extracted_text(extracted_text)
-            else:
-                st.info("Preview is not available for this file type, but you can open or download the file.")
+                suffix = f".{file_type.lower()}"
+                
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(file_bytes)
+                temp_local_path = tmp.name
+                
+            try:
+                if file_type == "PDF":
+                    st.info("PDF preview is embedded below. If your browser blocks it, use the download button.")
+                    preview_pdf(temp_local_path)
+                    with st.expander("Extracted text preview", expanded=False):
+                        preview_extracted_text(extracted_text)
+                elif file_type in {"PNG", "JPG", "JPEG", "WEBP"}:
+                    preview_image(temp_local_path)
+                    st.markdown("**Extracted OCR text**")
+                    preview_extracted_text(extracted_text)
+                elif file_type in {"TXT", "MD", "CSV", "JSON"}:
+                    preview_text_file(temp_local_path)
+                elif file_type in {"DOCX", "PPTX", "XLSX"}:
+                    st.info("Preview uses extracted text. Download the original file for full formatting.")
+                    preview_extracted_text(extracted_text)
+                else:
+                    st.info("Preview is not available for this file type, but you can open or download the file.")
 
-            get_file_download_button(original_path)
+                get_file_download_button(temp_local_path)
+            finally:
+                # Clean up the temp file
+                try:
+                    Path(temp_local_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
 
         detail_actions = st.columns(4)
         with detail_actions[0]:
