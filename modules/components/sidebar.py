@@ -8,6 +8,7 @@ from modules.icons import icon
 
 NAV_ITEMS = [
     ("Dashboard",        "pages/1_Dashboard.py",         "home"),
+    ("Profile",          "pages/Profile.py",             "user"),
     ("Study Library",    "pages/7_Study_Library.py",     "library"),
     ("Upload Notes",     "pages/2_Upload_Notes.py",      "upload-cloud"),
     ("Chat With Notes",  "pages/3_Chat_With_Notes.py",   "message-circle"),
@@ -29,6 +30,7 @@ ADMIN_NAV_ITEMS = [
 # Map Lucide icon names to standard Google Material Symbols used by st.page_link natively
 MATERIAL_ICON_MAP = {
     "home": "home",
+    "user": "person",
     "library": "library_books",
     "upload-cloud": "cloud_upload",
     "message-circle": "forum",
@@ -124,10 +126,16 @@ def sidebar_nav():
     st.sidebar.markdown('<hr style="margin:12px 0;">', unsafe_allow_html=True)
 
     # ── Profile Card ──────────────────────────────────────────────────────────
+    avatar_url = st.session_state.get("profile_image_url")
+    if avatar_url:
+        avatar_html = f'<img src="{_html.escape(avatar_url)}" class="sm-profile-avatar" style="width:34px; height:34px; border-radius:var(--radius-md); object-fit:cover; flex-shrink:0;">'
+    else:
+        avatar_html = f'<div class="sm-profile-avatar">{_html.escape(initials)}</div>'
+
     st.sidebar.markdown(
         f"""
         <div class="sm-profile">
-            <div class="sm-profile-avatar">{_html.escape(initials)}</div>
+            {avatar_html}
             <div class="sm-profile-info">
                 <div class="sm-profile-name">{_html.escape(user_name)}</div>
                 <div class="sm-profile-role">{_html.escape(user_email or "Student")}</div>

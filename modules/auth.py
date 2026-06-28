@@ -44,6 +44,9 @@ USER_SESSION_KEYS = {
     "gemini_model",
     "ollama_model",
     "ai_request_times",
+    "profile_image_url",
+    "user_username",
+    "user_bio",
 }
 
 STUDY_SESSION_PREFIXES = (
@@ -239,6 +242,19 @@ def login_user(user, message=None, remember=True):
     st.session_state.user_email = user["email"]
     st.session_state.user_role = user["role"] if "role" in user.keys() else "student"
     st.session_state.failed_login_attempts = []
+    
+    # Cache user profile settings
+    from modules.profile_repository import ProfileRepository
+    profile = ProfileRepository.get_profile(user["id"])
+    if profile:
+        st.session_state.user_username = profile.get("username")
+        st.session_state.profile_image_url = profile.get("profile_image_url")
+        st.session_state.user_bio = profile.get("bio")
+    else:
+        st.session_state.user_username = None
+        st.session_state.profile_image_url = None
+        st.session_state.user_bio = None
+
     if remember:
         token = create_remember_session(user["id"], days=REMEMBER_COOKIE_DAYS)
         _set_remember_cookie(token)
