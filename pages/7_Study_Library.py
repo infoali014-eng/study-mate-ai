@@ -108,7 +108,8 @@ def request_delete(document):
 def confirm_delete_document(document):
     """Delete one document after ownership has already been checked."""
     from modules.file_repository import delete_file
-    deleted = delete_file(document["id"], owner_id=st.session_state.get("user_id"))
+    uploaded_file_id = document.get("uploaded_file_id") or document.get("id")
+    deleted = delete_file(uploaded_file_id, owner_id=st.session_state.get("user_id"))
     if not deleted:
         st.error("Document was not found or was already deleted.")
         return
