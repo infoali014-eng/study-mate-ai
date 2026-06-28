@@ -8,7 +8,6 @@ from modules.icons import icon
 
 NAV_ITEMS = [
     ("Dashboard",        "pages/1_Dashboard.py",         "home"),
-    ("Profile",          "pages/Profile.py",             "user"),
     ("Study Library",    "pages/7_Study_Library.py",     "library"),
     ("Upload Notes",     "pages/2_Upload_Notes.py",      "upload-cloud"),
     ("Chat With Notes",  "pages/3_Chat_With_Notes.py",   "message-circle"),
@@ -18,6 +17,7 @@ NAV_ITEMS = [
     ("Revision Planner", "pages/6_Revision_Planner.py",  "calendar"),
     ("Pomodoro Timer",   "pages/9_Pomodoro_Timer.py",    "timer"),
     ("AI Settings",      "pages/8_AI_Settings.py",       "settings"),
+    ("Profile",          "pages/Profile.py",             "user"),
     ("About",            "pages/10_About.py",            "info"),
 ]
 
