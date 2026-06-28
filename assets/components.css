@@ -182,7 +182,7 @@
     background: #FFFFFF;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
-    padding: 20px;
+    padding: 14px 16px;
     box-shadow: var(--shadow-sm);
     transition: box-shadow var(--transition-base), transform var(--transition-base);
     border-left: 3px solid var(--card-accent, var(--color-primary));
@@ -199,12 +199,12 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 
 .sm-stat-icon {
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
     border-radius: var(--radius-md);
     background: var(--card-accent-bg, var(--color-primary-muted));
     display: flex;
@@ -214,24 +214,24 @@
 }
 
 .sm-stat-label {
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     font-weight: 500;
     color: var(--color-text-secondary);
-    margin-bottom: 4px;
+    margin-bottom: 2px;
 }
 
 .sm-stat-value {
-    font-size: 1.875rem;
+    font-size: 1.5rem;
     font-weight: 800;
     color: var(--color-text);
     line-height: 1;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
 }
 
 .sm-stat-hint {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     color: var(--color-text-muted);
-    margin-top: 8px;
+    margin-top: 6px;
     display: flex;
     align-items: center;
     gap: 4px;

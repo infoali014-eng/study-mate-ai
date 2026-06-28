@@ -813,6 +813,14 @@ def add_chat_pair(question, answer_data, context, attachments=None):
         )
     _persist_chat_message(assistant_message)
 
+    from modules.analytics_repository import AnalyticsRepository
+    AnalyticsRepository.log_activity_session(
+        st.session_state.get("user_id"),
+        subject_id=context.get("subject_id"),
+        session_type="Chat with Notes",
+        duration_minutes=5
+    )
+
 
 def add_assistant_message(answer_data, context):
     """Append only an assistant response, used when regenerating."""

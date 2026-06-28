@@ -17,6 +17,42 @@ class AnalyticsRepository(BaseRepository):
     """Repository computing study metrics, achievements, and statistics caches."""
 
     @classmethod
+    def log_activity_session(cls, owner_id: str, subject_id: str = None, duration_minutes: int = 5, session_type: str = "Focus", notes: str = ""):
+        """Log a study activity session to increment streaks and track learning progress."""
+        if not cls.is_online():
+            return
+        client = cls.get_client()
+        if not client:
+            return
+        try:
+            today_str = date.today().isoformat()
+            existing = client.table("study_sessions") \
+                .select("id") \
+                .eq("owner_id", owner_id) \
+                .eq("session_type", session_type) \
+                .gte("completed_at", today_str) \
+                .execute()
+            if existing.data:
+                from services.event_dispatcher import dispatch_event
+                dispatch_event("study_session", owner_id, {"duration_minutes": duration_minutes})
+                return
+
+            payload = {
+                "owner_id": owner_id,
+                "duration_minutes": duration_minutes,
+                "session_type": session_type,
+                "notes": notes,
+            }
+            if subject_id:
+                payload["subject_id"] = subject_id
+            client.table("study_sessions").insert(payload).execute()
+            from services.event_dispatcher import dispatch_event
+            dispatch_event("study_session", owner_id, {"duration_minutes": duration_minutes})
+            logger.info(f"Successfully logged {session_type} activity session for user {owner_id}")
+        except Exception as e:
+            logger.warning(f"Failed to log activity session: {e}")
+
+    @classmethod
     def get_dashboard_statistics(cls, owner_id: str) -> Dict[str, Any]:
         """Fetch the cached learning profile statistics for a user, creating one if empty."""
         if not cls.is_online():

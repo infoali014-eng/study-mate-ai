@@ -37,6 +37,9 @@ init_db()
 apply_theme()
 sidebar_nav()
 
+from modules.analytics_repository import AnalyticsRepository
+AnalyticsRepository.log_activity_session(user_id, session_type="App Usage", duration_minutes=5)
+
 page_header(
     f"Welcome back, {get_current_user_display_name()}",
     "Here's your learning overview for today.",
@@ -79,19 +82,7 @@ with col_i4:
 
 st.divider()
 
-ai_col, ach_col = st.columns([2, 1])
-with ai_col:
-    section_title("AI Study Recommendations", "zap")
-    from services.recommendation_engine import RecommendationEngine
-    recs = RecommendationEngine.generate_recommendations(user_id)
-    if not recs:
-        st.info("No study recommendations generated yet. Try taking some quizzes or reviewing flashcards.")
-    else:
-        for r in recs:
-            priority = r.get("priority", "Low")
-            priority_label = {"High": "High Priority", "Medium": "Medium Priority", "Low": "Low Priority"}.get(priority, priority)
-            st.info(f"**{priority_label}** — {r.get('recommendation')}  \n*{r.get('reason')}*  \nConfidence: {int((r.get('confidence') or 0.85) * 100)}%")
-
+ach_col, prog_col = st.columns([1, 1])
 with ach_col:
     section_title("Unlocked Badges", "award")
     unlocked = counts.get("achievements", [])
@@ -101,24 +92,23 @@ with ach_col:
         for ach in unlocked:
             st.success(f"**{ach}**")
 
-st.divider()
-
-if subject_document_counts:
-    section_title("Study Progress", "bar-chart-2")
-    max_documents = max(int(row["document_count"] or 0) for row in subject_document_counts) or 1
-    progress_rows = []
-    for row in subject_document_counts[:6]:
-        visual = subject_visual(row["name"])
-        document_count = int(row["document_count"] or 0)
-        progress_rows.append(
-            {
-                "label": row["name"],
-                "count": f"{document_count} material(s)",
-                "value": max(7, int((document_count / max_documents) * 100)) if document_count else 4,
-                "accent": visual["accent"],
-            }
-        )
-    render_progress_panel("Documents per subject", progress_rows)
+with prog_col:
+    if subject_document_counts:
+        section_title("Study Progress", "bar-chart-2")
+        max_documents = max(int(row["document_count"] or 0) for row in subject_document_counts) or 1
+        progress_rows = []
+        for row in subject_document_counts[:6]:
+            visual = subject_visual(row["name"])
+            document_count = int(row["document_count"] or 0)
+            progress_rows.append(
+                {
+                    "label": row["name"],
+                    "count": f"{document_count} material(s)",
+                    "value": max(7, int((document_count / max_documents) * 100)) if document_count else 4,
+                    "accent": visual["accent"],
+                }
+            )
+        render_progress_panel("Documents per subject", progress_rows)
 
 left, right = st.columns([1, 2])
 

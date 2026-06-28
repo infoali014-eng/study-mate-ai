@@ -76,6 +76,14 @@ def open_document(document):
     """Show a selected document in the preview/details area."""
     st.session_state.library_selected_document = document["id"]
     st.session_state.library_pending_delete = None
+
+    from modules.analytics_repository import AnalyticsRepository
+    AnalyticsRepository.log_activity_session(
+        st.session_state.get("user_id"),
+        subject_id=document.get("subject_id"),
+        session_type="Read Notes",
+        duration_minutes=5
+    )
     st.rerun()
 
 
