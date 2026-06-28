@@ -470,3 +470,61 @@ hr {
         padding-top: 4.5rem !important;
     }
 }
+
+/* ── UI Upgrade & Micro-animations ─────────────────────────────────────────── */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+}
+
+@keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 5px rgba(20,184,166,0.2); }
+    50% { box-shadow: 0 0 15px rgba(20,184,166,0.6); }
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-4px); }
+    40%, 80% { transform: translateX(4px); }
+}
+
+/* Page entrance animations */
+.block-container {
+    animation: fadeInUp 250ms ease-out forwards !important;
+}
+
+/* Smooth scale down on click for buttons */
+.stButton button:active,
+.stFormSubmitButton button:active {
+    transform: scale(0.96) !important;
+    transition: transform 100ms ease-out !important;
+}
+
+/* Focus color transitions for input elements */
+.stTextInput input:focus,
+.stTextArea textarea:focus,
+.stSelectbox select:focus {
+    border-color: var(--color-primary) !important;
+    box-shadow: var(--shadow-focus) !important;
+    transition: border-color var(--transition-base), box-shadow var(--transition-base) !important;
+}
+
+/* Progress bar transitions */
+div[data-testid="stProgress"] > div > div > div {
+    transition: width 400ms ease-in-out !important;
+}
