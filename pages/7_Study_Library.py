@@ -6,13 +6,18 @@ import streamlit as st
 from modules import ai_engine
 from modules.auth import require_login
 from modules.database import (
+    get_document_summary,
+    init_db,
+    save_document_summary,
+)
+from modules.library_repository import (
     delete_document,
     get_all_documents,
     get_document_by_id,
-    get_document_summary,
     get_subjects,
-    init_db,
-    save_document_summary,
+    get_user_library,
+    search_library,
+    sync_sqlite_to_supabase,
 )
 from modules.file_preview import (
     file_exists,
@@ -546,3 +551,19 @@ if st.session_state.library_pending_delete and not any(
             if st.button("Cancel delete", use_container_width=True):
                 st.session_state.library_pending_delete = None
                 st.rerun()
+
+# --- SQLite to Supabase One-Time Migration Utility ---
+st.markdown("---")
+with st.expander("🛠️ SQLite to Supabase Migration Tool"):
+    st.write("Migrate your local SQLite subjects and study notes metadata to Supabase. This sync is safe and idempotent.")
+    dry_run = st.checkbox("Dry Run (Simulate only, do not write to Supabase)", value=True)
+    if st.button("Start Sync Migration", use_container_width=True):
+        with st.spinner("Synchronizing database records..."):
+            report = sync_sqlite_to_supabase(user_id, dry_run=dry_run)
+            if report.get("errors"):
+                for err in report["errors"]:
+                    st.error(err)
+            else:
+                st.success(f"Sync complete! Subjects: {report['subjects_migrated']} migrated, {report['subjects_skipped']} skipped. Documents: {report['documents_migrated']} migrated, {report['documents_skipped']} skipped.")
+                if not dry_run:
+                    st.rerun()

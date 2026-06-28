@@ -4,10 +4,12 @@ from modules import ai_engine
 from modules.auth import require_login
 from modules.database import (
     get_quiz_results,
-    get_subjects,
     init_db,
     save_quiz_result,
     update_weak_topic,
+)
+from modules.library_repository import (
+    get_subjects,
 )
 from modules.quiz_generator import check_quiz_answers, generate_quiz
 from modules.security import clean_text

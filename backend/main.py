@@ -14,11 +14,6 @@ from pydantic import BaseModel
 
 from modules.database import (
     init_db,
-    get_subjects,
-    add_subject as db_add_subject,
-    delete_subject,
-    get_documents_by_subject,
-    save_uploaded_document_metadata,
     get_chat_sessions,
     get_chat_messages,
     save_chat_message,
@@ -33,6 +28,13 @@ from modules.user_repository import (
     create_user,
     get_user_by_email,
     verify_user_login,
+)
+from modules.library_repository import (
+    get_subjects,
+    add_subject as db_add_subject,
+    delete_subject,
+    get_documents_by_subject,
+    save_uploaded_document_metadata,
 )
 from modules import ai_engine
 from modules.security import validate_email, validate_password, validate_full_name, sanitize_filename

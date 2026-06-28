@@ -4,7 +4,8 @@ from pathlib import Path
 import streamlit as st
 
 from modules.auth import require_login
-from modules.database import get_subjects, init_db, save_uploaded_document_metadata
+from modules.database import init_db
+from modules.library_repository import get_subjects, save_uploaded_document_metadata
 from modules.document_processor import ocr_status, process_uploaded_file
 from modules.security import validate_description, validate_upload
 from modules.text_splitter import MAX_CHUNKS_PER_DOCUMENT, split_text

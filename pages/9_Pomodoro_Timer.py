@@ -4,7 +4,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from modules.auth import require_login
-from modules.database import get_study_sessions, get_subjects, init_db, save_study_session
+from modules.database import get_study_sessions, init_db, save_study_session
+from modules.library_repository import get_subjects
 from modules.ui import (
     apply_theme,
     page_header,

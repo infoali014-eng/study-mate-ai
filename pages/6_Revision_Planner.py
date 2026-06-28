@@ -6,10 +6,12 @@ from modules import ai_engine
 from modules.auth import require_login
 from modules.database import (
     get_revision_plans,
-    get_subjects,
     get_weak_topics,
     init_db,
     save_revision_plan,
+)
+from modules.library_repository import (
+    get_subjects,
 )
 from modules.planner import generate_revision_plan
 from modules.security import clean_text

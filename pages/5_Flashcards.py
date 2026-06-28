@@ -5,11 +5,13 @@ from modules.auth import require_login
 from modules.database import (
     delete_flashcards_by_subject,
     get_flashcards,
-    get_subjects,
     init_db,
     save_flashcard,
     update_flashcard_status,
     update_weak_topic,
+)
+from modules.library_repository import (
+    get_subjects,
 )
 from modules.flashcard_generator import generate_flashcards
 from modules.security import clean_text

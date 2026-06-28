@@ -29,13 +29,15 @@ from modules.database import (
     get_chat_session,
     get_chat_messages,
     get_chat_sessions,
-    get_documents_by_subject,
-    get_subjects,
     init_db,
     save_chat_attachment,
     save_chat_message,
     update_chat_session_context,
     update_chat_session_title,
+)
+from modules.library_repository import (
+    get_documents_by_subject,
+    get_subjects,
 )
 from modules.document_processor import IMAGE_TYPES, process_uploaded_file
 from modules.math_visualizer import generate_math_visualization, should_visualize_math

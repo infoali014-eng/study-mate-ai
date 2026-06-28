@@ -4,12 +4,14 @@ import streamlit as st
 
 from modules.auth import get_current_user_display_name, require_login
 from modules.database import (
+    get_dashboard_counts,
+    init_db,
+)
+from modules.library_repository import (
     create_subject,
     delete_subject,
-    get_dashboard_counts,
     get_subject_document_counts,
     get_subjects,
-    init_db,
 )
 from modules.ui import (
     apply_theme,
