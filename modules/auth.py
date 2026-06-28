@@ -504,14 +504,23 @@ def render_auth_screen():
             "product_tagline": "Learn smarter. Revise faster. Prepare better.",
         }
 
+    from modules.icons import icon as _icon
+    cap_svg = _icon("graduation-cap", size=20, color="#FFFFFF")
     st.markdown(
         f"""
-        <div class="auth-shell">
-            <div class="auth-card">
-                <div class="hero-kicker">SECURE STUDY WORKSPACE</div>
-                <h1>{html.escape(branding["app_name"])}</h1>
-                <p>{html.escape(branding["product_tagline"])}</p>
-                <div class="auth-note">Manual email/password login is active.</div>
+        <div class="sm-auth-shell">
+            <div class="sm-auth-card">
+                <div class="sm-auth-logo">
+                    <div class="sm-auth-logo-icon">{cap_svg}</div>
+                    <div>
+                        <div style="font-size:1.125rem; font-weight:700; color:#111827; line-height:1.2;">
+                            {html.escape(branding["app_name"])}
+                        </div>
+                        <div style="font-size:0.75rem; color:#6B7280;">{html.escape(branding.get("app_subtitle","AI Study Assistant"))}</div>
+                    </div>
+                </div>
+                <div class="sm-auth-title">Welcome back</div>
+                <div class="sm-auth-subtitle">{html.escape(branding["product_tagline"])}</div>
             </div>
         </div>
         """,

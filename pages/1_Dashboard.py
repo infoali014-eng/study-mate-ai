@@ -28,6 +28,7 @@ from modules.ui import (
 )
 from modules.security import validate_description, validate_subject_name
 from modules.vector_store import VectorStoreError, delete_subject_vectors
+from modules.icons import icon as _icon
 
 
 st.set_page_config(page_title="Dashboard - StudyMate AI", layout="wide")
@@ -37,9 +38,9 @@ apply_theme()
 sidebar_nav()
 
 page_header(
-    f"Welcome back, {get_current_user_display_name()} \U0001f44b",
-    "Let's organize your subjects, notes, quizzes, and revision plans.",
-    f"{get_current_user_display_name()}'s Study Command Center",
+    f"Welcome back, {get_current_user_display_name()}",
+    "Here's your learning overview for today.",
+    "Dashboard",
 )
 
 if "subject_pending_delete" not in st.session_state:
@@ -56,62 +57,54 @@ subject_document_counts = get_subject_document_counts(user_id=user_id)
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    render_stat_card("Subjects", counts["subjects"], "Start your first subject", "📚", "#14b8b4", "#d8fff6")
+    render_stat_card("Subjects", counts["subjects"], "Start your first subject", "book", "#14B8A6", "#F0FDFA")
 with col2:
-    render_stat_card("PDFs", counts["documents"], "Upload your notes", "📄", "#ff637d", "#ffe3e9")
+    render_stat_card("Notes", counts["documents"], "Upload your notes", "file-text", "#EF4444", "#FEF2F2")
 with col3:
-    render_stat_card("Flashcards", counts["flashcards"], "Create memory cards", "🃏", "#ffb703", "#fff3c4")
+    render_stat_card("Flashcards", counts["flashcards"], "Create memory cards", "layers", "#F59E0B", "#FFFBEB")
 with col4:
-    render_stat_card("Quiz Attempts", counts["quizzes"], "Test your knowledge", "❓", "#8b5cf6", "#efe7ff")
+    render_stat_card("Quiz Attempts", counts["quizzes"], "Test your knowledge", "help-circle", "#8B5CF6", "#F5F3FF")
 
 st.divider()
 
 col_i1, col_i2, col_i3, col_i4 = st.columns(4)
 with col_i1:
-    render_stat_card("Study Streak", f"{counts.get('current_streak', 0)} days", f"Longest: {counts.get('longest_streak', 0)} days", "🔥", "#ea580c", "#ffedd5")
+    render_stat_card("Study Streak", f"{counts.get('current_streak', 0)} days", f"Longest: {counts.get('longest_streak', 0)} days", "flame", "#EA580C", "#FFF7ED")
 with col_i2:
-    render_stat_card("Quiz Accuracy", f"{counts.get('overall_accuracy', 0.0)}%", f"Level: {counts.get('study_level', 'Beginner')}", "🎯", "#2563eb", "#dbeafe")
+    render_stat_card("Quiz Accuracy", f"{counts.get('overall_accuracy', 0.0)}%", f"Level: {counts.get('study_level', 'Beginner')}", "target", "#2563EB", "#EFF6FF")
 with col_i3:
-    render_stat_card("Retention Score", f"{counts.get('retention_score', 0.0)}%", f"Strongest: {counts.get('strongest_subject', 'None')}", "🧠", "#9333ea", "#f3e8ff")
+    render_stat_card("Retention Score", f"{counts.get('retention_score', 0.0)}%", f"Strongest: {counts.get('strongest_subject', 'None')}", "brain", "#9333EA", "#F5F3FF")
 with col_i4:
-    render_stat_card("Study Time Today", f"{counts.get('study_hours_today', 0.0)} hrs", "Pomodoro Sessions", "⏱️", "#16a34a", "#dcfce7")
+    render_stat_card("Study Time Today", f"{counts.get('study_hours_today', 0.0)} hrs", "Pomodoro Sessions", "clock", "#16A34A", "#F0FDF4")
 
 st.divider()
 
 ai_col, ach_col = st.columns([2, 1])
 with ai_col:
-    section_title("AI Study Recommendations", "✨")
+    section_title("AI Study Recommendations", "zap")
     from services.recommendation_engine import RecommendationEngine
     recs = RecommendationEngine.generate_recommendations(user_id)
     if not recs:
         st.info("No study recommendations generated yet. Try taking some quizzes or reviewing flashcards.")
     else:
         for r in recs:
-            priority_color = {"High": "🔴", "Medium": "🟡", "Low": "🟢"}.get(r.get("priority"), "⚪")
-            st.info(f"**{priority_color} {r.get('recommendation')}**\n\n*Reason:* {r.get('reason')}  \n*Priority:* {r.get('priority')} | *Confidence:* {int((r.get('confidence') or 0.85) * 100)}%")
+            priority = r.get("priority", "Low")
+            priority_label = {"High": "High Priority", "Medium": "Medium Priority", "Low": "Low Priority"}.get(priority, priority)
+            st.info(f"**{priority_label}** — {r.get('recommendation')}  \n*{r.get('reason')}*  \nConfidence: {int((r.get('confidence') or 0.85) * 100)}%")
 
 with ach_col:
-    section_title("Unlocked Badges", "🏆")
+    section_title("Unlocked Badges", "award")
     unlocked = counts.get("achievements", [])
     if not unlocked:
         st.info("No achievements unlocked yet. Keep studying to unlock milestone awards!")
     else:
         for ach in unlocked:
-            badge_icon = {
-                "7-Day Streak": "🔥",
-                "100 Flashcards": "🧠",
-                "50 Quizzes": "🎯",
-                "10 Hours Studied": "⏱️",
-                "Perfect Quiz": "💯",
-                "Early Bird": "🌅",
-                "Night Owl": "🦉"
-            }.get(ach, "🏅")
-            st.success(f"{badge_icon} **{ach}**")
+            st.success(f"**{ach}**")
 
 st.divider()
 
 if subject_document_counts:
-    section_title("Study Progress", "\U0001f4c8")
+    section_title("Study Progress", "bar-chart-2")
     max_documents = max(int(row["document_count"] or 0) for row in subject_document_counts) or 1
     progress_rows = []
     for row in subject_document_counts[:6]:
@@ -123,7 +116,6 @@ if subject_document_counts:
                 "count": f"{document_count} material(s)",
                 "value": max(7, int((document_count / max_documents) * 100)) if document_count else 4,
                 "accent": visual["accent"],
-                "accent_2": "#2f7df6",
             }
         )
     render_progress_panel("Documents per subject", progress_rows)
@@ -131,14 +123,14 @@ if subject_document_counts:
 left, right = st.columns([1, 2])
 
 with left:
-    section_title("Create Subject", "\u2728")
+    section_title("Create Subject", "plus")
     with st.form("create_subject_form", clear_on_submit=True):
         name = st.text_input("Subject name", placeholder="Example: Biology")
         description = st.text_area(
             "Description",
             placeholder="Optional notes about this subject",
         )
-        submitted = st.form_submit_button("Create Subject", use_container_width=True)
+        submitted = st.form_submit_button("Create Subject", use_container_width=True, type="primary")
 
     if submitted:
         clean_name, name_error = validate_subject_name(name)
@@ -151,14 +143,14 @@ with left:
             st.error("A subject with this name already exists.")
 
 with right:
-    section_title("Your Subjects", "\U0001f4da")
+    section_title("Your Subjects", "book")
     subjects = get_subjects(user_id=user_id)
 
     if not subjects:
         render_empty_state(
             "No subjects yet.",
             "Create your first subject to begin your learning journey.",
-            "\U0001f5c2\ufe0f",
+            "book",
         )
         render_tip("<strong>Tip:</strong> Organize your subjects to make studying smarter and more effective.")
     else:
@@ -177,16 +169,20 @@ with right:
                     )
                     visual = subject_visual(subject["name"])
                     description = subject["description"] or "No description added yet."
+                    book_svg = _icon("book", size=16, color=visual["accent"])
+                    file_svg = _icon("file-text", size=12, color=visual["accent"])
                     st.markdown(
-                        f'<div class="subject-mini-row" style="--accent:{visual["accent"]}; --soft:{visual["soft"]};">'
-                        f'<div class="subject-mini-icon">{visual["icon"]}</div>'
-                        '<div>'
-                        f'<div class="subject-mini-title">{html.escape(subject["name"])}</div>'
-                        f'<div class="subject-mini-desc">{html.escape(description)}</div>'
-                        '<div class="subject-mini-meta">'
-                        f'<span class="mini-pill" style="--accent:{visual["accent"]}; --soft:{visual["soft"]};">{document_count} document(s)</span>'
-                        f'<span class="mini-pill" style="--accent:{visual["accent"]}; --soft:{visual["soft"]};">Created {html.escape(str(subject["created_at"])[:10])}</span>'
-                        '</div></div></div>',
+                        f'<div style="display:flex;align-items:center;gap:10px;padding:4px 0;">'
+                        f'<div style="width:36px;height:36px;border-radius:8px;background:{visual["bg"]};display:flex;align-items:center;justify-content:center;flex-shrink:0;">{book_svg}</div>'
+                        f'<div style="min-width:0;">'
+                        f'<div style="font-size:0.9375rem;font-weight:600;color:#111827;">{html.escape(subject["name"])}</div>'
+                        f'<div style="font-size:0.8125rem;color:#6B7280;">{html.escape(description[:80])}</div>'
+                        f'<div style="margin-top:4px;">'
+                        f'<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:9999px;background:{visual["bg"]};color:{visual["accent"]};font-size:0.75rem;font-weight:500;">'
+                        f'{file_svg} {document_count} doc(s)</span>'
+                        f'<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:9999px;background:#F9FAFB;color:#6B7280;font-size:0.75rem;font-weight:500;margin-left:6px;">'
+                        f'{html.escape(str(subject["created_at"])[:10])}</span>'
+                        f'</div></div></div>',
                         unsafe_allow_html=True,
                     )
 

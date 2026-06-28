@@ -2,7 +2,7 @@ import streamlit as st
 
 from modules.auth import require_login
 from modules.database import get_branding_settings, init_db
-from modules.ui import apply_theme, page_header, sidebar_nav
+from modules.ui import apply_theme, page_header, sidebar_nav, render_feature_card
 
 
 st.set_page_config(
@@ -26,39 +26,30 @@ page_header(
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.markdown(
-        """
-        <div class="soft-card">
-            <span class="status-pill">Step 1</span>
-            <h3>Create subjects</h3>
-            <p class="muted">Organize your study material before uploading notes.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    render_feature_card(
+        "Create Subjects",
+        "Organize your study material before uploading notes.",
+        icon_name="book",
+        accent="#14B8A6",
+        accent_bg="#F0FDFA",
     )
 
 with col2:
-    st.markdown(
-        """
-        <div class="soft-card">
-            <span class="status-pill">Step 2</span>
-            <h3>Upload notes</h3>
-            <p class="muted">Extract PDF text and store searchable chunks locally.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    render_feature_card(
+        "Upload Notes",
+        "Extract PDF text and store searchable chunks in the cloud.",
+        icon_name="upload-cloud",
+        accent="#3B82F6",
+        accent_bg="#EFF6FF",
     )
 
 with col3:
-    st.markdown(
-        """
-        <div class="soft-card">
-            <span class="status-pill">Step 3</span>
-            <h3>Study smarter</h3>
-            <p class="muted">Chat, quiz yourself, review flashcards, and plan revision.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    render_feature_card(
+        "Study Smarter",
+        "Chat, quiz yourself, review flashcards, and plan revision.",
+        icon_name="brain",
+        accent="#8B5CF6",
+        accent_bg="#F5F3FF",
     )
 
 st.info(
