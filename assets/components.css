@@ -13,15 +13,22 @@
 }
 
 .sm-brand-logo {
-    width: 36px;
-    height: 36px;
-    background: var(--color-primary);
-    border-radius: 9px;
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, #14B8A6 0%, #0D9488 50%, #2563EB 100%);
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(20,184,166,0.3);
+    box-shadow: 0 4px 12px rgba(20,184,166,0.25);
+    border: 1px solid rgba(255,255,255,0.15);
+    transition: transform var(--transition-base), box-shadow var(--transition-base);
+}
+
+.sm-brand-logo:hover {
+    transform: rotate(6deg) scale(1.08);
+    box-shadow: 0 6px 16px rgba(20,184,166,0.4);
 }
 
 .sm-brand-name {

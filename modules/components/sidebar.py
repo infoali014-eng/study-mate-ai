@@ -26,6 +26,23 @@ ADMIN_NAV_ITEMS = [
     ("Users",            "pages/13_Admin_User_Management.py",    "users"),
 ]
 
+# Map Lucide icon names to standard Google Material Symbols used by st.page_link natively
+MATERIAL_ICON_MAP = {
+    "home": "home",
+    "library": "library_books",
+    "upload-cloud": "cloud_upload",
+    "message-circle": "forum",
+    "users": "group",
+    "help-circle": "quiz",
+    "layers": "layers",
+    "calendar": "calendar_today",
+    "timer": "alarm",
+    "settings": "settings",
+    "info": "info",
+    "shield": "shield",
+    "star": "star",
+}
+
 
 def _page_url_from_path(page_path: str) -> str:
     """Build Streamlit's page URL from a pages/*.py path."""
@@ -50,7 +67,8 @@ def sidebar_nav():
     subtitle = _html.escape(branding.get("app_subtitle", "AI Study Assistant"))
 
     # ── Brand Logo ────────────────────────────────────────────────────────────
-    cap_icon = icon("graduation-cap", size=18, color="#FFFFFF")
+    # Creative logo container with animated gradient, shadow, and scale transition
+    cap_icon = icon("graduation-cap", size=20, color="#FFFFFF")
     st.sidebar.markdown(
         f"""
         <div class="sm-brand">
@@ -67,8 +85,9 @@ def sidebar_nav():
     # ── Navigation Links ──────────────────────────────────────────────────────
     for label, page, icon_name in NAV_ITEMS:
         nav_icon = icon(icon_name, size=18, color="currentColor")
+        material_icon = f":material/{MATERIAL_ICON_MAP.get(icon_name, 'file_text')}:"
         try:
-            st.sidebar.page_link(page, label=f"   {label}")
+            st.sidebar.page_link(page, label=f" {label}", icon=material_icon)
         except Exception:
             url = _page_url_from_path(page)
             st.sidebar.markdown(
@@ -88,8 +107,9 @@ def sidebar_nav():
         )
         for label, page, icon_name in ADMIN_NAV_ITEMS:
             nav_icon = icon(icon_name, size=18, color="currentColor")
+            material_icon = f":material/{MATERIAL_ICON_MAP.get(icon_name, 'file_text')}:"
             try:
-                st.sidebar.page_link(page, label=f"   {label}")
+                st.sidebar.page_link(page, label=f" {label}", icon=material_icon)
             except Exception:
                 url = _page_url_from_path(page)
                 st.sidebar.markdown(
@@ -104,11 +124,6 @@ def sidebar_nav():
     st.sidebar.markdown('<hr style="margin:12px 0;">', unsafe_allow_html=True)
 
     # ── Profile Card ──────────────────────────────────────────────────────────
-    role_badge = (
-        f'<span class="sm-pill sm-pill-info" style="font-size:0.6875rem;">Admin</span>'
-        if user_role == "admin"
-        else f'<span class="sm-pill sm-pill-teal" style="font-size:0.6875rem;">Student</span>'
-    )
     st.sidebar.markdown(
         f"""
         <div class="sm-profile">
@@ -124,7 +139,6 @@ def sidebar_nav():
 
     # ── Logout ────────────────────────────────────────────────────────────────
     if st.session_state.get("user_id"):
-        logout_icon = icon("log-out", size=16, color="#6B7280")
         if st.sidebar.button("Sign Out", use_container_width=True, key="sidebar_logout_btn"):
             from modules.auth import logout
             logout()
