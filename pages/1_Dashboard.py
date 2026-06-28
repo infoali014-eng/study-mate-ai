@@ -3,10 +3,12 @@ import html
 import streamlit as st
 
 from modules.auth import get_current_user_display_name, require_login
-from modules.database import (
-    get_dashboard_counts,
-    init_db,
-)
+from modules.database import init_db
+
+# Redefine dashboard counts for Supabase (Phase 4D)
+def get_dashboard_counts(user_id):
+    from modules.analytics_repository import AnalyticsRepository
+    return AnalyticsRepository.get_dashboard_statistics(user_id)
 from modules.library_repository import (
     create_subject,
     delete_subject,
@@ -51,15 +53,62 @@ if st.session_state.dashboard_success:
 
 counts = get_dashboard_counts(user_id=user_id)
 subject_document_counts = get_subject_document_counts(user_id=user_id)
+
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    render_stat_card("Subjects", counts["subjects"], "Start your first subject", "\U0001f4da", "#14b8b4", "#d8fff6")
+    render_stat_card("Subjects", counts["subjects"], "Start your first subject", "📚", "#14b8b4", "#d8fff6")
 with col2:
-    render_stat_card("PDFs", counts["documents"], "Upload your notes", "\U0001f4c4", "#ff637d", "#ffe3e9")
+    render_stat_card("PDFs", counts["documents"], "Upload your notes", "📄", "#ff637d", "#ffe3e9")
 with col3:
-    render_stat_card("Flashcards", counts["flashcards"], "Create memory cards", "\U0001f0cf", "#ffb703", "#fff3c4")
+    render_stat_card("Flashcards", counts["flashcards"], "Create memory cards", "🃏", "#ffb703", "#fff3c4")
 with col4:
-    render_stat_card("Quiz Attempts", counts["quizzes"], "Test your knowledge", "\u2754", "#8b5cf6", "#efe7ff")
+    render_stat_card("Quiz Attempts", counts["quizzes"], "Test your knowledge", "❓", "#8b5cf6", "#efe7ff")
+
+st.divider()
+
+col_i1, col_i2, col_i3, col_i4 = st.columns(4)
+with col_i1:
+    render_stat_card("Study Streak", f"{counts.get('current_streak', 0)} days", f"Longest: {counts.get('longest_streak', 0)} days", "🔥", "#ea580c", "#ffedd5")
+with col_i2:
+    render_stat_card("Quiz Accuracy", f"{counts.get('overall_accuracy', 0.0)}%", f"Level: {counts.get('study_level', 'Beginner')}", "🎯", "#2563eb", "#dbeafe")
+with col_i3:
+    render_stat_card("Retention Score", f"{counts.get('retention_score', 0.0)}%", f"Strongest: {counts.get('strongest_subject', 'None')}", "🧠", "#9333ea", "#f3e8ff")
+with col_i4:
+    render_stat_card("Study Time Today", f"{counts.get('study_hours_today', 0.0)} hrs", "Pomodoro Sessions", "⏱️", "#16a34a", "#dcfce7")
+
+st.divider()
+
+ai_col, ach_col = st.columns([2, 1])
+with ai_col:
+    section_title("AI Study Recommendations", "✨")
+    from services.recommendation_engine import RecommendationEngine
+    recs = RecommendationEngine.generate_recommendations(user_id)
+    if not recs:
+        st.info("No study recommendations generated yet. Try taking some quizzes or reviewing flashcards.")
+    else:
+        for r in recs:
+            priority_color = {"High": "🔴", "Medium": "🟡", "Low": "🟢"}.get(r.get("priority"), "⚪")
+            st.info(f"**{priority_color} {r.get('recommendation')}**\n\n*Reason:* {r.get('reason')}  \n*Priority:* {r.get('priority')} | *Confidence:* {int((r.get('confidence') or 0.85) * 100)}%")
+
+with ach_col:
+    section_title("Unlocked Badges", "🏆")
+    unlocked = counts.get("achievements", [])
+    if not unlocked:
+        st.info("No achievements unlocked yet. Keep studying to unlock milestone awards!")
+    else:
+        for ach in unlocked:
+            badge_icon = {
+                "7-Day Streak": "🔥",
+                "100 Flashcards": "🧠",
+                "50 Quizzes": "🎯",
+                "10 Hours Studied": "⏱️",
+                "Perfect Quiz": "💯",
+                "Early Bird": "🌅",
+                "Night Owl": "🦉"
+            }.get(ach, "🏅")
+            st.success(f"{badge_icon} **{ach}**")
+
+st.divider()
 
 if subject_document_counts:
     section_title("Study Progress", "\U0001f4c8")

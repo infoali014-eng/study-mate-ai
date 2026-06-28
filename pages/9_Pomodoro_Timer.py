@@ -4,8 +4,64 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from modules.auth import require_login
-from modules.database import get_study_sessions, init_db, save_study_session
+from modules.database import init_db
 from modules.library_repository import get_subjects
+
+# Redefine study session functions for Supabase (Phase 4D)
+def save_study_session(user_id, subject_id=None, duration_minutes=25, session_type="Focus", notes=""):
+    from modules.supabase_client import get_supabase_admin_client
+    from datetime import datetime
+    from services.event_dispatcher import dispatch_event
+    client = get_supabase_admin_client()
+    if not client:
+        return None
+    try:
+        data = {
+            "owner_id": user_id,
+            "subject_id": subject_id,
+            "duration_minutes": int(duration_minutes),
+            "session_type": session_type,
+            "notes": notes.strip() if notes else "",
+            "completed_at": datetime.utcnow().isoformat()
+        }
+        resp = client.table("study_sessions").insert(data).execute()
+        if resp.data:
+            session_uuid = resp.data[0]["id"]
+            # Dispatch event
+            dispatch_event("POMODORO_COMPLETED", user_id, {
+                "session_id": session_uuid,
+                "subject_id": subject_id,
+                "duration_minutes": duration_minutes,
+                "session_type": session_type
+            })
+            return session_uuid
+        return None
+    except Exception as e:
+        print(f"Error saving study session: {e}")
+        return None
+
+def get_study_sessions(user_id, limit=20):
+    from modules.supabase_client import get_supabase_admin_client
+    client = get_supabase_admin_client()
+    if not client:
+        return []
+    try:
+        resp = client.table("study_sessions") \
+            .select("*, subjects(name)") \
+            .eq("owner_id", user_id) \
+            .order("completed_at", desc=True) \
+            .limit(limit) \
+            .execute()
+        
+        results = []
+        for r in (resp.data or []):
+            subject_info = r.get("subjects")
+            r["subject_name"] = subject_info.get("name") if subject_info else "No Subject"
+            results.append(r)
+        return results
+    except Exception as e:
+        print(f"Error fetching study sessions: {e}")
+        return []
 from modules.ui import (
     apply_theme,
     page_header,

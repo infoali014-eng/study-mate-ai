@@ -4,12 +4,47 @@ import streamlit as st
 
 from modules import ai_engine
 from modules.auth import require_login
-from modules.database import (
-    get_revision_plans,
-    get_weak_topics,
-    init_db,
-    save_revision_plan,
-)
+from modules.database import init_db
+
+# Redefine planner functions to delegate directly to Supabase repository (Phase 4D)
+def get_revision_plans(subject_id=None, user_id=None):
+    from modules.planner_repository import PlannerRepository
+    return PlannerRepository.get_revision_plans(user_id, subject_id)
+
+def get_weak_topics(subject_id=None, user_id=None):
+    from modules.supabase_client import get_supabase_admin_client
+    client = get_supabase_admin_client()
+    if not client:
+        return []
+    try:
+        q = client.table("weak_topics").select("*, subjects(name)").eq("owner_id", user_id)
+        if subject_id:
+            q = q.eq("subject_id", subject_id)
+        resp = q.order("weakness_score", desc=True).execute()
+        
+        results = []
+        for r in (resp.data or []):
+            sub_info = r.get("subjects")
+            r["subject_name"] = sub_info.get("name") if sub_info else "No Subject"
+            results.append(r)
+        return results
+    except Exception as e:
+        print(f"Error fetching weak topics: {e}")
+        return []
+
+def save_revision_plan(subject_id, exam_date, preparation_level, confidence_level, weak_topics, plan_text, user_id=None):
+    from modules.planner_repository import PlannerRepository
+    wt_str = ", ".join(weak_topics) if isinstance(weak_topics, list) else str(weak_topics)
+    return PlannerRepository.create_revision_plan(
+        owner_id=user_id,
+        subject_id=subject_id,
+        exam_date=exam_date,
+        preparation_level=preparation_level,
+        confidence_level=confidence_level,
+        weak_topics=wt_str,
+        plan_text=plan_text,
+        title=f"Revision for Exam on {exam_date}"
+    )
 from modules.library_repository import (
     get_subjects,
 )

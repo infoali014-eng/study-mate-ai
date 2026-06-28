@@ -2,12 +2,66 @@ import streamlit as st
 
 from modules import ai_engine
 from modules.auth import require_login
-from modules.database import (
-    get_quiz_results,
-    init_db,
-    save_quiz_result,
-    update_weak_topic,
-)
+from modules.database import init_db
+
+# Redefine quiz functions to delegate directly to Supabase repository (Phase 4D)
+def get_quiz_results(subject_id, user_id, limit=25):
+    from modules.quiz_repository import QuizRepository
+    return QuizRepository.get_quiz_history(user_id, subject_id, limit)
+
+def save_quiz_result(subject_id, score, total_questions, topic, user_id):
+    from modules.quiz_repository import QuizRepository
+    return QuizRepository.save_attempt(user_id, subject_id, score, total_questions, topic=topic, quiz_type="MCQ", difficulty="Medium")
+
+def update_weak_topic(subject_id, topic, weakness_score=1, notes="", user_id=None):
+    from modules.supabase_client import get_supabase_admin_client
+    from datetime import datetime
+    client = get_supabase_admin_client()
+    if not client:
+        return
+    try:
+        clean_topic = topic.strip()
+        existing = client.table("weak_topics").select("*").eq("owner_id", user_id).eq("subject_id", subject_id).eq("topic", clean_topic).execute()
+        if existing.data:
+            row = existing.data[0]
+            attempts = int(row.get("attempts", 0)) + 1
+            incorrect = int(row.get("incorrect", 0)) + (1 if weakness_score > 0 else 0)
+            correct = int(row.get("correct", 0)) + (0 if weakness_score > 0 else 1)
+            new_score = int(row.get("weakness_score", 0)) + weakness_score
+            
+            old_score = int(row.get("weakness_score", 0))
+            trend = "Stable"
+            if new_score < old_score:
+                trend = "Improving"
+            elif new_score > old_score:
+                trend = "Declining"
+                
+            client.table("weak_topics").update({
+                "weakness_score": max(0, new_score),
+                "attempts": attempts,
+                "correct": correct,
+                "incorrect": incorrect,
+                "trend": trend,
+                "notes": notes.strip(),
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("id", row["id"]).execute()
+        else:
+            client.table("weak_topics").insert({
+                "owner_id": user_id,
+                "subject_id": subject_id,
+                "topic": clean_topic,
+                "weakness_score": max(0, weakness_score),
+                "attempts": 1,
+                "correct": 0 if weakness_score > 0 else 1,
+                "incorrect": 1 if weakness_score > 0 else 0,
+                "trend": "Stable",
+                "source": "Quiz Mode",
+                "notes": notes.strip(),
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat()
+            }).execute()
+    except Exception as e:
+        print(f"Error updating weak topic: {e}")
 from modules.library_repository import (
     get_subjects,
 )

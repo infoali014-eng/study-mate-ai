@@ -365,13 +365,14 @@ def get_documents(subject_id: Any = None, user_id: Any = None) -> List[Dict[str,
         
     try:
         # 1. Query Supabase study_library
-        query = client.table("study_library").select("*, subjects(subject_name)").eq("owner_id", str(user_id))
+        # 1. Query Supabase study_library joining uploaded_files
+        query = client.table("study_library").select("*, subjects(subject_name), uploaded_files(*)").eq("owner_id", str(user_id))
         if subject_id:
             query = query.eq("subject_id", str(subject_id))
             
         response = query.order("created_at", desc=True).execute()
         
-        # 2. Query SQLite file paths in bulk
+        # 2. Query SQLite file paths in bulk for Phase 4A backward compatibility
         sqlite_files = {}
         try:
             with closing(get_connection()) as conn:
@@ -387,20 +388,23 @@ def get_documents(subject_id: Any = None, user_id: Any = None) -> List[Dict[str,
         if response.data:
             for item in response.data:
                 item_id = item["id"]
-                file_info = sqlite_files.get(item_id, {})
+                file_info = item.get("uploaded_files") or {}
+                if not file_info:
+                    file_info = sqlite_files.get(item_id, {})
                 
-                # Merge Supabase records with local SQLite file references
                 documents.append({
                     "id": item_id,
                     "user_id": item["owner_id"],
                     "subject_id": item["subject_id"],
                     "subject_name": item["subjects"]["subject_name"] if item.get("subjects") else "General",
                     "file_name": item["title"],
-                    "file_path": file_info.get("file_path", ""),
+                    "file_path": file_info.get("storage_path") or file_info.get("file_path", ""),
                     "file_type": file_info.get("file_type", "PDF"),
                     "extracted_text_path": file_info.get("extracted_text_path", ""),
                     "chunk_count": file_info.get("chunk_count", 0),
                     "page_count": file_info.get("page_count", 0),
+                    "extraction_status": file_info.get("processing_status", "READY"),
+                    "extraction_method": file_info.get("embedding_model") or file_info.get("extraction_method", ""),
                     "description": item["description"],
                     "uploaded_at": item["created_at"],
                     "is_deleted": 0
@@ -435,21 +439,23 @@ def get_document_by_id(document_id: Any, user_id: Any = None) -> Optional[Dict[s
         return _sqlite_get_document_by_id(document_id, user_id)
         
     try:
-        response = client.table("study_library").select("*, subjects(subject_name)").eq("id", str(document_id)).eq("owner_id", str(user_id)).execute()
+        response = client.table("study_library").select("*, subjects(subject_name), uploaded_files(*)").eq("id", str(document_id)).eq("owner_id", str(user_id)).execute()
         if response.data:
             item = response.data[0]
-            # Look up SQLite details
-            file_info = {}
-            try:
-                with closing(get_connection()) as conn:
-                    row = conn.execute(
-                        "SELECT * FROM uploaded_documents WHERE supabase_id = ? OR id = ?",
-                        (str(document_id), str(document_id))
-                    ).fetchone()
-                    if row:
-                        file_info = dict(row)
-            except Exception:
-                pass
+            file_info = item.get("uploaded_files") or {}
+            
+            if not file_info:
+                # Look up SQLite details
+                try:
+                    with closing(get_connection()) as conn:
+                        row = conn.execute(
+                            "SELECT * FROM uploaded_documents WHERE supabase_id = ? OR id = ?",
+                            (str(document_id), str(document_id))
+                        ).fetchone()
+                        if row:
+                            file_info = dict(row)
+                except Exception:
+                    pass
                 
             return {
                 "id": item["id"],
@@ -457,11 +463,13 @@ def get_document_by_id(document_id: Any, user_id: Any = None) -> Optional[Dict[s
                 "subject_id": item["subject_id"],
                 "subject_name": item["subjects"]["subject_name"] if item.get("subjects") else "General",
                 "file_name": item["title"],
-                "file_path": file_info.get("file_path", ""),
+                "file_path": file_info.get("storage_path") or file_info.get("file_path", ""),
                 "file_type": file_info.get("file_type", "PDF"),
                 "extracted_text_path": file_info.get("extracted_text_path", ""),
                 "chunk_count": file_info.get("chunk_count", 0),
                 "page_count": file_info.get("page_count", 0),
+                "extraction_status": file_info.get("processing_status", "READY"),
+                "extraction_method": file_info.get("embedding_model") or file_info.get("extraction_method", ""),
                 "description": item["description"],
                 "uploaded_at": item["created_at"],
                 "is_deleted": 0

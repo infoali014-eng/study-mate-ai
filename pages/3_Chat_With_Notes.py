@@ -23,18 +23,73 @@ from modules.audio_processor import (
 )
 from modules.database import (
     attach_chat_attachments_to_message,
-    create_chat_session,
-    delete_chat_session,
     get_chat_attachments,
-    get_chat_session,
-    get_chat_messages,
-    get_chat_sessions,
     init_db,
     save_chat_attachment,
-    save_chat_message,
     update_chat_session_context,
-    update_chat_session_title,
 )
+
+# Redefine chat session functions to delegate directly to the Supabase Chat Repository (Phase 4C)
+def get_chat_sessions(user_id, limit=50, search=""):
+    from modules.chat_repository import search_chats, get_recent_chats
+    if search and search.strip():
+        return search_chats(user_id, search)
+    return get_recent_chats(user_id, limit)
+
+def get_chat_messages(user_id, session_id):
+    from modules.chat_repository import get_chat_messages
+    return get_chat_messages(user_id, session_id, limit=100)
+
+def get_chat_session(user_id, session_id):
+    from modules.chat_repository import get_chat
+    return get_chat(user_id, session_id)
+
+def create_chat_session(user_id, title="New Chat", mode="General Chat", subject_id=None, document_ids=None, context_label=None):
+    from modules.chat_repository import create_chat
+    return create_chat(user_id, title, mode, subject_id, document_ids, context_label)
+
+def save_chat_message(user_id, session_id, role, content, metadata=None, context_json=None, sources_json=None, warning="", source_count=0, suggestions_json=None):
+    from modules.chat_repository import save_message
+    import json
+    c_dict = json.loads(context_json) if isinstance(context_json, str) else context_json
+    s_list = json.loads(sources_json) if isinstance(sources_json, str) else sources_json
+    sug_list = json.loads(suggestions_json) if isinstance(suggestions_json, str) else suggestions_json
+    
+    model = metadata.get("model") if metadata else None
+    token_count = metadata.get("token_count", 0) if metadata else 0
+    est_cost = metadata.get("estimated_cost", 0.0) if metadata else 0.0
+    resp_time = metadata.get("response_time") if metadata else None
+    resp_meta = metadata.get("response_metadata", {}) if metadata else {}
+    
+    return save_message(
+        owner_id=user_id,
+        chat_id=session_id,
+        role=role,
+        content=content,
+        context_json=c_dict,
+        metadata_json=metadata,
+        sources_json=s_list,
+        warning=warning,
+        source_count=source_count,
+        suggestions_json=sug_list,
+        model_used=model,
+        response_time=resp_time,
+        token_count=token_count,
+        estimated_cost=est_cost,
+        response_metadata=resp_meta
+    )
+
+def delete_chat_session(user_id, session_id):
+    from modules.chat_repository import delete_chat
+    return delete_chat(user_id, session_id, soft=True)
+
+def update_chat_session_title(user_id, session_id, new_title):
+    from modules.chat_repository import rename_chat
+    return rename_chat(user_id, session_id, new_title)
+
+def toggle_chat_session_pin(user_id, session_id, pinned):
+    from modules.chat_repository import pin_chat
+    return pin_chat(user_id, session_id, pinned)
 from modules.library_repository import (
     get_documents_by_subject,
     get_subjects,
@@ -740,6 +795,10 @@ def add_chat_pair(question, answer_data, context, attachments=None):
             "context": context,
             "suggestions": answer_data.get("suggestions", []),
             "math_visualizations": answer_data.get("math_visualizations", []),
+            "token_count": answer_data.get("token_count", 0),
+            "estimated_cost": answer_data.get("estimated_cost", 0.0),
+            "response_time": answer_data.get("response_time"),
+            "response_metadata": answer_data.get("response_metadata", {}),
             "created_at": _message_timestamp(),
         }
     messages.append(user_message)
@@ -770,6 +829,10 @@ def add_assistant_message(answer_data, context):
             "context": context,
             "suggestions": answer_data.get("suggestions", []),
             "math_visualizations": answer_data.get("math_visualizations", []),
+            "token_count": answer_data.get("token_count", 0),
+            "estimated_cost": answer_data.get("estimated_cost", 0.0),
+            "response_time": answer_data.get("response_time"),
+            "response_metadata": answer_data.get("response_metadata", {}),
             "created_at": _message_timestamp(),
         }
     _chat_messages().append(assistant_message)
@@ -958,7 +1021,6 @@ def render_chat_history_panel():
                 with action_container:
                     pin_action_lbl = "Unpin Chat 📌" if is_pinned else "Pin Chat"
                     if st.button(pin_action_lbl, key=f"pin_chat_{session['id']}", use_container_width=True):
-                        from modules.database import toggle_chat_session_pin
                         if toggle_chat_session_pin(user_id, session["id"], not is_pinned):
                             st.success("Pin status updated.")
                             st.rerun()
@@ -1351,6 +1413,7 @@ def generate_chat_answer(question, answer_style, chat_mode, context, attachment_
             user_memory=_memory_profile_text(),
             attachment_context=attachment_context,
             image_paths=image_paths,
+            session_id=_active_chat_session_id(),
         )
 
     if chat_mode != "General Chat" and context["subject_id"] is not None:

@@ -1338,36 +1338,59 @@ def generate_study_chat_response(
     attachment_context="",
     image_paths=None,
     provider=None,
+    session_id=None
 ):
-    """Generate a chatbot answer with optional RAG context and sources."""
+    """Generate a chatbot answer with ranked RAG context, AI memories, and latency/cost tracking."""
+    import time
+    from services.context_builder import build_context
+    from modules.chat_repository import get_chat
+
+    t_start = time.time()
     sources = []
     warning = ""
 
-    should_retrieve = chat_mode != "General Chat" and subject_id is not None
-    if should_retrieve:
-        try:
-            sources = query_subject_notes(
-                subject_id=subject_id,
-                question=question,
-                limit=limit,
-                document_ids=document_ids,
-                user_id=user_id,
-            )
-            sources = _filter_relevant_sources(question, sources)
-        except VectorStoreError as exc:
-            warning = str(exc)
+    # 1. Fetch chat summary if available
+    summary = None
+    if session_id and user_id:
+        chat_obj = get_chat(user_id, session_id)
+        if chat_obj:
+            summary = chat_obj.get("conversation_summary")
 
-    notes_context = "\n\n".join(
-        f"Source {index}: {source['text']}"
-        for index, source in enumerate(sources, start=1)
+    # 2. Build context using dedicated service
+    # If chat_history is passed as a formatted string, we pass it. If list, we also pass it.
+    # st.session_state might hold the raw message list, we can pass it if available.
+    raw_history = []
+    try:
+        import streamlit as st
+        # Resolve raw history list of dicts from Streamlit session state
+        chat_messages_key = f"study_chat_messages_user_{user_id}"
+        raw_history = st.session_state.get(chat_messages_key, [])
+    except Exception:
+        pass
+
+    ctx = build_context(
+        question=question,
+        user_id=user_id,
+        subject_id=subject_id,
+        document_ids=document_ids,
+        chat_history=raw_history if raw_history else [],
+        chat_summary=summary,
+        general_chat=chat_mode == "General Chat",
+        limit_notes=limit
     )
 
-    if should_retrieve and not sources and not warning:
+    sources = ctx["sources"]
+    notes_context = ctx["notes_context"]
+    user_memory_formatted = ctx["user_memory"]
+    formatted_chat_history = ctx["chat_history"]
+
+    if chat_mode != "General Chat" and not sources:
         warning = (
             "I could not find this directly in your uploaded notes, "
             "so I'm answering from general knowledge."
         )
 
+    # 3. Assemble prompt block
     prompt = build_study_chat_prompt(
         question=question,
         answer_style=answer_style,
@@ -1375,13 +1398,16 @@ def generate_study_chat_response(
         attachment_context=attachment_context,
         context_label=context_label,
         general_chat=chat_mode == "General Chat",
-        chat_history=chat_history,
-        user_memory=user_memory or format_user_memory_profile(user_id),
+        chat_history=formatted_chat_history,
+        user_memory=user_memory_formatted,
         user_id=user_id,
     )
 
     attachment_has_text = _attachment_context_has_text(attachment_context)
+    active_provider = provider or get_selected_provider()
+    active_model = normalize_gemini_model(None) if is_gemini_provider(active_provider) else "gpt-4o-mini"
 
+    # 4. Invoke LLM and track latency
     try:
         if attachment_context and not attachment_has_text and not image_paths:
             answer = _provider_cannot_read_attachment_response()
@@ -1399,6 +1425,13 @@ def generate_study_chat_response(
     except Exception as exc:
         answer = safe_ai_error_message(exc)
 
+    latency = round(time.time() - t_start, 3)
+
+    # 5. Token count & cost estimation
+    token_count = (len(prompt) + len(answer)) // 4
+    estimated_cost = round(token_count * 0.000002, 6) # approx $2 per million tokens
+
+    # 6. Parse math visualizations
     from modules.math_visualizer import generate_math_visualization, parse_and_build_math_graphs
     clean_answer, math_visualizations = parse_and_build_math_graphs(answer)
     if not math_visualizations:
@@ -1407,10 +1440,23 @@ def generate_study_chat_response(
             math_visualizations = [fallback_visualization]
     answer = clean_answer
 
+    # 7. Build rich response metadata
+    response_metadata = {
+        "provider": active_provider,
+        "model": active_model,
+        "latency": latency,
+        "prompt_version": "1.0",
+        "retrieved_sources": [s["metadata"].get("document_id") for s in sources if s.get("metadata")]
+    }
+
     return {
         "answer": answer,
         "sources": sources,
         "warning": warning,
         "source_count": len(sources),
         "math_visualizations": math_visualizations,
+        "token_count": token_count,
+        "estimated_cost": estimated_cost,
+        "response_time": latency,
+        "response_metadata": response_metadata
     }

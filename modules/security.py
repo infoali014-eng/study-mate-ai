@@ -33,11 +33,14 @@ def clean_text(value, max_length=200):
 
 def validate_full_name(name):
     """Return a cleaned full name or a friendly validation error."""
-    cleaned = clean_text(name, max_length=80)
+    if len((name or "").strip()) > 20:
+        return "", "Name must be 20 characters or less."
+    cleaned = clean_text(name, max_length=20)
     if not cleaned:
         return "", "Please enter your full name."
-    if not re.fullmatch(r"[A-Za-z][A-Za-z .'-]{1,79}", cleaned):
-        return "", "Use letters, spaces, dots, apostrophes, or hyphens in your name."
+    # Allow alphanumeric characters, spaces, dots, underscores, apostrophes, hyphens, or parentheses (length 2-20)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 .'_()-]{1,19}", cleaned):
+        return "", "Use letters, numbers, spaces, dots, underscores, apostrophes, hyphens, or parentheses in your name."
     return cleaned, ""
 
 
