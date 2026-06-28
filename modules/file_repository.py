@@ -114,8 +114,25 @@ def upload_file(
         storage_path = f"{owner_id}/{file_name}"
         logger.info(f"Uploading file '{file_name}' to user-uploads storage bucket...")
         
-        # Determine content-type header
-        options = {"content-type": mime_type, "upsert": "true"}
+        # Normalize mime type based on file extension to avoid bucket restrictions on custom browser types
+        suffix = Path(file_name).suffix.lower()
+        normalized_mime = mime_type
+        if suffix == ".pdf":
+            normalized_mime = "application/pdf"
+        elif suffix in (".docx", ".doc"):
+            normalized_mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif suffix in (".pptx", ".ppt"):
+            normalized_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        elif suffix in (".xlsx", ".xls"):
+            normalized_mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif suffix == ".csv":
+            normalized_mime = "text/csv"
+        elif suffix == ".json":
+            normalized_mime = "application/json"
+        elif suffix in (".txt", ".md"):
+            normalized_mime = "text/plain"
+            
+        options = {"content-type": normalized_mime, "upsert": "true"}
         client.storage.from_("user-uploads").upload(
             path=storage_path,
             file=file_data,
