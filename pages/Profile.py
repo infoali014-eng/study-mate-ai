@@ -25,6 +25,14 @@ if not profile:
     st.error("Could not load your profile. Please try again.")
     st.stop()
 
+# Show database migration warning if columns are missing in Supabase schema
+if st.session_state.get("migration_missing_columns"):
+    st.warning(
+        "⚠️ **Supabase Schema Update Required:** Please execute the migration script "
+        "`migrations/010_profile_columns.sql` in your Supabase SQL editor to "
+        "enable Username, Bio, and Profile Picture features. Full Name edits remain active."
+    )
+
 # Initialize session state for edit fields to preserve them across uploads
 if "profile_full_name" not in st.session_state:
     st.session_state.profile_full_name = profile.get("full_name") or ""
@@ -42,6 +50,7 @@ left_col, right_col = st.columns([1, 3])
 
 with left_col:
     # Render large preview of current avatar
+    missing_cols = st.session_state.get("migration_missing_columns", False)
     avatar_url = st.session_state.get("profile_image_url") or profile.get("profile_image_url")
     if avatar_url:
         st.markdown(
@@ -52,7 +61,7 @@ with left_col:
             """,
             unsafe_allow_html=True,
         )
-        if st.button("Delete Picture", use_container_width=True, key="del_avatar_btn"):
+        if st.button("Delete Picture", use_container_width=True, key="del_avatar_btn", disabled=missing_cols):
             if ProfileRepository.delete_profile_picture(user_id):
                 st.success("Profile picture deleted.")
                 st.rerun()
@@ -75,7 +84,8 @@ with right_col:
     uploaded_file = st.file_uploader(
         "Upload new profile picture (PNG, JPG, JPEG, WEBP - Max 5MB)",
         type=["png", "jpg", "jpeg", "webp"],
-        help="Images will be cropped to square automatically."
+        help="Images will be cropped to square automatically.",
+        disabled=missing_cols
     )
     if uploaded_file is not None:
         file_bytes = uploaded_file.read()
@@ -109,7 +119,7 @@ with st.form("profile_form", clear_on_submit=False):
     full_name = st.text_input("Full Name *", value=st.session_state.profile_full_name)
     
     # Username input
-    username = st.text_input("Username", value=st.session_state.profile_username, placeholder="e.g. ali_shair")
+    username = st.text_input("Username", value=st.session_state.profile_username, placeholder="e.g. ali_shair", disabled=missing_cols)
     st.caption("Optional. Only letters, numbers, and underscores are allowed (3–30 characters).")
     
     # Read-only Email
@@ -130,7 +140,7 @@ with st.form("profile_form", clear_on_submit=False):
         )
         
     # Bio input
-    bio = st.text_area("Bio / About Me", value=st.session_state.profile_bio, placeholder="Write a short description about yourself...")
+    bio = st.text_area("Bio / About Me", value=st.session_state.profile_bio, placeholder="Write a short description about yourself...", disabled=missing_cols)
     
     col_submit, col_cancel = st.columns([1, 4])
     with col_submit:

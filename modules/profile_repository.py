@@ -46,9 +46,28 @@ class ProfileRepository(BaseRepository):
                 # Map full_name as name for backward compatibility
                 profile["name"] = profile["full_name"]
                 st.session_state[cache_key] = profile
+                st.session_state["migration_missing_columns"] = False
                 return profile
         except Exception as e:
-            logger.error(f"Error fetching profile for {user_id}: {e}")
+            err_msg = str(e)
+            if "42703" in err_msg or "does not exist" in err_msg:
+                logger.warning("Profile columns do not exist in users schema. Falling back to core columns.")
+                try:
+                    # Fallback to only core columns
+                    resp = client.table("users").select("id, full_name, email, email_verified").eq("id", user_id).execute()
+                    if resp.data:
+                        profile = resp.data[0]
+                        profile["name"] = profile["full_name"]
+                        profile["username"] = None
+                        profile["profile_image_url"] = None
+                        profile["bio"] = None
+                        st.session_state[cache_key] = profile
+                        st.session_state["migration_missing_columns"] = True
+                        return profile
+                except Exception as fe:
+                    logger.error(f"Fallback fetch failed: {fe}")
+            else:
+                logger.error(f"Error fetching profile for {user_id}: {e}")
         return None
 
     @classmethod
@@ -69,9 +88,10 @@ class ProfileRepository(BaseRepository):
 
             payload = {
                 "full_name": clean_name,
-                "username": clean_username,
-                "bio": clean_bio,
             }
+            if not st.session_state.get("migration_missing_columns", False):
+                payload["username"] = clean_username
+                payload["bio"] = clean_bio
 
             resp = client.table("users").update(payload).eq("id", user_id).execute()
             if resp.data:
@@ -81,8 +101,8 @@ class ProfileRepository(BaseRepository):
                 
                 # Update main session state values
                 st.session_state.user_name = clean_name
-                st.session_state.user_username = clean_username
-                st.session_state.user_bio = clean_bio
+                st.session_state.user_username = clean_username if "username" in payload else None
+                st.session_state.user_bio = clean_bio if "bio" in payload else None
                 return True
         except Exception as e:
             logger.error(f"Failed to update profile for {user_id}: {e}")
