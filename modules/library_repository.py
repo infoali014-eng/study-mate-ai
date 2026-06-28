@@ -394,6 +394,7 @@ def get_documents(subject_id: Any = None, user_id: Any = None) -> List[Dict[str,
                 
                 documents.append({
                     "id": item_id,
+                    "uploaded_file_id": item.get("uploaded_file_id"),
                     "user_id": item["owner_id"],
                     "subject_id": item["subject_id"],
                     "subject_name": item["subjects"]["subject_name"] if item.get("subjects") else "General",
@@ -459,6 +460,7 @@ def get_document_by_id(document_id: Any, user_id: Any = None) -> Optional[Dict[s
                 
             return {
                 "id": item["id"],
+                "uploaded_file_id": item.get("uploaded_file_id"),
                 "user_id": item["owner_id"],
                 "subject_id": item["subject_id"],
                 "subject_name": item["subjects"]["subject_name"] if item.get("subjects") else "General",

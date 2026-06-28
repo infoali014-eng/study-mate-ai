@@ -252,7 +252,8 @@ def render_document_details(document):
         from modules.file_repository import download_file
         
         # 1. Fetch file bytes from Supabase Storage
-        file_bytes = download_file(document["id"], user_uuid)
+        uploaded_file_id = document.get("uploaded_file_id") or document.get("id")
+        file_bytes = download_file(uploaded_file_id, user_uuid)
         
         if not file_bytes:
             st.error("Could not retrieve original file from Supabase storage.")
