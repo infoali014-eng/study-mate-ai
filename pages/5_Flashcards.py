@@ -135,7 +135,7 @@ if prefill_subject_id:
             break
 prefill_topic = st.session_state.pop("flashcard_prefill_topic", "")
 
-section_title("Flashcard Generator", "\u2728")
+section_title("Flashcard Generator", "zap")
 with st.container(border=True):
     col1, col2 = st.columns(2)
     with col1:
@@ -214,7 +214,7 @@ if generate_button:
 
 saved_cards = get_flashcards(subject_id=selected_subject["id"], user_id=user_id)
 
-section_title("Review Flashcards", "\U0001f4d8")
+section_title("Review Flashcards", "layers")
 
 if not saved_cards:
     render_empty_state(

@@ -235,7 +235,7 @@ subjects = get_subjects(user_id=user_id)
 subject_options = {"No subject": None}
 subject_options.update({subject["name"]: subject for subject in subjects})
 
-section_title("Timer", "\u23f1\ufe0f")
+section_title("Timer", "timer")
 with st.container(border=True):
     mode = st.radio("Mode", list(MODES.keys()), horizontal=True)
     if mode != st.session_state.get(_timer_key("mode")):
@@ -284,7 +284,7 @@ with st.container(border=True):
             else:
                 st.error("Could not save this study session.")
 
-section_title("Recent Sessions", "\U0001f4c8")
+section_title("Recent Sessions", "bar-chart-2")
 sessions = get_study_sessions(user_id=user_id, limit=15)
 if not sessions:
     render_empty_state(

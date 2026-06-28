@@ -27,7 +27,7 @@ page_header(
 search = st.text_input("Search users by name or email", placeholder="Search users")
 users = get_all_users_with_stats(search)
 
-section_title("Users", "\U0001f465")
+section_title("Users", "users")
 if not users:
     st.info("No users found.")
 

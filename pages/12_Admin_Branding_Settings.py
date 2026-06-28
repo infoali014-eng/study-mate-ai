@@ -25,7 +25,7 @@ page_header(
     "Admin Controls",
 )
 
-section_title("Branding", "\U0001f3a8")
+section_title("Branding", "star")
 with st.form("branding_settings_form"):
     col1, col2 = st.columns(2)
     with col1:

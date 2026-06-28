@@ -19,16 +19,16 @@ page_header(
     branding["app_subtitle"],
 )
 
-section_title("What is StudyMate AI?", "\U0001f4da")
+section_title("What is StudyMate AI?", "book")
 with st.container(border=True):
     st.write(branding["about_what"])
 
-section_title("Why I Built It", "\u2728")
+section_title("Why I Built It", "zap")
 with st.container(border=True):
     st.write(branding["about_why"])
     st.markdown(f"**Mission:** {branding['mission_statement']}")
 
-section_title("Creator", "\U0001f464")
+section_title("Creator", "user")
 with st.container(border=True):
     st.markdown(f"### {branding['creator_name']}")
     st.caption(branding["creator_role"])
@@ -40,7 +40,7 @@ with st.container(border=True):
     link_cols[2].write(f"LinkedIn: {branding['linkedin_link']}")
     link_cols[3].write(f"Instagram: {branding['instagram_link']}")
 
-section_title("Feature Highlights", "\U0001f31f")
+section_title("Feature Highlights", "star")
 features = [line.strip() for line in branding["feature_highlights"].splitlines() if line.strip()]
 cols = st.columns(3)
 for index, feature in enumerate(features):

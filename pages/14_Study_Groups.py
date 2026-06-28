@@ -23,7 +23,7 @@ apply_theme()
 sidebar_nav()
 
 page_header(
-    "👥 Study Groups",
+    "Study Groups",
     "Collaborate, share study notes, and compete with your classmates.",
     "Shared Workspace"
 )
@@ -154,13 +154,13 @@ if selected_group:
     workspace_col1, workspace_col2, workspace_col3 = st.columns([0.33, 0.38, 0.29])
     
     with workspace_col1:
-        section_title("Invite Code", "🔑")
+        section_title("Invite Code", "key")
         with st.container(border=True):
             st.write("Share this code with your classmates:")
             st.markdown(f'<div class="code-badge">{selected_group["invite_code"]}</div>', unsafe_allow_html=True)
             st.caption("Double click to copy code. Anyone with this code can join and view your shared subjects.")
             
-        section_title("Group Members", "👥")
+        section_title("Group Members", "users")
         members = get_group_members(group_id)
         with st.container(border=True):
             st.markdown(f"**Members count:** `{len(members)}`")
@@ -188,7 +188,7 @@ if selected_group:
                 st.markdown(f"{dot_html} **{html.escape(m['name'])}** {role_badge}", unsafe_allow_html=True)
 
     with workspace_col2:
-        section_title("Shared Notes Library", "📚")
+        section_title("Shared Notes Library", "book")
         
         # Form to add a new shared subject
         with st.popover("📁 New Shared Subject", use_container_width=True):
@@ -238,7 +238,7 @@ if selected_group:
             st.info("No shared subjects found. Create a subject using the button above.")
 
     with workspace_col3:
-        section_title("Quiz Leaderboard", "🏆")
+        section_title("Quiz Leaderboard", "award")
         leaderboard = get_group_leaderboard(group_id)
         
         with st.container(border=True):

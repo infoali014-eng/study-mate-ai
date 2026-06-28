@@ -70,7 +70,7 @@ for s in subjects:
         display_name = s['name']
     subject_options[display_name] = s
 
-section_title("Upload Workspace", "☁️")
+section_title("Upload Workspace", "upload-cloud")
 with st.container(border=True):
     selected_name = st.selectbox("Choose subject", list(subject_options.keys()))
     selected_subject = subject_options[selected_name]

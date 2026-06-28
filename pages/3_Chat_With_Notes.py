@@ -1830,7 +1830,7 @@ with chat_col:
         """,
         unsafe_allow_html=True,
     )
-    section_title("Chat Settings", "\u2699\ufe0f")
+    section_title("Chat Settings", "settings")
     with st.container(border=True):
         top_col1, top_col2, top_col3 = st.columns([1.2, 1.2, 1])
 
@@ -1937,7 +1937,7 @@ with chat_col:
                     st.info("Ask a question first, then regenerate.")
 
     if chat_mode == "Teach Me Mode":
-        section_title("Tutor Setup", "\U0001f9d1\u200d\U0001f3eb")
+        section_title("Tutor Setup", "user")
         with st.container(border=True):
             tutor_col1, tutor_col2 = st.columns(2)
             with tutor_col1:
@@ -2130,7 +2130,7 @@ with chat_col:
         right_info_col = None
 
     with main_chat_col:
-        section_title("Conversation", "\U0001f4ac")
+        section_title("Conversation", "message-circle")
         with st.container(height=540, border=True):
             messages = _chat_messages()
             if not messages:
@@ -2401,7 +2401,7 @@ with chat_col:
 
     if show_info and right_info_col:
         with right_info_col:
-            section_title("AI Context Details", "ℹ️")
+            section_title("AI Context Details", "info")
             with st.container(border=True):
                 # 1. Subject Details
                 if selected_subject:

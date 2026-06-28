@@ -104,7 +104,7 @@ selected_subject = subject_options[selected_name]
 weak_topic_rows = get_weak_topics(subject_id=selected_subject["id"], user_id=user_id)
 available_weak_topics = [row["topic"] for row in weak_topic_rows]
 
-section_title("Plan Builder", "\U0001f4ca")
+section_title("Plan Builder", "bar-chart-2")
 with st.container(border=True):
     col1, col2 = st.columns(2)
 
@@ -191,13 +191,13 @@ if generate_button:
     st.success("Revision plan generated and saved locally.")
 
 if st.session_state.latest_revision_plan:
-    section_title("Latest Generated Plan", "\u2728")
+    section_title("Latest Generated Plan", "zap")
     with st.container(border=True):
         st.markdown(st.session_state.latest_revision_plan["plan_text"])
 
 saved_plans = get_revision_plans(subject_id=selected_subject["id"], user_id=user_id)
 
-section_title("Saved Plans", "\U0001f4da")
+section_title("Saved Plans", "book")
 if not saved_plans:
     render_empty_state(
         "No saved plans yet.",

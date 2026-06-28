@@ -129,7 +129,7 @@ if prefill_subject_id:
             break
 prefill_topic = st.session_state.pop("quiz_prefill_topic", "")
 
-section_title("Quiz Builder", "\U0001f3af")
+section_title("Quiz Builder", "target")
 with st.container(border=True):
     col1, col2 = st.columns(2)
     with col1:
@@ -196,7 +196,7 @@ if generate_button:
 quiz_data = st.session_state.quiz_data
 
 if not quiz_data:
-    section_title("Answer Quiz", "\U0001f4dd")
+    section_title("Answer Quiz", "file-text")
     render_empty_state(
         "No quiz generated yet.",
         "Choose a topic and generate questions to start practicing.",
@@ -204,7 +204,7 @@ if not quiz_data:
     )
 
 if quiz_data:
-    section_title("Answer Quiz", "\U0001f4dd")
+    section_title("Answer Quiz", "file-text")
     st.caption(
         f"{quiz_data['subject_name']} | {quiz_data['question_type']} | "
         f"{quiz_data['difficulty']} | Topic: {quiz_data['topic']}"
@@ -281,7 +281,7 @@ if quiz_data:
 feedback = st.session_state.quiz_feedback
 
 if feedback:
-    section_title("Marks and Feedback", "\U0001f31f")
+    section_title("Marks and Feedback", "star")
     st.success(
         f"Score: {feedback['score']} / {feedback['total']} | Quiz result saved."
     )
@@ -300,7 +300,7 @@ if quiz_data and quiz_data["sources"]:
             st.markdown(f"**Source {index}: {metadata.get('file_name', 'Uploaded PDF')}**")
             st.write(source["text"])
 
-section_title("Quiz History", "\U0001f4c8")
+section_title("Quiz History", "bar-chart-2")
 history_subject = st.selectbox(
     "Filter history by subject",
     ["All subjects"] + subject_names,

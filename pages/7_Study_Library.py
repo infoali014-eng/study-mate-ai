@@ -230,7 +230,7 @@ def render_document_details(document):
     extracted_text = read_extracted_text(document)
     saved_summary = get_document_summary(document["id"], user_id=st.session_state.get("user_id"))
 
-    section_title("Read / Preview", "\U0001f441\ufe0f")
+    section_title("Read / Preview", "eye")
     with st.container(border=True):
         top_left, top_right = st.columns([4, 1])
         with top_left:
@@ -454,7 +454,7 @@ if subjects:
     group_subjects = [s for s in subjects if s["group_name"]]
     
     if personal_subjects:
-        section_title("Personal Subject Overview", "👤")
+        section_title("Personal Subject Overview", "user")
         overview_cols = st.columns(min(3, len(personal_subjects)))
         for index, subject in enumerate(personal_subjects[:6]):
             document_count = sum(
@@ -464,7 +464,7 @@ if subjects:
                 render_subject_card(subject, document_count=document_count)
 
     if group_subjects:
-        section_title("Study Group Subject Overview", "👥")
+        section_title("Study Group Subject Overview", "users")
         overview_cols = st.columns(min(3, len(group_subjects)))
         for index, subject in enumerate(group_subjects[:6]):
             document_count = sum(
@@ -503,7 +503,7 @@ with st.container(border=True):
         st.write("")
         st.button("Clear", use_container_width=True, on_click=clear_filters)
 
-section_title("Subject Filters", "📚")
+section_title("Subject Filters", "book")
 chip_count = max(1, min(6, len(subject_display_names)))
 chip_cols = st.columns(chip_count)
 for index, display_name in enumerate(subject_display_names):
@@ -528,7 +528,7 @@ filtered_documents = apply_filters(
     search_text=st.session_state.library_search,
 )
 
-section_title("Materials", "\U0001f5c3\ufe0f")
+section_title("Materials", "file-text")
 st.caption(f"Showing {len(filtered_documents)} of {len(documents)} uploaded materials")
 
 if not documents:

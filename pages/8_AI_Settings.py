@@ -109,7 +109,7 @@ with feature3:
         "#fff3c4",
     )
 
-section_title("Provider", "\u2699\ufe0f")
+section_title("Provider", "settings")
 with st.container(border=True):
     current_provider = get_provider_label()
     provider_options = ["Gemini API"]
@@ -133,7 +133,7 @@ with st.container(border=True):
         help="Recommended: gemini-2.0-flash. The app will automatically try fallback models if Gemini is busy.",
     )
 
-section_title("API Key", "\U0001f512")
+section_title("API Key", "key")
 with st.container(border=True):
     saved_key_status = get_user_api_key_status(user_id, "gemini")
     saving_ready = api_key_saving_configured()
@@ -229,7 +229,7 @@ with st.container(border=True):
                 "try another Gemini key, or retry later."
             )
 
-section_title("Memory Settings", "\U0001f9e0")
+section_title("Memory Settings", "brain")
 with st.container(border=True):
     st.session_state.memory_enabled = st.toggle(
         "Memory enabled",
