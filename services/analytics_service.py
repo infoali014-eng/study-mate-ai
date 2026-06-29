@@ -66,9 +66,9 @@ class AnalyticsService:
 
             # ── 2. Bulk Database Queries ──────────────────────────────────────
             # Fetch subjects list
-            subj_resp = client.table("subjects").select("*").eq("owner_id", user_id).eq("is_deleted", False).execute()
+            subj_resp = client.table("subjects").select("*").eq("owner_id", user_id).is_("deleted_at", "null").execute()
             subjects = subj_resp.data or []
-            subject_map = {s["id"]: s["name"] for s in subjects}
+            subject_map = {s["id"]: s["subject_name"] for s in subjects}
 
             # Fetch learning profile
             profile_resp = client.table("learning_profiles").select("*").eq("owner_id", user_id).execute()
@@ -125,7 +125,7 @@ class AnalyticsService:
                     return False
                 return cls._is_in_range(row.get(date_field), start_date)
 
-            filtered_files = [f for f in all_files if keep(f, "created_at")]
+            filtered_files = [f for f in all_files if keep(f, "uploaded_at")]
             filtered_lib = [l for l in all_lib if keep(l, "created_at")]
             filtered_chats = [c for c in all_chats if keep(c, "created_at")]
             filtered_fc = [f for f in all_fc if keep(f, "created_at")]
@@ -235,13 +235,13 @@ class AnalyticsService:
 
             # ── 8. Performance ────────────────────────────────────────────────
             # Group weak topics
-            wt_resp = client.table("weak_topics").select("*, subjects(name)").eq("owner_id", user_id).execute()
+            wt_resp = client.table("weak_topics").select("*, subjects(subject_name)").eq("owner_id", user_id).execute()
             weak_topics_list = wt_resp.data or []
             filtered_wt = []
             for wt in weak_topics_list:
                 if not subject_id or wt.get("subject_id") == subject_id:
                     subject_info = wt.get("subjects")
-                    wt["subject_name"] = subject_info["name"] if subject_info else "Unknown"
+                    wt["subject_name"] = subject_info["subject_name"] if subject_info else "Unknown"
                     filtered_wt.append(wt)
 
             performance = {
@@ -288,7 +288,7 @@ class AnalyticsService:
                     sub_progress = round((len(sub_completed_tasks) / len(sub_tasks)) * 100, 1)
 
                 subjects_stats.append({
-                    "Subject": s["name"],
+                    "Subject": s["subject_name"],
                     "Progress": f"{sub_progress}%",
                     "Documents": sub_docs,
                     "Flashcards": sub_fc,
