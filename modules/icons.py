@@ -1,10 +1,28 @@
-"""
-StudyMate AI – Lucide SVG Icon Library
-Single source of truth for all icons. 2px stroke, 24x24 viewBox.
-Usage:
-    from modules.icons import icon
-    icon("dashboard", size=20, color="#6B7280")
-"""
+import os
+
+ICONS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "icons")
+
+def _load_icon_svg(name: str) -> str:
+    path = os.path.join(ICONS_DIR, f"{name}.svg")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+            if "<svg" in content:
+                start_idx = content.find(">", content.find("<svg")) + 1
+                end_idx = content.rfind("</svg>")
+                return content[start_idx:end_idx].strip()
+            return content.strip()
+    except Exception:
+        return ""
+
+ICONS = {
+    "study": _load_icon_svg("study"),
+    "learning": _load_icon_svg("learning"),
+    "community": _load_icon_svg("community"),
+    "analytics": _load_icon_svg("analytics"),
+    "account": _load_icon_svg("account"),
+    "admin": _load_icon_svg("admin"),
+}
 
 
 def icon(name: str, size: int = 20, color: str = "currentColor", cls: str = "") -> str:
@@ -23,6 +41,13 @@ def icon(name: str, size: int = 20, color: str = "currentColor", cls: str = "") 
 # ICON PATHS  (Lucide, MIT License)
 # ─────────────────────────────────────────────────────────────────────────────
 _ICONS: dict[str, str] = {
+    "study": ICONS["study"],
+    "learning": ICONS["learning"],
+    "community": ICONS["community"],
+    "analytics": ICONS["analytics"],
+    "account": ICONS["account"],
+    "admin": ICONS["admin"],
+
     # Navigation
     "home":
         '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'

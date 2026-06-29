@@ -283,26 +283,51 @@ def sidebar_nav():
     from modules.debug import render_supabase_status
     render_supabase_status()
 
-    # ── Custom JS Category Icons ──────────────────────────────────────────────
+    # ── Custom JS Category Icons (Dynamic Loader) ─────────────────────────────
+    import json
+    from modules.icons import ICONS
+    
+    js_mapping = {}
+    color_map = {
+        "study": "#14B8A6",
+        "learning": "#9333EA",
+        "community": "#3B82F6",
+        "analytics": "#2563EB",
+        "account": "#0F9D8C"
+    }
+    
+    for name in ["study", "learning", "community", "analytics", "account"]:
+        svg_content = ICONS.get(name, "")
+        color = color_map.get(name, "currentColor")
+        js_mapping[name] = (
+            f'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
+            f'stroke="{color}" stroke-width="2" stroke-linecap="round" '
+            f'stroke-linejoin="round" style="margin-right:8px; flex-shrink:0;" '
+            f'role="img" aria-label="{name.capitalize()}">{svg_content}</svg>'
+        )
+        
+    admin_svg = ICONS.get("admin", "")
+    js_mapping["admin settings"] = (
+        f'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
+        f'stroke="#EF4444" stroke-width="2" stroke-linecap="round" '
+        f'stroke-linejoin="round" style="margin-right:8px; flex-shrink:0;" '
+        f'role="img" aria-label="Admin Settings">{admin_svg}</svg>'
+    )
+    
+    js_mapping_json = json.dumps(js_mapping)
+
     import streamlit.components.v1 as components
     components.html(
-        """
+        f"""
         <script>
-        function applyIcons() {
-            try {
+        const mapping = {js_mapping_json};
+        function applyIcons() {{
+            try {{
                 const summaries = window.parent.document.querySelectorAll('div[data-testid="stSidebar"] [data-testid="stExpander"] summary');
-                const mapping = {
-                    "study": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#14B8A6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; flex-shrink:0;"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10M6 10h10"/></svg>',
-                    "learning": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9333EA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; flex-shrink:0;"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-3.12 3 3 0 0 1 0-4.88A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-3.12 3 3 0 0 0 0-4.88A2.5 2.5 0 0 0 14.5 2Z"/><path d="m13 14 2.5-3h-3.5L14.5 8" stroke="#14B8A6"/></svg>',
-                    "community": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; flex-shrink:0;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
-                    "analytics": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; flex-shrink:0;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><path d="M3 3v18h18"/></svg>',
-                    "account": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F9D8C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; flex-shrink:0;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-                    "admin settings": '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px; flex-shrink:0;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'
-                };
-                summaries.forEach(summary => {
+                summaries.forEach(summary => {{
                     const text = summary.textContent.replace(/[▶▼]/g, "").trim().toLowerCase();
-                    if (mapping[text]) {
-                        if (!summary.querySelector('.sm-custom-icon')) {
+                    if (mapping[text]) {{
+                        if (!summary.querySelector('.sm-custom-icon')) {{
                             const div = window.parent.document.createElement('div');
                             div.className = 'sm-custom-icon';
                             div.style.display = 'inline-flex';
@@ -311,17 +336,17 @@ def sidebar_nav():
                             div.style.flexShrink = '0';
                             div.innerHTML = mapping[text];
                             summary.insertBefore(div, summary.firstChild);
-                        }
-                    }
-                });
-            } catch (e) {
+                        }}
+                    }}
+                }});
+            }} catch (e) {{
                 console.error("Sidebar custom icon injection error:", e);
-            }
-        }
+            }}
+        }}
         applyIcons();
-        if (!window.sidebarIconInterval) {
+        if (!window.sidebarIconInterval) {{
             window.sidebarIconInterval = setInterval(applyIcons, 500);
-        }
+        }}
         </script>
         """,
         height=0,
