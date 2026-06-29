@@ -509,9 +509,12 @@ def _google_login_button(key="google_login_btn"):
         params = urllib.parse.urlencode({
             "provider": "google",
             "redirect_to": redirect_url,
+            "scopes": "email profile",
         })
         authorize_url = f"{supabase_url}/auth/v1/authorize?{params}"
-        st.link_button("Continue with Google", authorize_url, use_container_width=True, type="primary")
+        st.link_button("🔐 Continue with Google", authorize_url, use_container_width=True, type="primary")
+        # Temporary debug: show the URL so we can verify it
+        st.caption(f"Debug: redirect → `{redirect_url}` | [Test authorize URL]({authorize_url})")
     except Exception as e:
         logger.error(f"[AUTH] Failed to render Google login button: {e}")
         st.info("Google login is temporarily unavailable.")
