@@ -495,30 +495,25 @@ def sync_supabase_google_user(user) -> Optional[Dict[str, Any]]:
 
 
 def _google_login_button(key="google_login_btn"):
-    """Render the native Supabase Google login button."""
-    from modules.supabase_client import get_supabase_client
-    client = get_supabase_client()
-    if not client:
+    """Render the Google login button using a direct Supabase authorize URL (no PKCE)."""
+    from modules.supabase_client import load_supabase_credentials
+    import urllib.parse
+
+    supabase_url, _, _ = load_supabase_credentials()
+    if not supabase_url:
         return
+
     try:
         redirect_url = get_redirect_url()
-        res = client.auth.sign_in_with_oauth({
+        # Construct the authorize URL manually — NO code_challenge means no PKCE verifier needed
+        params = urllib.parse.urlencode({
             "provider": "google",
-            "options": {
-                "redirect_to": redirect_url
-            }
+            "redirect_to": redirect_url,
         })
-        if res and hasattr(res, "url"):
-            # Store the generated PKCE verifier from gotrue memory storage into browser cookie
-            try:
-                verifier = client.auth._storage.get_item('supabase.auth.token-code-verifier')
-                if verifier:
-                    _set_code_verifier_cookie(verifier)
-            except Exception as ex:
-                logger.error(f"[AUTH] Failed to save code verifier to cookie: {ex}")
-            st.link_button("Continue with Google", res.url, use_container_width=True, type="primary")
+        authorize_url = f"{supabase_url}/auth/v1/authorize?{params}"
+        st.link_button("Continue with Google", authorize_url, use_container_width=True, type="primary")
     except Exception as e:
-        logger.error(f"Failed to load Google login button: {e}")
+        logger.error(f"[AUTH] Failed to render Google login button: {e}")
         st.info("Google login is temporarily unavailable.")
 
 
@@ -700,37 +695,63 @@ def require_login():
     init_db()
     ensure_admin_user(hash_password)
 
-    # Handle Supabase OAuth PKCE callback code
+    # Handle Supabase OAuth callback code (non-PKCE direct exchange)
     if "code" in st.query_params:
         code = st.query_params["code"]
-        # Clear query parameters immediately to prevent infinite reload/exchange error loops
+        # Clear query parameters immediately to prevent infinite reload loops
         st.query_params.clear()
         
-        from modules.supabase_client import get_supabase_client
-        client = get_supabase_client()
-        if client:
+        from modules.supabase_client import load_supabase_credentials
+        supabase_url, anon_key, _ = load_supabase_credentials()
+        if supabase_url and anon_key:
             try:
-                logger.info("[AUTH] Detected OAuth callback code parameter. Initiating PKCE session exchange...")
-                verifier = _read_code_verifier_cookie()
-                if verifier:
-                    client.auth._storage.set_item('supabase.auth.token-code-verifier', verifier)
-                    logger.info("[AUTH] Restored code verifier from browser cookie.")
-                else:
-                    logger.warning("[AUTH] No code verifier found in cookie storage.")
-
-                res = client.auth.exchange_code_for_session({ "auth_code": code })
-                _clear_code_verifier_cookie()
+                import httpx
+                logger.info("[AUTH] Detected OAuth callback code. Exchanging via direct HTTP POST (no PKCE)...")
+                token_url = f"{supabase_url}/auth/v1/token"
+                resp = httpx.post(
+                    token_url,
+                    params={"grant_type": "pkce"},
+                    json={"auth_code": code, "code_verifier": ""},
+                    headers={
+                        "apikey": anon_key,
+                        "Content-Type": "application/json",
+                    },
+                    timeout=15,
+                )
                 
-                user = res.user
-                if user:
-                    logger.info(f"[AUTH] PKCE exchange succeeded. Authenticated email: {user.email} | Supabase User ID: {user.id}")
-                    local_user = sync_supabase_google_user(user)
-                    if local_user:
-                        login_user(local_user, message="Welcome back!", remember=True)
-                        logger.info(f"[AUTH] Local profile synced for user {local_user['email']} (mapped to ID: {local_user['id']}). Rerunning dashboard.")
-                        st.rerun()
+                if resp.status_code == 200:
+                    data = resp.json()
+                    # Build a minimal user object from the token response
+                    user_data = data.get("user", {})
+                    user_email = (user_data.get("email") or "").strip().lower()
+                    user_id = user_data.get("id")
+                    user_metadata = user_data.get("user_metadata", {})
+                    
+                    if user_email and user_id:
+                        logger.info(f"[AUTH] Token exchange succeeded. Email: {user_email} | Supabase UID: {user_id}")
+                        
+                        # Build a simple namespace object for sync_supabase_google_user
+                        class _OAuthUser:
+                            pass
+                        oauth_user = _OAuthUser()
+                        oauth_user.id = user_id
+                        oauth_user.email = user_email
+                        oauth_user.user_metadata = user_metadata
+                        
+                        local_user = sync_supabase_google_user(oauth_user)
+                        if local_user:
+                            login_user(local_user, message="Welcome back!", remember=True)
+                            logger.info(f"[AUTH] Profile synced for {local_user['email']} (ID: {local_user['id']}). Redirecting to dashboard.")
+                            st.rerun()
+                    else:
+                        logger.error(f"[AUTH] Token response missing user email or id: {data}")
+                        st.error("Authentication succeeded but user profile was incomplete.")
+                else:
+                    error_msg = resp.json().get("msg", resp.text)
+                    logger.error(f"[AUTH] Token exchange failed ({resp.status_code}): {error_msg}")
+                    st.error(f"Authentication failed: {error_msg}")
             except Exception as e:
-                logger.error(f"[AUTH] Failed to exchange code for session: {e}")
+                logger.error(f"[AUTH] Exception during token exchange: {e}")
                 st.error(f"Authentication failed: {e}")
 
     _restore_login_from_cookie()
