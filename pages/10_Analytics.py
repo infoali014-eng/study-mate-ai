@@ -13,8 +13,7 @@ from modules.analytics_ui import (
     render_charts,
     render_performance_metrics,
     render_ai_recommendations,
-    render_timeline,
-    render_exports
+    render_timeline
 )
 
 st.set_page_config(page_title="Analytics Dashboard - StudyMate AI", layout="wide")
@@ -81,5 +80,3 @@ render_ai_recommendations(dashboard_data, handle_recommendation_action)
 
 st.markdown('<hr style="margin:24px 0; border:none; border-top:1px solid var(--color-border);">', unsafe_allow_html=True)
 render_timeline(dashboard_data)
-
-render_exports(dashboard_data)
