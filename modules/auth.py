@@ -103,6 +103,42 @@ def _get_cookie_controller():
         return None
 
 
+def _set_code_verifier_cookie(verifier: str):
+    """Save the PKCE code verifier in a browser cookie for OAuth callback."""
+    if not verifier:
+        return
+    controller = _get_cookie_controller()
+    if controller:
+        try:
+            controller.set("sb_code_verifier", verifier, max_age=600) # Valid for 10 minutes
+        except Exception:
+            pass
+
+
+def _read_code_verifier_cookie() -> str:
+    """Retrieve the PKCE code verifier from browser cookies."""
+    controller = _get_cookie_controller()
+    if controller:
+        try:
+            return controller.get("sb_code_verifier") or ""
+        except Exception:
+            return ""
+    try:
+        return st.context.cookies.get("sb_code_verifier", "")
+    except Exception:
+        return ""
+
+
+def _clear_code_verifier_cookie():
+    """Clear the PKCE code verifier cookie."""
+    controller = _get_cookie_controller()
+    if controller:
+        try:
+            controller.remove("sb_code_verifier")
+        except Exception:
+            pass
+
+
 def _read_remember_cookie():
     """Read the persistent login cookie without crashing if cookies are unavailable."""
     controller = _get_cookie_controller()
@@ -464,7 +500,6 @@ def _google_login_button(key="google_login_btn"):
     client = get_supabase_client()
     if not client:
         return
-
     try:
         redirect_url = get_redirect_url()
         res = client.auth.sign_in_with_oauth({
@@ -474,6 +509,13 @@ def _google_login_button(key="google_login_btn"):
             }
         })
         if res and hasattr(res, "url"):
+            # Store the generated PKCE verifier from gotrue memory storage into browser cookie
+            try:
+                verifier = client.auth._storage.get_item('supabase.auth.token-code-verifier')
+                if verifier:
+                    _set_code_verifier_cookie(verifier)
+            except Exception as ex:
+                logger.error(f"[AUTH] Failed to save code verifier to cookie: {ex}")
             st.link_button("Continue with Google", res.url, use_container_width=True, type="primary")
     except Exception as e:
         logger.error(f"Failed to load Google login button: {e}")
@@ -666,8 +708,16 @@ def require_login():
         if client:
             try:
                 logger.info("[AUTH] Detected OAuth callback code parameter. Initiating PKCE session exchange...")
+                verifier = _read_code_verifier_cookie()
+                if verifier:
+                    client.auth._storage.set_item('supabase.auth.token-code-verifier', verifier)
+                    logger.info("[AUTH] Restored code verifier from browser cookie.")
+                else:
+                    logger.warning("[AUTH] No code verifier found in cookie storage.")
+
                 res = client.auth.exchange_code_for_session({ "auth_code": code })
                 st.query_params.clear()
+                _clear_code_verifier_cookie()
                 
                 user = res.user
                 if user:
