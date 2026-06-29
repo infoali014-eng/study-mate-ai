@@ -65,6 +65,41 @@ def sidebar_nav():
     user_role  = st.session_state.get("user_role", "student")
     initials   = "".join(p[0] for p in user_name.split()[:2]).upper() or "ST"
 
+    # ── Time Spent Tracking (5 Min Milestone) ─────────────────────────────────
+    import time
+    user_id = st.session_state.get("user_id")
+    if user_id:
+        if "session_start_time" not in st.session_state:
+            st.session_state["session_start_time"] = time.time()
+        
+        if not st.session_state.get("session_streak_logged", False):
+            elapsed = time.time() - st.session_state["session_start_time"]
+            if elapsed >= 300:  # 5 minutes
+                st.session_state["session_streak_logged"] = True
+                from modules.analytics_repository import AnalyticsRepository
+                AnalyticsRepository.log_activity_session(
+                    owner_id=user_id,
+                    session_type="App Usage",
+                    duration_minutes=5,
+                    notes="Daily application usage milestone (5 minutes completed)"
+                )
+                st.toast("🎉 Bazinga! You've stayed on the app for 5 minutes today. Your study streak has been updated!")
+            else:
+                remaining_ms = int((300 - elapsed) * 1000)
+                st.sidebar.markdown(
+                    f"""
+                    <script>
+                    if (window.appUsageTimer) {{
+                        clearTimeout(window.appUsageTimer);
+                    }}
+                    window.appUsageTimer = setTimeout(function() {{
+                        window.parent.location.reload();
+                    }}, {remaining_ms});
+                    </script>
+                    """,
+                    unsafe_allow_html=True
+                )
+
     app_name = _html.escape(branding.get("app_name", "StudyMate AI"))
     subtitle = _html.escape(branding.get("app_subtitle", "AI Study Assistant"))
 

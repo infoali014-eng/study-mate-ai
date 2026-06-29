@@ -36,10 +36,6 @@ user_id = require_login()
 init_db()
 apply_theme()
 sidebar_nav()
-
-from modules.analytics_repository import AnalyticsRepository
-AnalyticsRepository.log_activity_session(user_id, session_type="App Usage", duration_minutes=5)
-
 page_header(
     f"Welcome back, {get_current_user_display_name()}",
     "Here's your learning overview for today.",
