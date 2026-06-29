@@ -35,6 +35,22 @@ NAVIGATION = {
     ]
 }
 
+# Flat list of items for backward compatibility with older page imports
+NAV_ITEMS = [
+    ("Dashboard",        "pages/1_Dashboard.py",         "home"),
+    ("Study Library",    "pages/7_Study_Library.py",     "library"),
+    ("Upload Notes",     "pages/2_Upload_Notes.py",      "upload-cloud"),
+    ("Chat With Notes",  "pages/3_Chat_With_Notes.py",   "message-circle"),
+    ("Study Groups",     "pages/14_Study_Groups.py",     "users"),
+    ("Quiz Mode",        "pages/4_Quiz_Mode.py",         "help-circle"),
+    ("Flashcards",       "pages/5_Flashcards.py",        "layers"),
+    ("Revision Planner", "pages/6_Revision_Planner.py",  "calendar"),
+    ("Pomodoro Timer",   "pages/9_Pomodoro_Timer.py",    "timer"),
+    ("AI Settings",      "pages/8_AI_Settings.py",       "settings"),
+    ("Profile",          "pages/Profile.py",             "user"),
+    ("About",            "pages/10_About.py",            "info"),
+]
+
 ADMIN_NAV_ITEMS = [
     ("Admin Dashboard",  "pages/11_Admin_Dashboard.py",          "shield"),
     ("Branding",         "pages/12_Admin_Branding_Settings.py",  "star"),
