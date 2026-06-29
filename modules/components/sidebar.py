@@ -198,7 +198,7 @@ def sidebar_nav():
             unsafe_allow_html=True,
         )
 
-    # 2. Render collapsible categories
+    # 2. Render collapsible categories using page-nested context (removing st.sidebar prefix in with blocks)
     for category, items in NAVIGATION.items():
         is_expanded = st.session_state.get(f"expanded_{category}", False)
         
@@ -209,9 +209,9 @@ def sidebar_nav():
                 # Check for coming soon badges on Analytics sub-elements
                 if category == "Analytics" and label != "Dashboard Analytics":
                     try:
-                        st.sidebar.page_link("pages/1_Dashboard.py", label=f" {label}", icon=material_icon, disabled=True)
+                        st.page_link("pages/1_Dashboard.py", label=f" {label}", icon=material_icon, disabled=True)
                     except Exception:
-                        st.sidebar.markdown(
+                        st.markdown(
                             f'<div class="sm-nav-link" style="opacity:0.5; cursor:not-allowed; display:flex; align-items:center; gap:8px; padding:6px 12px;">'
                             f'<span class="sm-nav-icon">{icon(icon_name, size=18, color="#6B7280")}</span>'
                             f'<span class="sm-nav-label">{label}</span>'
@@ -221,10 +221,10 @@ def sidebar_nav():
                         )
                 else:
                     try:
-                        st.sidebar.page_link(page, label=f" {label}", icon=material_icon)
+                        st.page_link(page, label=f" {label}", icon=material_icon)
                     except Exception:
                         url = _page_url_from_path(page)
-                        st.sidebar.markdown(
+                        st.markdown(
                             f'<a class="sm-nav-link" href="{url}">'
                             f'<span class="sm-nav-icon">{icon(icon_name, size=18, color="currentColor")}</span>'
                             f'<span class="sm-nav-label">{_html.escape(label)}</span>'
@@ -241,25 +241,20 @@ def sidebar_nav():
 
     # ── Admin Section ─────────────────────────────────────────────────────────
     if user_role == "admin":
-        shield_icon = icon("shield", size=12, color="#6B7280")
-        st.sidebar.markdown(
-            f'<div class="sm-nav-section" style="margin-top:12px;">{shield_icon} Admin</div>',
-            unsafe_allow_html=True,
-        )
-        for label, page, icon_name in ADMIN_NAV_ITEMS:
-            nav_icon = icon(icon_name, size=18, color="currentColor")
-            material_icon = f":material/{MATERIAL_ICON_MAP.get(icon_name, 'file_text')}:"
-            try:
-                st.sidebar.page_link(page, label=f" {label}", icon=material_icon)
-            except Exception:
-                url = _page_url_from_path(page)
-                st.sidebar.markdown(
-                    f'<a class="sm-nav-link" href="{url}">'
-                    f'<span class="sm-nav-icon">{nav_icon}</span>'
-                    f'<span class="sm-nav-label">{_html.escape(label)}</span>'
-                    f'</a>',
-                    unsafe_allow_html=True,
-                )
+        with st.sidebar.expander("Admin Settings", expanded=False):
+            for label, page, icon_name in ADMIN_NAV_ITEMS:
+                material_icon = f":material/{MATERIAL_ICON_MAP.get(icon_name, 'file_text')}:"
+                try:
+                    st.page_link(page, label=f" {label}", icon=material_icon)
+                except Exception:
+                    url = _page_url_from_path(page)
+                    st.markdown(
+                        f'<a class="sm-nav-link" href="{url}">'
+                        f'<span class="sm-nav-icon">{icon(icon_name, size=18, color="currentColor")}</span>'
+                        f'<span class="sm-nav-label">{_html.escape(label)}</span>'
+                        f'</a>',
+                        unsafe_allow_html=True,
+                    )
 
     # ── Divider ───────────────────────────────────────────────────────────────
     st.sidebar.markdown('<hr style="margin:12px 0;">', unsafe_allow_html=True)

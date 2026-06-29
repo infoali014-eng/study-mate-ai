@@ -761,11 +761,14 @@ div[data-testid="stSidebar"] [data-testid="stExpander"] {
     border: none !important;
     box-shadow: none !important;
     margin-bottom: 2px !important;
+    padding: 0 !important;
 }
 
 div[data-testid="stSidebar"] [data-testid="stExpander"] details {
     border: none !important;
     background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
 }
 
 div[data-testid="stSidebar"] [data-testid="stExpander"] summary {
@@ -788,7 +791,7 @@ div[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
 
 /* Custom layout for nested items inside expanded categories */
 div[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] {
-    padding-left: 10px !important;
+    padding-left: 14px !important;
     border-left: 1.5px solid var(--color-border) !important;
     margin-left: 20px !important;
     gap: 4px !important;
@@ -797,9 +800,16 @@ div[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVertical
 }
 
 div[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] a {
-    padding: 5px 10px !important;
+    padding: 4px 8px !important;
     font-size: 0.8125rem !important;
     border-radius: var(--radius-md) !important;
+    color: var(--color-text-secondary) !important;
+}
+
+div[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] a[aria-current="page"] {
+    background: var(--color-primary-muted) !important;
+    color: var(--color-primary-dark) !important;
+    border-color: var(--color-primary-light) !important;
 }
 
 div[data-testid="stSidebar"] [data-testid="stExpander"] hr {
