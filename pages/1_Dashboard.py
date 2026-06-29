@@ -51,6 +51,22 @@ if st.session_state.dashboard_success:
     st.success(st.session_state.dashboard_success)
     st.session_state.dashboard_success = ""
 
+# ── Quick Actions Command Center ─────────────────────────────────────────────
+st.write("##### Quick Actions")
+qa1, qa2, qa3, qa4, qa5 = st.columns(5)
+with qa1:
+    st.page_link("pages/2_Upload_Notes.py", label="Upload Notes", icon=":material/cloud_upload:", use_container_width=True)
+with qa2:
+    st.page_link("pages/3_Chat_With_Notes.py", label="Continue Chat", icon=":material/forum:", use_container_width=True)
+with qa3:
+    st.page_link("pages/4_Quiz_Mode.py", label="Start Quiz", icon=":material/quiz:", use_container_width=True)
+with qa4:
+    st.page_link("pages/5_Flashcards.py", label="Flashcards", icon=":material/layers:", use_container_width=True)
+with qa5:
+    st.page_link("pages/7_Study_Library.py", label="Study Library", icon=":material/library_books:", use_container_width=True)
+
+st.markdown('<hr style="margin:16px 0 24px 0; border:none; border-top:1px solid var(--color-border);">', unsafe_allow_html=True)
+
 counts = get_dashboard_counts(user_id=user_id)
 subject_document_counts = get_subject_document_counts(user_id=user_id)
 

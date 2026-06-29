@@ -754,3 +754,55 @@ div[data-testid="stTable"] td {
     box-shadow: var(--shadow-md) !important;
     border-color: var(--color-primary-light) !important;
 }
+
+/* ── Sidebar Collapsible Categories ────────────────────────────────────────── */
+div[data-testid="stSidebar"] [data-testid="stExpander"] {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    margin-bottom: 2px !important;
+}
+
+div[data-testid="stSidebar"] [data-testid="stExpander"] details {
+    border: none !important;
+    background: transparent !important;
+}
+
+div[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+    padding: 6px 12px !important;
+    border-radius: var(--radius-md) !important;
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    color: var(--color-text-secondary) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
+    background: transparent !important;
+    transition: background var(--transition-fast) !important;
+    border: none !important;
+}
+
+div[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
+    background: var(--color-surface) !important;
+    color: var(--color-text) !important;
+}
+
+/* Custom layout for nested items inside expanded categories */
+div[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] {
+    padding-left: 10px !important;
+    border-left: 1.5px solid var(--color-border) !important;
+    margin-left: 20px !important;
+    gap: 4px !important;
+    margin-top: 4px !important;
+    margin-bottom: 8px !important;
+}
+
+div[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] a {
+    padding: 5px 10px !important;
+    font-size: 0.8125rem !important;
+    border-radius: var(--radius-md) !important;
+}
+
+div[data-testid="stSidebar"] [data-testid="stExpander"] hr {
+    margin: 6px 0 !important;
+    opacity: 0.5;
+}

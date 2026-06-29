@@ -5,21 +5,35 @@ import html as _html
 import streamlit as st
 from modules.icons import icon
 
-
-NAV_ITEMS = [
-    ("Dashboard",        "pages/1_Dashboard.py",         "home"),
-    ("Study Library",    "pages/7_Study_Library.py",     "library"),
-    ("Upload Notes",     "pages/2_Upload_Notes.py",      "upload-cloud"),
-    ("Chat With Notes",  "pages/3_Chat_With_Notes.py",   "message-circle"),
-    ("Study Groups",     "pages/14_Study_Groups.py",     "users"),
-    ("Quiz Mode",        "pages/4_Quiz_Mode.py",         "help-circle"),
-    ("Flashcards",       "pages/5_Flashcards.py",        "layers"),
-    ("Revision Planner", "pages/6_Revision_Planner.py",  "calendar"),
-    ("Pomodoro Timer",   "pages/9_Pomodoro_Timer.py",    "timer"),
-    ("AI Settings",      "pages/8_AI_Settings.py",       "settings"),
-    ("Profile",          "pages/Profile.py",             "user"),
-    ("About",            "pages/10_About.py",            "info"),
-]
+# Grouped professional information architecture for sidebar links
+NAVIGATION = {
+    "Study": [
+        ("Upload Notes",     "pages/2_Upload_Notes.py",      "upload-cloud"),
+        ("Study Library",    "pages/7_Study_Library.py",     "library"),
+        ("Chat With Notes",  "pages/3_Chat_With_Notes.py",   "message-circle"),
+    ],
+    "Learning": [
+        ("Quiz Mode",        "pages/4_Quiz_Mode.py",         "help-circle"),
+        ("Flashcards",       "pages/5_Flashcards.py",        "layers"),
+        ("Revision Planner", "pages/6_Revision_Planner.py",  "calendar"),
+        ("Pomodoro Timer",   "pages/9_Pomodoro_Timer.py",    "timer"),
+    ],
+    "Community": [
+        ("Study Groups",     "pages/14_Study_Groups.py",     "users"),
+    ],
+    "Analytics": [
+        ("Dashboard Analytics", "pages/1_Dashboard.py",      "bar-chart-2"),
+        ("Performance",       "pages/1_Dashboard.py",      "bar-chart-2"),
+        ("Weak Topics",       "pages/1_Dashboard.py",      "bar-chart-2"),
+        ("Learning Progress", "pages/1_Dashboard.py",      "bar-chart-2"),
+        ("Achievements",      "pages/1_Dashboard.py",      "award"),
+    ],
+    "Account": [
+        ("Profile",          "pages/Profile.py",             "user"),
+        ("AI Settings",      "pages/8_AI_Settings.py",       "settings"),
+        ("About",            "pages/10_About.py",            "info"),
+    ]
+}
 
 ADMIN_NAV_ITEMS = [
     ("Admin Dashboard",  "pages/11_Admin_Dashboard.py",          "shield"),
@@ -43,6 +57,22 @@ MATERIAL_ICON_MAP = {
     "info": "info",
     "shield": "shield",
     "star": "star",
+    "bar-chart-2": "bar_chart",
+    "award": "award"
+}
+
+PAGE_PARENTS = {
+    "pages/2_Upload_Notes.py": "Study",
+    "pages/7_Study_Library.py": "Study",
+    "pages/3_Chat_With_Notes.py": "Study",
+    "pages/4_Quiz_Mode.py": "Learning",
+    "pages/5_Flashcards.py": "Learning",
+    "pages/6_Revision_Planner.py": "Learning",
+    "pages/9_Pomodoro_Timer.py": "Learning",
+    "pages/14_Study_Groups.py": "Community",
+    "pages/Profile.py": "Account",
+    "pages/8_AI_Settings.py": "Account",
+    "pages/10_About.py": "Account",
 }
 
 
@@ -56,7 +86,7 @@ def _page_url_from_path(page_path: str) -> str:
 
 
 def sidebar_nav():
-    """Render the professional fixed sidebar navigation."""
+    """Render the professional grouped and collapsible sidebar navigation."""
     from modules.database import get_branding_settings
 
     branding = get_branding_settings()
@@ -104,7 +134,6 @@ def sidebar_nav():
     subtitle = _html.escape(branding.get("app_subtitle", "AI Study Assistant"))
 
     # ── Brand Logo ────────────────────────────────────────────────────────────
-    # Creative logo container with animated gradient, shadow, and scale transition
     cap_icon = icon("graduation-cap", size=20, color="#FFFFFF")
     st.sidebar.markdown(
         f"""
@@ -119,27 +148,86 @@ def sidebar_nav():
         unsafe_allow_html=True,
     )
 
+    # ── Inspect Current Page Path ─────────────────────────────────────────────
+    import inspect
+    caller_filename = ""
+    for frame_info in inspect.stack():
+        fn = frame_info.filename.replace("\\", "/")
+        if "pages/" in fn or fn.endswith(".py"):
+            caller_filename = fn
+            break
+
+    current_page = ""
+    if "pages/" in caller_filename:
+        current_page = "pages/" + caller_filename.split("pages/")[-1]
+    elif "app.py" in caller_filename:
+        current_page = "app.py"
+
+    # Auto-expand the parent section of the currently active page
+    active_parent = PAGE_PARENTS.get(current_page)
+    if active_parent:
+        st.session_state[f"expanded_{active_parent}"] = True
+
     # ── Navigation Links ──────────────────────────────────────────────────────
-    for label, page, icon_name in NAV_ITEMS:
-        nav_icon = icon(icon_name, size=18, color="currentColor")
-        material_icon = f":material/{MATERIAL_ICON_MAP.get(icon_name, 'file_text')}:"
-        try:
-            st.sidebar.page_link(page, label=f" {label}", icon=material_icon)
-        except Exception:
-            url = _page_url_from_path(page)
-            st.sidebar.markdown(
-                f'<a class="sm-nav-link" href="{url}">'
-                f'<span class="sm-nav-icon">{nav_icon}</span>'
-                f'<span class="sm-nav-label">{_html.escape(label)}</span>'
-                f'</a>',
-                unsafe_allow_html=True,
-            )
+    # 1. Dashboard is always visible at the top
+    try:
+        st.sidebar.page_link("pages/1_Dashboard.py", label=" Dashboard", icon=f":material/{MATERIAL_ICON_MAP.get('home')}:")
+    except Exception:
+        url = _page_url_from_path("pages/1_Dashboard.py")
+        st.sidebar.markdown(
+            f'<a class="sm-nav-link" href="{url}">'
+            f'<span class="sm-nav-icon">{icon("home", size=18, color="currentColor")}</span>'
+            f'<span class="sm-nav-label">Dashboard</span>'
+            f'</a>',
+            unsafe_allow_html=True,
+        )
+
+    # 2. Render collapsible categories
+    for category, items in NAVIGATION.items():
+        is_expanded = st.session_state.get(f"expanded_{category}", False)
+        
+        with st.sidebar.expander(category, expanded=is_expanded):
+            for label, page, icon_name in items:
+                material_icon = f":material/{MATERIAL_ICON_MAP.get(icon_name, 'file_text')}:"
+                
+                # Check for coming soon badges on Analytics sub-elements
+                if category == "Analytics" and label != "Dashboard Analytics":
+                    try:
+                        st.sidebar.page_link("pages/1_Dashboard.py", label=f" {label}", icon=material_icon, disabled=True)
+                    except Exception:
+                        st.sidebar.markdown(
+                            f'<div class="sm-nav-link" style="opacity:0.5; cursor:not-allowed; display:flex; align-items:center; gap:8px; padding:6px 12px;">'
+                            f'<span class="sm-nav-icon">{icon(icon_name, size=18, color="#6B7280")}</span>'
+                            f'<span class="sm-nav-label">{label}</span>'
+                            f'<span style="background:var(--color-border); font-size:0.625rem; padding:1px 4px; border-radius:3px; font-weight:600; color:var(--color-text-secondary); margin-left:auto;">SOON</span>'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+                else:
+                    try:
+                        st.sidebar.page_link(page, label=f" {label}", icon=material_icon)
+                    except Exception:
+                        url = _page_url_from_path(page)
+                        st.sidebar.markdown(
+                            f'<a class="sm-nav-link" href="{url}">'
+                            f'<span class="sm-nav-icon">{icon(icon_name, size=18, color="currentColor")}</span>'
+                            f'<span class="sm-nav-label">{_html.escape(label)}</span>'
+                            f'</a>',
+                            unsafe_allow_html=True,
+                        )
+
+            # Logout button rendered inside the Account section
+            if category == "Account" and st.session_state.get("user_id"):
+                st.markdown('<hr style="margin:8px 0; border:none; border-top:1px solid var(--color-border);">', unsafe_allow_html=True)
+                if st.button("Sign Out", use_container_width=True, key="sidebar_logout_btn"):
+                    from modules.auth import logout
+                    logout()
 
     # ── Admin Section ─────────────────────────────────────────────────────────
     if user_role == "admin":
         shield_icon = icon("shield", size=12, color="#6B7280")
         st.sidebar.markdown(
-            f'<div class="sm-nav-section">{shield_icon} Admin</div>',
+            f'<div class="sm-nav-section" style="margin-top:12px;">{shield_icon} Admin</div>',
             unsafe_allow_html=True,
         )
         for label, page, icon_name in ADMIN_NAV_ITEMS:
@@ -179,12 +267,6 @@ def sidebar_nav():
         """,
         unsafe_allow_html=True,
     )
-
-    # ── Logout ────────────────────────────────────────────────────────────────
-    if st.session_state.get("user_id"):
-        if st.sidebar.button("Sign Out", use_container_width=True, key="sidebar_logout_btn"):
-            from modules.auth import logout
-            logout()
 
     # ── Supabase Status ───────────────────────────────────────────────────────
     from modules.debug import render_supabase_status
