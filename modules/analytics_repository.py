@@ -85,7 +85,7 @@ class AnalyticsRepository(BaseRepository):
                 fc = client.table("flashcards").select("id", count="exact").eq("owner_id", owner_id).execute()
                 flashcards_count = fc.count if fc.count is not None else 0
 
-                sc = client.table("subjects").select("id", count="exact").eq("owner_id", owner_id).eq("is_deleted", False).execute()
+                sc = client.table("subjects").select("id", count="exact").eq("owner_id", owner_id).is_("deleted_at", "null").execute()
                 subjects_count = sc.count if sc.count is not None else 0
 
                 # Note: uploaded_files (Phase 4B)
@@ -107,13 +107,13 @@ class AnalyticsRepository(BaseRepository):
             weakest_subject_name = "None yet"
             try:
                 if profile.get("strongest_subject_id"):
-                    sub_s = client.table("subjects").select("name").eq("id", profile["strongest_subject_id"]).execute()
+                    sub_s = client.table("subjects").select("subject_name").eq("id", profile["strongest_subject_id"]).execute()
                     if sub_s.data:
-                        strongest_subject_name = sub_s.data[0]["name"]
+                        strongest_subject_name = sub_s.data[0]["subject_name"]
                 if profile.get("weakest_subject_id"):
-                    sub_w = client.table("subjects").select("name").eq("id", profile["weakest_subject_id"]).execute()
+                    sub_w = client.table("subjects").select("subject_name").eq("id", profile["weakest_subject_id"]).execute()
                     if sub_w.data:
-                        weakest_subject_name = sub_s.data[0]["name"]
+                        weakest_subject_name = sub_w.data[0]["subject_name"]
             except Exception:
                 pass
 
