@@ -158,6 +158,7 @@ def _restore_login_from_cookie():
     if not user:
         _clear_remember_cookie()
         return False
+    user["auth_provider"] = "google" if user.get("password_hash") == "OAUTH_GOOGLE" else "email"
     login_user(user, remember=False)
     return True
 
@@ -236,7 +237,7 @@ def _clear_user_session_state():
 def login_user(user, message=None, remember=True):
     """Store the authenticated user's safe profile in session state."""
     st.session_state.authenticated = True
-    st.session_state.auth_provider = "email"
+    st.session_state.auth_provider = user.get("auth_provider", "email")
     st.session_state.user_id = user["id"]
     st.session_state.user_name = user["name"]
     st.session_state.user_email = user["email"]
@@ -276,16 +277,14 @@ def logout():
     _clear_user_session_state()
     st.session_state.auth_message = "You have been logged out safely."
     
-    google_logged_in = False
     try:
-        google_logged_in = bool(st.user.get("is_logged_in", False))
+        from modules.supabase_client import get_supabase_client
+        client = get_supabase_client()
+        if client:
+            client.auth.sign_out()
     except Exception:
         pass
-
-    if google_logged_in and hasattr(st, "logout"):
-        st.logout()
-    else:
-        st.rerun()
+    st.rerun()
 
 
 def _record_failed_login():
@@ -314,94 +313,157 @@ def _login_is_rate_limited():
     return len(attempts) >= FAILED_LOGIN_LIMIT
 
 
-def _streamlit_user_is_logged_in():
-    """Return True when Streamlit OIDC login has authenticated a user."""
-    try:
-        return bool(st.user.get("is_logged_in", False))
-    except Exception:
-        return False
+def get_redirect_url() -> str:
+    """Determine the OAuth callback redirect URL."""
+    import os
+    url = os.getenv("SUPABASE_AUTH_REDIRECT_URL") or os.getenv("OAUTH_REDIRECT_URL")
+    if not url:
+        try:
+            url = st.secrets.get("SUPABASE_AUTH_REDIRECT_URL") or st.secrets.get("OAUTH_REDIRECT_URL")
+        except Exception:
+            pass
+    if not url:
+        url = "http://localhost:8501/"
+    return url
 
-def _get_google_provider_name():
-    """Return the configured Streamlit OIDC provider name."""
-    try:
-        auth_config = st.secrets.get("auth", {})
-    except Exception:
+
+def sync_supabase_google_user(user) -> Optional[Dict[str, Any]]:
+    """
+    Synchronize Google OAuth authenticated user profile with public.users.
+    Links existing profiles by email to prevent duplicate accounts and preserve all user data.
+    """
+    from datetime import datetime
+    from modules.supabase_client import get_supabase_admin_client
+    
+    email = (user.email or "").strip().lower()
+    if not email:
         return None
 
-    if not auth_config:
-        return None
-
-    has_shared_settings = bool(
-        auth_config.get("redirect_uri") and auth_config.get("cookie_secret")
-    )
-    named_google = auth_config.get("my_google")
-    if has_shared_settings and named_google:
-        return "my_google"
-
-    has_default_google = bool(
-        auth_config.get("client_id")
-        and auth_config.get("client_secret")
-        and auth_config.get("server_metadata_url")
-    )
-    if has_default_google:
-        return ""
-
-    return None
-
-def _sync_google_user_to_local_session():
-    """Create or fetch a local SQLite user for the Google-authenticated email."""
-    if not _streamlit_user_is_logged_in():
-        return False
-
-    google_user = st.user.to_dict()
-    email = (google_user.get("email") or "").strip().lower()
-    email_verified = bool(google_user.get("email_verified", False))
-    if not email or not email_verified:
-        st.warning("Google login did not return a verified email address.")
-        return False
-
+    # Check if user already exists by email in public.users
     local_user = get_user_by_email(email)
-    if not local_user:
-        display_name = (
-            google_user.get("name")
-            or google_user.get("given_name")
-            or email.split("@")[0]
-        )
-        import secrets
-        random_password_marker = secrets.token_urlsafe(48)
-        create_user(
-            name=display_name[:80],
-            email=email,
-            password_hash=hash_password(random_password_marker),
-            auth_provider="google"
-        )
-        local_user = get_user_by_email(email)
+    
+    display_name = (
+        user.user_metadata.get("full_name")
+        or user.user_metadata.get("name")
+        or email.split("@")[0]
+    )
+    avatar_url = (
+        user.user_metadata.get("avatar_url")
+        or user.user_metadata.get("picture")
+    )
+    
+    admin_client = get_supabase_admin_client()
+    if not admin_client:
+        return local_user
 
-    if local_user:
-        login_user(local_user, message="Logged in with Google.")
-        st.rerun()
+    try:
+        if not local_user:
+            # Create a new user record in public.users using the Supabase Auth UUID
+            user_data = {
+                "id": user.id,
+                "full_name": display_name[:80],
+                "email": email,
+                "password_hash": "OAUTH_GOOGLE",
+                "profile_picture": avatar_url,
+                "profile_image_url": avatar_url,
+                "is_admin": False,
+                "is_active": True,
+                "email_verified": True
+            }
+            admin_client.table("users").insert(user_data).execute()
 
-    return bool(local_user)
+            # Create default preferences
+            pref_data = {
+                "id": user.id,
+                "theme": "light",
+                "language": "en",
+                "sidebar_state": "expanded",
+                "default_ai_provider": "Gemini",
+                "default_model": "gemini-2.0-flash",
+                "teach_me_level": "Normal",
+                "voice_enabled": False,
+                "notifications": True,
+                "timezone": "UTC"
+            }
+            admin_client.table("user_preferences").insert(pref_data).execute()
+            
+            # Log audit trail event
+            from modules.user_repository import log_audit_event
+            log_audit_event(user.id, "ACCOUNT_CREATED", "users", user.id)
+            
+            # Fetch the newly created profile
+            local_user = get_user_by_email(email)
+        else:
+            # User already exists by email - map them to the session!
+            # To preserve all customizations and prevent duplicate account creation,
+            # we keep their existing ID (UUID_OLD) and only update the avatar picture and updated_at.
+            updates = {
+                "profile_picture": avatar_url,
+                "profile_image_url": avatar_url,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            admin_client.table("users").update(updates).eq("id", local_user["id"]).execute()
+            from modules.user_repository import log_audit_event
+            log_audit_event(local_user["id"], "LOGIN_SUCCESS", "auth", local_user["id"])
+            
+        # Ensure correct auth_provider is set in returning dictionary
+        if local_user:
+            local_user["auth_provider"] = "google"
+
+        return local_user
+    except Exception as e:
+        logger.error(f"Error synchronizing Google user: {e}")
+        return local_user
+
 
 def _google_login_button(key="google_login_btn"):
-    """Render the optional Google login button."""
-    # Google login is temporarily disabled by admin.
-    return
-
-    provider_name = _get_google_provider_name()
-    if provider_name is None:
-        st.info("Google login is not configured yet. Email/password login is available.")
+    """Render the native Supabase Google login button."""
+    from modules.supabase_client import get_supabase_client
+    client = get_supabase_client()
+    if not client:
         return
 
-    if st.button("Continue with Google", type="primary", use_container_width=True, key=key):
-        if provider_name:
-            st.login(provider_name)
-        else:
-            st.login()
+    try:
+        redirect_url = get_redirect_url()
+        res = client.auth.sign_in_with_oauth({
+            "provider": "google",
+            "options": {
+                "redirect_to": redirect_url
+            }
+        })
+        if res and hasattr(res, "url"):
+            st.link_button("Continue with Google", res.url, use_container_width=True, type="primary")
+    except Exception as e:
+        logger.error(f"Failed to load Google login button: {e}")
+        st.info("Google login is temporarily unavailable.")
+
+
 
 
 def _login_form():
     """Render and process manual email/password login."""
+    # Debug panel if DEBUG environment variable or st.secrets or query parameter is set to true
+    debug_mode = (
+        str(os.getenv("DEBUG", "false")).lower() == "true"
+        or str(st.query_params.get("debug", "false")).lower() == "true"
+    )
+    if debug_mode:
+        from modules.supabase_client import get_supabase_client
+        client = get_supabase_client()
+        connected = "True" if client else "False"
+        
+        provider = st.session_state.get("auth_provider", "Not logged in")
+        uuid_val = st.session_state.get("user_id", "Not logged in")
+        email_val = st.session_state.get("user_email", "Not logged in")
+        
+        st.write("### 🛠️ Auth Debug Panel")
+        st.write(f"**Supabase Auth Connected:** {connected}")
+        st.write(f"**Current Provider:** {provider}")
+        st.write(f"**Current User UUID:** {uuid_val}")
+        st.write(f"**Email:** {email_val}")
+        st.write(f"**OAuth Redirect URL:** `{get_redirect_url()}`")
+        st.divider()
+
     _google_login_button(key="google_login_from_login_tab")
     st.divider()
 
@@ -558,10 +620,27 @@ def require_login():
     init_db()
     ensure_admin_user(hash_password)
 
-    _restore_login_from_cookie()
+    # Handle Supabase OAuth PKCE callback code
+    if "code" in st.query_params:
+        code = st.query_params["code"]
+        from modules.supabase_client import get_supabase_client
+        client = get_supabase_client()
+        if client:
+            try:
+                res = client.auth.exchange_code_for_session({ "auth_code": code })
+                st.query_params.clear()
+                
+                user = res.user
+                if user:
+                    local_user = sync_supabase_google_user(user)
+                    if local_user:
+                        login_user(local_user, message="Welcome back!", remember=True)
+                        st.rerun()
+            except Exception as e:
+                logger.error(f"Failed to exchange code for session: {e}")
+                st.error("Authentication failed. Please try again.")
 
-    if _sync_google_user_to_local_session():
-        return get_current_user_id()
+    _restore_login_from_cookie()
 
     if is_authenticated():
         if st.session_state.get("auth_message"):
