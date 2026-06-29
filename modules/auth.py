@@ -1,6 +1,9 @@
 import html
+import logging
 import os
 import time
+
+logger = logging.getLogger("studymate.auth")
 
 import streamlit as st
 from passlib.hash import pbkdf2_sha256
@@ -315,16 +318,54 @@ def _login_is_rate_limited():
 
 
 def get_redirect_url() -> str:
-    """Determine the OAuth callback redirect URL."""
+    """Determine the OAuth callback redirect URL with priority and log environment info."""
     import os
-    url = os.getenv("SUPABASE_AUTH_REDIRECT_URL") or os.getenv("OAUTH_REDIRECT_URL")
+    
+    # Priority 1: st.secrets["APP_URL"]
+    url = None
+    source = "default"
+    try:
+        url = (
+            st.secrets.get("APP_URL") 
+            or st.secrets.get("SUPABASE_AUTH_REDIRECT_URL") 
+            or st.secrets.get("OAUTH_REDIRECT_URL")
+        )
+        if url:
+            source = "streamlit_secrets"
+    except Exception:
+        pass
+
+    # Priority 2: Environment variables
     if not url:
-        try:
-            url = st.secrets.get("SUPABASE_AUTH_REDIRECT_URL") or st.secrets.get("OAUTH_REDIRECT_URL")
-        except Exception:
-            pass
+        url = (
+            os.getenv("APP_URL") 
+            or os.getenv("SUPABASE_AUTH_REDIRECT_URL") 
+            or os.getenv("OAUTH_REDIRECT_URL")
+        )
+        if url:
+            source = "env_variables"
+
+    # Priority 3: Fallback to localhost
     if not url:
         url = "http://localhost:8501/"
+        source = "fallback_localhost"
+
+    if not url.endswith("/"):
+        url += "/"
+
+    # Detect if running on Streamlit Cloud
+    is_streamlit_cloud = bool(
+        os.getenv("STREAMLIT_SHARING_ENVIRONMENT") 
+        or os.getenv("STREAMLIT_SERVER_PORT") is None
+    )
+    env_type = "Streamlit Cloud" if is_streamlit_cloud else "Local Development"
+
+    logger.info(
+        f"[AUTH] OAuth Redirect URL determined: {url} | "
+        f"Source: {source} | "
+        f"Environment: {env_type} | "
+        f"Provider: google"
+    )
     return url
 
 
@@ -624,17 +665,20 @@ def require_login():
         client = get_supabase_client()
         if client:
             try:
+                logger.info("[AUTH] Detected OAuth callback code parameter. Initiating PKCE session exchange...")
                 res = client.auth.exchange_code_for_session({ "auth_code": code })
                 st.query_params.clear()
                 
                 user = res.user
                 if user:
+                    logger.info(f"[AUTH] PKCE exchange succeeded. Authenticated email: {user.email} | Supabase User ID: {user.id}")
                     local_user = sync_supabase_google_user(user)
                     if local_user:
                         login_user(local_user, message="Welcome back!", remember=True)
+                        logger.info(f"[AUTH] Local profile synced for user {local_user['email']} (mapped to ID: {local_user['id']}). Rerunning dashboard.")
                         st.rerun()
             except Exception as e:
-                logger.error(f"Failed to exchange code for session: {e}")
+                logger.error(f"[AUTH] Failed to exchange code for session: {e}")
                 st.error("Authentication failed. Please try again.")
 
     _restore_login_from_cookie()
