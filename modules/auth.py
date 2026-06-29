@@ -498,9 +498,12 @@ def sync_supabase_google_user(user) -> Optional[Dict[str, Any]]:
 
 
 def _google_login_button(key="google_login_btn"):
-    """Render the Google login button using a direct Supabase authorize URL (no PKCE)."""
+    """Render the Google login button using a direct Supabase authorize URL (PKCE with state)."""
     from modules.supabase_client import load_supabase_credentials
     import urllib.parse
+    import secrets
+    import hashlib
+    import base64
 
     supabase_url, _, _ = load_supabase_credentials()
     if not supabase_url:
@@ -508,10 +511,18 @@ def _google_login_button(key="google_login_btn"):
 
     try:
         redirect_url = get_redirect_url()
-        # Construct the authorize URL manually — NO code_challenge means no PKCE verifier needed
+        # Generate the PKCE verifier and challenge
+        verifier = secrets.token_urlsafe(32)
+        sha256 = hashlib.sha256(verifier.encode('utf-8')).digest()
+        challenge = base64.urlsafe_b64encode(sha256).decode('utf-8').replace('=', '')
+        
+        # Construct the authorize URL manually — passing the verifier in the state parameter
         params = urllib.parse.urlencode({
             "provider": "google",
             "redirect_to": redirect_url,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": verifier,
             "scopes": "email profile",
         })
         authorize_url = f"{supabase_url}/auth/v1/authorize?{params}"
@@ -701,9 +712,18 @@ def require_login():
     init_db()
     ensure_admin_user(hash_password)
 
-    # Handle Supabase OAuth callback code (non-PKCE direct exchange)
+    # Handle OAuth errors
+    if "error" in st.query_params:
+        error_name = st.query_params["error"]
+        error_desc = st.query_params.get("error_description", "")
+        st.query_params.clear()
+        logger.error(f"[AUTH] OAuth callback error: {error_name} - {error_desc}")
+        st.error(f"Authentication failed: {error_desc or error_name}")
+
+    # Handle Supabase OAuth callback code (PKCE exchange with state-based verifier)
     if "code" in st.query_params:
         code = st.query_params["code"]
+        verifier = st.query_params.get("state", "")
         # Clear query parameters immediately to prevent infinite reload loops
         st.query_params.clear()
         
@@ -712,12 +732,12 @@ def require_login():
         if supabase_url and anon_key:
             try:
                 import httpx
-                logger.info("[AUTH] Detected OAuth callback code. Exchanging via direct HTTP POST (no PKCE)...")
+                logger.info("[AUTH] Detected OAuth callback code. Exchanging via direct HTTP POST with state verifier...")
                 token_url = f"{supabase_url}/auth/v1/token"
                 resp = httpx.post(
                     token_url,
                     params={"grant_type": "pkce"},
-                    json={"auth_code": code, "code_verifier": ""},
+                    json={"auth_code": code, "code_verifier": verifier},
                     headers={
                         "apikey": anon_key,
                         "Content-Type": "application/json",
