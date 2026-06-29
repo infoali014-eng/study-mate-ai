@@ -384,12 +384,13 @@ def get_redirect_url() -> str:
     # Priority 3: Auto-detect from request headers (works on Streamlit Cloud)
     if not url:
         try:
-            host = st.context.headers.get("host", "")
+            headers = {k.lower(): v for k, v in st.context.headers.items()}
+            host = headers.get("x-forwarded-host") or headers.get("host")
             if host and "localhost" not in host and "127.0.0.1" not in host:
                 url = f"https://{host}/"
                 source = "auto_detect_headers"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"[AUTH] Failed auto-detecting host from headers: {e}")
 
     # Priority 4: Fallback to localhost (local development only)
     if not url:
