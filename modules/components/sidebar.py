@@ -323,7 +323,7 @@ def sidebar_nav():
         const mapping = {js_mapping_json};
         function applyIcons() {{
             try {{
-                const summaries = window.parent.document.querySelectorAll('div[data-testid="stSidebar"] [data-testid="stExpander"] summary');
+                const summaries = window.parent.document.querySelectorAll('div[data-testid="stSidebar"] details summary');
                 summaries.forEach(summary => {{
                     const text = summary.textContent.replace(/[▶▼]/g, "").trim().toLowerCase();
                     if (mapping[text]) {{

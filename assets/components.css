@@ -756,22 +756,20 @@ div[data-testid="stTable"] td {
 }
 
 /* ── Sidebar Collapsible Categories ────────────────────────────────────────── */
-div[data-testid="stSidebar"] [data-testid="stExpander"] {
+div[data-testid="stSidebar"] details,
+div[data-testid="stSidebar"] [data-testid="stExpander"],
+div[data-testid="stSidebar"] .stExpander,
+div[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has(details) {
     background: transparent !important;
+    background-color: transparent !important;
     border: none !important;
+    border-width: 0 !important;
     box-shadow: none !important;
     margin-bottom: 2px !important;
     padding: 0 !important;
 }
 
-div[data-testid="stSidebar"] [data-testid="stExpander"] details {
-    border: none !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-}
-
-div[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+div[data-testid="stSidebar"] details summary {
     padding: 6px 12px !important;
     border-radius: var(--radius-md) !important;
     font-size: 0.75rem !important;
@@ -784,13 +782,13 @@ div[data-testid="stSidebar"] [data-testid="stExpander"] summary {
     border: none !important;
 }
 
-div[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
+div[data-testid="stSidebar"] details summary:hover {
     background: var(--color-surface) !important;
     color: var(--color-text) !important;
 }
 
 /* Custom layout for nested items inside expanded categories */
-div[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] {
+div[data-testid="stSidebar"] details [data-testid="stVerticalBlock"] {
     padding-left: 14px !important;
     border-left: 1.5px solid var(--color-border) !important;
     margin-left: 20px !important;
@@ -799,20 +797,20 @@ div[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVertical
     margin-bottom: 8px !important;
 }
 
-div[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] a {
+div[data-testid="stSidebar"] details [data-testid="stVerticalBlock"] a {
     padding: 4px 8px !important;
     font-size: 0.8125rem !important;
     border-radius: var(--radius-md) !important;
     color: var(--color-text-secondary) !important;
 }
 
-div[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] a[aria-current="page"] {
+div[data-testid="stSidebar"] details [data-testid="stVerticalBlock"] a[aria-current="page"] {
     background: var(--color-primary-muted) !important;
     color: var(--color-primary-dark) !important;
     border-color: var(--color-primary-light) !important;
 }
 
-div[data-testid="stSidebar"] [data-testid="stExpander"] hr {
+div[data-testid="stSidebar"] details hr {
     margin: 6px 0 !important;
     opacity: 0.5;
 }
