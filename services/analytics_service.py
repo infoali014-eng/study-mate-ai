@@ -77,7 +77,7 @@ class AnalyticsService:
             # Fetch uploaded notes files
             files_resp = client.table("uploaded_files").select("*").eq("owner_id", user_id).execute()
             all_files = files_resp.data or []
-            file_map = {f["id"]: f["file_name"] for f in all_files}
+            file_map = {f["id"]: f["original_filename"] for f in all_files}
 
             # Fetch study library items
             lib_resp = client.table("study_library").select("*").eq("owner_id", user_id).execute()
