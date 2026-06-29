@@ -36,10 +36,10 @@ def dispatch_event(event_type: str, owner_id: str, data: Dict[str, Any]):
 
 def _handle_default_system_events(event_type: str, owner_id: str, data: Dict[str, Any]):
     """Execute built-in calculations for streaks, weak topics, and achievements."""
-    from modules.analytics_repository import recalculate_profile_stats, check_achievements
+    from modules.analytics_repository import AnalyticsRepository
     
     # Recalculate overall profile cached stats (streaks, accuracy, retention)
-    recalculate_profile_stats(owner_id, event_type, data)
+    AnalyticsRepository.recalculate_profile_stats(owner_id, event_type, data)
     
     # Check for unlocked achievements
-    check_achievements(owner_id, event_type, data)
+    AnalyticsRepository.check_achievements(owner_id, event_type, data)
