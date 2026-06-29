@@ -204,31 +204,17 @@ def sidebar_nav():
             for label, page, icon_name in items:
                 material_icon = f":material/{MATERIAL_ICON_MAP.get(icon_name, 'file_text')}:"
                 
-                # Check for coming soon badges on Analytics sub-elements
-                if category == "Analytics" and label != "Dashboard Analytics":
-                    try:
-                        st.page_link("pages/1_Dashboard.py", label=f" {label}", icon=material_icon, disabled=True)
-                    except Exception:
-                        st.markdown(
-                            f'<div class="sm-nav-link" style="opacity:0.5; cursor:not-allowed; display:flex; align-items:center; gap:8px; padding:6px 12px;">'
-                            f'<span class="sm-nav-icon">{icon(icon_name, size=18, color="#6B7280")}</span>'
-                            f'<span class="sm-nav-label">{label}</span>'
-                            f'<span style="background:var(--color-border); font-size:0.625rem; padding:1px 4px; border-radius:3px; font-weight:600; color:var(--color-text-secondary); margin-left:auto;">SOON</span>'
-                            f'</div>',
-                            unsafe_allow_html=True
-                        )
-                else:
-                    try:
-                        st.page_link(page, label=f" {label}", icon=material_icon)
-                    except Exception:
-                        url = _page_url_from_path(page)
-                        st.markdown(
-                            f'<a class="sm-nav-link" href="{url}">'
-                            f'<span class="sm-nav-icon">{icon(icon_name, size=18, color="currentColor")}</span>'
-                            f'<span class="sm-nav-label">{_html.escape(label)}</span>'
-                            f'</a>',
-                            unsafe_allow_html=True,
-                        )
+                try:
+                    st.page_link(page, label=f" {label}", icon=material_icon)
+                except Exception:
+                    url = _page_url_from_path(page)
+                    st.markdown(
+                        f'<a class="sm-nav-link" href="{url}">'
+                        f'<span class="sm-nav-icon">{icon(icon_name, size=18, color="currentColor")}</span>'
+                        f'<span class="sm-nav-label">{_html.escape(label)}</span>'
+                        f'</a>',
+                        unsafe_allow_html=True,
+                    )
 
             # Logout button rendered inside the Account section
             if category == "Account" and st.session_state.get("user_id"):
