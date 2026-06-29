@@ -22,16 +22,12 @@ NAVIGATION = {
         ("Study Groups",     "pages/14_Study_Groups.py",     "users"),
     ],
     "Analytics": [
-        ("Dashboard Analytics", "pages/1_Dashboard.py",      "bar-chart-2"),
-        ("Performance",       "pages/1_Dashboard.py",      "bar-chart-2"),
-        ("Weak Topics",       "pages/1_Dashboard.py",      "bar-chart-2"),
-        ("Learning Progress", "pages/1_Dashboard.py",      "bar-chart-2"),
-        ("Achievements",      "pages/1_Dashboard.py",      "award"),
+        ("Analytics",        "pages/10_Analytics.py",         "bar-chart-2"),
     ],
     "Account": [
         ("Profile",          "pages/Profile.py",             "user"),
         ("AI Settings",      "pages/8_AI_Settings.py",       "settings"),
-        ("About",            "pages/10_About.py",            "info"),
+        ("About",            "pages/16_About.py",            "info"),
     ]
 }
 
@@ -48,7 +44,8 @@ NAV_ITEMS = [
     ("Pomodoro Timer",   "pages/9_Pomodoro_Timer.py",    "timer"),
     ("AI Settings",      "pages/8_AI_Settings.py",       "settings"),
     ("Profile",          "pages/Profile.py",             "user"),
-    ("About",            "pages/10_About.py",            "info"),
+    ("About",            "pages/16_About.py",            "info"),
+    ("Analytics",        "pages/10_Analytics.py",        "bar-chart-2"),
 ]
 
 ADMIN_NAV_ITEMS = [
@@ -86,9 +83,10 @@ PAGE_PARENTS = {
     "pages/6_Revision_Planner.py": "Learning",
     "pages/9_Pomodoro_Timer.py": "Learning",
     "pages/14_Study_Groups.py": "Community",
+    "pages/10_Analytics.py": "Analytics",
     "pages/Profile.py": "Account",
     "pages/8_AI_Settings.py": "Account",
-    "pages/10_About.py": "Account",
+    "pages/16_About.py": "Account",
 }
 
 
