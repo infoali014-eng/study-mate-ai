@@ -703,6 +703,9 @@ def require_login():
     # Handle Supabase OAuth PKCE callback code
     if "code" in st.query_params:
         code = st.query_params["code"]
+        # Clear query parameters immediately to prevent infinite reload/exchange error loops
+        st.query_params.clear()
+        
         from modules.supabase_client import get_supabase_client
         client = get_supabase_client()
         if client:
@@ -716,7 +719,6 @@ def require_login():
                     logger.warning("[AUTH] No code verifier found in cookie storage.")
 
                 res = client.auth.exchange_code_for_session({ "auth_code": code })
-                st.query_params.clear()
                 _clear_code_verifier_cookie()
                 
                 user = res.user
