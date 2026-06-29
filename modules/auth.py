@@ -679,7 +679,7 @@ def require_login():
                         st.rerun()
             except Exception as e:
                 logger.error(f"[AUTH] Failed to exchange code for session: {e}")
-                st.error("Authentication failed. Please try again.")
+                st.error(f"Authentication failed: {e}")
 
     _restore_login_from_cookie()
 
