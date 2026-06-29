@@ -464,9 +464,6 @@ def _login_form():
         st.write(f"**OAuth Redirect URL:** `{get_redirect_url()}`")
         st.divider()
 
-    _google_login_button(key="google_login_from_login_tab")
-    st.divider()
-
     with st.form("login_form"):
         email = st.text_input("Email", placeholder="you@example.com")
         password = st.text_input("Password", type="password")
@@ -476,32 +473,33 @@ def _login_form():
             use_container_width=True,
         )
 
-    if not submitted:
-        return
+    if submitted:
+        if _login_is_rate_limited():
+            st.warning("Too many failed attempts. Please wait a moment and try again.")
+            return
 
-    if _login_is_rate_limited():
-        st.warning("Too many failed attempts. Please wait a moment and try again.")
-        return
+        clean_email, email_error = validate_email(email)
+        if email_error:
+            _record_failed_login()
+            st.error("Invalid email or password.")
+            return
 
-    clean_email, email_error = validate_email(email)
-    if email_error:
-        _record_failed_login()
-        st.error("Invalid email or password.")
-        return
+        if not password:
+            _record_failed_login()
+            st.error("Invalid email or password.")
+            return
 
-    if not password:
-        _record_failed_login()
-        st.error("Invalid email or password.")
-        return
+        user = verify_user_login(clean_email, password, verify_password, hash_password)
+        if not user:
+            _record_failed_login()
+            st.error("Invalid email or password.")
+            return
 
-    user = verify_user_login(clean_email, password, verify_password, hash_password)
-    if not user:
-        _record_failed_login()
-        st.error("Invalid email or password.")
-        return
+        login_user(user, message=f"Welcome back, {user['name']}!")
+        st.rerun()
 
-    login_user(user, message=f"Welcome back, {user['name']}!")
-    st.rerun()
+    st.markdown('<div style="text-align: center; margin: 16px 0; color: var(--color-text-secondary); font-size: 0.8rem; font-weight: 500;">─ OR ─</div>', unsafe_allow_html=True)
+    _google_login_button(key="google_login_from_login_tab")
 
 
 def _signup_form():
@@ -509,9 +507,6 @@ def _signup_form():
     if str(get_app_setting("enable_public_signup", "true")).lower() != "true":
         st.info("Public signup is currently disabled.")
         return
-
-    _google_login_button(key="google_login_from_signup_tab")
-    st.divider()
 
     with st.form("signup_form"):
         full_name = st.text_input("Full name", placeholder="Your full name")
@@ -524,48 +519,49 @@ def _signup_form():
             use_container_width=True,
         )
 
-    if not submitted:
-        return
+    if submitted:
+        clean_name, name_error = validate_full_name(full_name)
+        clean_email, email_error = validate_email(email)
+        password_error = validate_password(password)
 
-    clean_name, name_error = validate_full_name(full_name)
-    clean_email, email_error = validate_email(email)
-    password_error = validate_password(password)
+        if name_error:
+            st.warning(name_error)
+            return
+        if email_error:
+            st.warning(email_error)
+            return
+        if password_error:
+            st.warning(password_error)
+            return
+        if password != confirm_password:
+            st.warning("Passwords do not match.")
+            return
 
-    if name_error:
-        st.warning(name_error)
-        return
-    if email_error:
-        st.warning(email_error)
-        return
-    if password_error:
-        st.warning(password_error)
-        return
-    if password != confirm_password:
-        st.warning("Passwords do not match.")
-        return
+        if get_user_by_email(clean_email):
+            st.warning("An account with this email already exists. Please log in.")
+            return
 
-    if get_user_by_email(clean_email):
-        st.warning("An account with this email already exists. Please log in.")
-        return
+        password_hash = hash_password(password)
+        user_id = create_user(
+            name=clean_name,
+            email=clean_email,
+            password_hash=password_hash,
+            auth_provider="email",
+        )
+        if not user_id:
+            st.error("Could not create this account. Please try again.")
+            return
 
-    password_hash = hash_password(password)
-    user_id = create_user(
-        name=clean_name,
-        email=clean_email,
-        password_hash=password_hash,
-        auth_provider="email",
-    )
-    if not user_id:
-        st.error("Could not create this account. Please try again.")
-        return
+        user = get_user_by_email(clean_email)
+        if not user:
+            st.error("Account created, but login could not start. Please log in.")
+            return
 
-    user = get_user_by_email(clean_email)
-    if not user:
-        st.error("Account created, but login could not start. Please log in.")
-        return
+        login_user(user, message=f"Account created successfully. Welcome, {clean_name}!")
+        st.rerun()
 
-    login_user(user, message=f"Account created successfully. Welcome, {clean_name}!")
-    st.rerun()
+    st.markdown('<div style="text-align: center; margin: 16px 0; color: var(--color-text-secondary); font-size: 0.8rem; font-weight: 500;">─ OR ─</div>', unsafe_allow_html=True)
+    _google_login_button(key="google_login_from_signup_tab")
 
 
 def render_auth_screen():
