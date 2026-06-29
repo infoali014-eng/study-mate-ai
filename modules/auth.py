@@ -381,7 +381,17 @@ def get_redirect_url() -> str:
         if url:
             source = "env_variables"
 
-    # Priority 3: Fallback to localhost
+    # Priority 3: Auto-detect from request headers (works on Streamlit Cloud)
+    if not url:
+        try:
+            host = st.context.headers.get("host", "")
+            if host and "localhost" not in host and "127.0.0.1" not in host:
+                url = f"https://{host}/"
+                source = "auto_detect_headers"
+        except Exception:
+            pass
+
+    # Priority 4: Fallback to localhost (local development only)
     if not url:
         url = "http://localhost:8501/"
         source = "fallback_localhost"
@@ -389,17 +399,9 @@ def get_redirect_url() -> str:
     if not url.endswith("/"):
         url += "/"
 
-    # Detect if running on Streamlit Cloud
-    is_streamlit_cloud = bool(
-        os.getenv("STREAMLIT_SHARING_ENVIRONMENT") 
-        or os.getenv("STREAMLIT_SERVER_PORT") is None
-    )
-    env_type = "Streamlit Cloud" if is_streamlit_cloud else "Local Development"
-
     logger.info(
-        f"[AUTH] OAuth Redirect URL determined: {url} | "
+        f"[AUTH] OAuth Redirect URL: {url} | "
         f"Source: {source} | "
-        f"Environment: {env_type} | "
         f"Provider: google"
     )
     return url
